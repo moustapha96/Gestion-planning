@@ -1,0 +1,211 @@
+const express = require('express');
+const path = require('path');
+const fs = require('fs');
+const multer = require('multer');
+const { isPrivilegedAdmin, ROLES } = require('../config/roles');
+
+const router = express.Router();
+
+const ALLOWED_ROLES = ['ADMIN', 'SUPER_ADMIN', 'DG'];
+const PROJECT_STATUSES = ['ACTIVE', 'PAUSED', 'COMPLETED'];
+const uploadsDir = path.join(__dirname, '../../uploads/project-files');
+
+const uploadProjectFile = multer({
+    storage: multer.diskStorage({
+        destination(_req, _file, cb) {
+            fs.mkdirSync(uploadsDir, { recursive: true });
+            cb(null, uploadsDir);
+        },
+        filename(req, file, cb) {
+            const ext = (path.extname(file.originalname) || '').toLowerCase().slice(0, 10) || '.bin';
+            cb(null, `${req.params.id}_${Date.now()}${ext}`);
+        },
+    }),
+    limits: { fileSize: 20 * 1024 * 1024 },
+});
+
+function canManageProject(project, user) {
+    return Boolean(project && user && (isPrivilegedAdmin(user.role) || project.createdById === user.id || user.role === ROLES.RESPONSABLE));
+}
+
+function canAddProjectFile(project, user) {
+    if (!project || !user) return false;
+    if (project.status === 'COMPLETED') return false;
+    return isPrivilegedAdmin(user.role) || project.createdById === user.id || user.role === ROLES.RESPONSABLE;
+}
+
+router.get('/', async (req, res) => {
+    try {
+        const { active, status } = req.query;
+        const where = {};
+        if (active !== undefined) where.isActive = active === 'true';
+        if (status && PROJECT_STATUSES.includes(String(status).toUpperCase())) where.status = String(status).toUpperCase();
+
+        const projects = await req.prisma.project.findMany({
+            where,
+            include: {
+                createdBy: { select: { id: true, name: true, email: true } },
+                _count: { select: { missions: true, meetings: true, planningEvents: true, files: true } },
+            },
+            orderBy: { name: 'asc' },
+        });
+        res.json(projects);
+    } catch (err) {
+        res.status(500).json({ error: 'Erreur serveur' });
+    }
+});
+
+router.get('/:id', async (req, res) => {
+    try {
+        const project = await req.prisma.project.findUnique({
+            where: { id: req.params.id },
+            include: {
+                createdBy: { select: { id: true, name: true, email: true } },
+                missions: {
+                    select: { id: true, title: true, status: true, startTime: true, endTime: true },
+                    orderBy: { startTime: 'desc' },
+                    take: 20,
+                },
+                meetings: {
+                    select: { id: true, title: true, startTime: true, endTime: true, status: true },
+                    orderBy: { startTime: 'desc' },
+                    take: 20,
+                },
+                files: {
+                    include: { uploadedBy: { select: { id: true, name: true, email: true } } },
+                    orderBy: { createdAt: 'desc' },
+                    take: 200,
+                },
+                _count: { select: { missions: true, meetings: true, planningEvents: true, files: true } },
+            },
+        });
+        if (!project) return res.status(404).json({ error: 'Projet introuvable' });
+        res.json(project);
+    } catch (err) {
+        res.status(500).json({ error: 'Erreur serveur' });
+    }
+});
+
+router.post('/', async (req, res) => {
+    if (!ALLOWED_ROLES.includes(req.user?.role)) return res.status(403).json({ error: 'Accès refusé' });
+    const { name, code, description } = req.body;
+    if (!name?.trim()) return res.status(400).json({ error: 'Le nom est requis' });
+    try {
+        const project = await req.prisma.project.create({
+            data: {
+                name: name.trim(),
+                code: code?.trim() || null,
+                description: description?.trim() || null,
+                status: 'ACTIVE',
+                isActive: true,
+                createdById: req.user?.id || null,
+            },
+        });
+        res.status(201).json(project);
+    } catch (err) {
+        if (err.code === 'P2002') return res.status(409).json({ error: 'Un projet avec ce nom existe déjà' });
+        res.status(500).json({ error: 'Erreur serveur' });
+    }
+});
+
+router.put('/:id', async (req, res) => {
+    const project = await req.prisma.project.findUnique({ where: { id: req.params.id } });
+    if (!project) return res.status(404).json({ error: 'Projet introuvable' });
+    if (!canManageProject(project, req.user)) return res.status(403).json({ error: 'Accès refusé' });
+
+    const { name, code, description, isActive } = req.body;
+    const data = {};
+    if (name !== undefined) data.name = String(name || '').trim();
+    if (code !== undefined) data.code = code?.trim() || null;
+    if (description !== undefined) data.description = description?.trim() || null;
+    if (isActive !== undefined) data.isActive = Boolean(isActive);
+
+    try {
+        const updated = await req.prisma.project.update({ where: { id: req.params.id }, data });
+        res.json(updated);
+    } catch (err) {
+        if (err.code === 'P2002') return res.status(409).json({ error: 'Un projet avec ce nom existe déjà' });
+        res.status(500).json({ error: 'Erreur serveur' });
+    }
+});
+
+router.put('/:id/status', async (req, res) => {
+    const project = await req.prisma.project.findUnique({ where: { id: req.params.id } });
+    if (!project) return res.status(404).json({ error: 'Projet introuvable' });
+    if (!canManageProject(project, req.user)) return res.status(403).json({ error: 'Accès refusé' });
+
+    const status = String(req.body?.status || '').toUpperCase();
+    if (!PROJECT_STATUSES.includes(status)) {
+        return res.status(400).json({ error: 'Statut invalide (ACTIVE|PAUSED|COMPLETED).' });
+    }
+    const updated = await req.prisma.project.update({
+        where: { id: project.id },
+        data: {
+            status,
+            isActive: status === 'ACTIVE',
+        },
+    });
+    return res.json(updated);
+});
+
+router.post('/:id/files', uploadProjectFile.single('file'), async (req, res) => {
+    try {
+        if (!req.file) return res.status(400).json({ error: 'Aucun fichier envoyé.' });
+        const project = await req.prisma.project.findUnique({ where: { id: req.params.id } });
+        if (!project) return res.status(404).json({ error: 'Projet introuvable' });
+        if (!canAddProjectFile(project, req.user)) {
+            return res.status(403).json({ error: 'Seul le créateur, un admin ou un responsable peut ajouter des fichiers tant que le projet n’est pas terminé.' });
+        }
+        const saved = await req.prisma.projectFile.create({
+            data: {
+                projectId: project.id,
+                uploadedById: req.user.id,
+                fileName: req.file.originalname || req.file.filename,
+                fileUrl: `/uploads/project-files/${req.file.filename}`,
+                mimeType: req.file.mimetype || null,
+                size: req.file.size || null,
+            },
+            include: { uploadedBy: { select: { id: true, name: true, email: true } } },
+        });
+        return res.status(201).json(saved);
+    } catch (err) {
+        return res.status(400).json({ error: err.message || 'Erreur ajout fichier' });
+    }
+});
+
+router.delete('/:id/files/:fileId', async (req, res) => {
+    try {
+        const file = await req.prisma.projectFile.findUnique({
+            where: { id: req.params.fileId },
+            include: { project: true },
+        });
+        if (!file || file.projectId !== req.params.id) return res.status(404).json({ error: 'Fichier introuvable' });
+        if (!canAddProjectFile(file.project, req.user)) {
+            return res.status(403).json({ error: 'Suppression non autorisée pour ce projet.' });
+        }
+        await req.prisma.projectFile.delete({ where: { id: file.id } });
+        const localPath = path.join(uploadsDir, path.basename(file.fileUrl || ''));
+        try { if (fs.existsSync(localPath)) fs.unlinkSync(localPath); } catch {}
+        return res.json({ success: true });
+    } catch (err) {
+        return res.status(400).json({ error: err.message || 'Erreur suppression fichier' });
+    }
+});
+
+router.delete('/:id', async (req, res) => {
+    if (!ALLOWED_ROLES.includes(req.user?.role)) return res.status(403).json({ error: 'Accès refusé' });
+    try {
+        await req.prisma.$transaction([
+            req.prisma.mission.updateMany({ where: { projectId: req.params.id }, data: { projectId: null } }),
+            req.prisma.meeting.updateMany({ where: { projectId: req.params.id }, data: { projectId: null } }),
+            req.prisma.planningEvent.updateMany({ where: { projectId: req.params.id }, data: { projectId: null } }),
+            req.prisma.project.delete({ where: { id: req.params.id } }),
+        ]);
+        res.json({ success: true });
+    } catch (err) {
+        if (err.code === 'P2025') return res.status(404).json({ error: 'Projet introuvable' });
+        res.status(500).json({ error: 'Erreur serveur' });
+    }
+});
+
+module.exports = router;

@@ -1,0 +1,31 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 180 180">
+  <defs>
+    <linearGradient id="bg" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#1A365D"/>
+      <stop offset="100%" stop-color="#1e4d8c"/>
+    </linearGradient>
+    <linearGradient id="ag" x1="0%" y1="100%" x2="100%" y2="0%">
+      <stop offset="0%" stop-color="#38A169"/>
+      <stop offset="100%" stop-color="#68D391"/>
+    </linearGradient>
+    <clipPath id="c">
+      <path d="M90,18 C58,18 34,42 34,68 C34,108 90,162 90,162 C90,162 146,108 146,68 C146,42 122,18 90,18 Z"/>
+    </clipPath>
+  </defs>
+  <!-- Solid white background (Apple requires solid bg) -->
+  <rect width="180" height="180" fill="white"/>
+  <path d="M90,12 C54,12 26,40 26,68 C26,112 90,172 90,172 C90,172 154,112 154,68 C154,40 126,12 90,12 Z"
+        fill="none" stroke="url(#bg)" stroke-width="8"/>
+  <path d="M36,68 A54,54 0 0,1 90,14" fill="none" stroke="#1A365D" stroke-width="7"
+        stroke-linecap="round" opacity="0.45"/>
+  <g clip-path="url(#c)">
+    <rect x="34" y="115" width="16" height="50" rx="3" fill="#1A365D" opacity="0.85"/>
+    <rect x="54" y="100" width="16" height="65" rx="3" fill="#1A365D" opacity="0.85"/>
+    <rect x="74" y="82"  width="16" height="83" rx="3" fill="#1A365D" opacity="0.85"/>
+    <rect x="94" y="62"  width="16" height="103" rx="3" fill="#1A365D" opacity="0.85"/>
+    <rect x="114" y="40" width="16" height="125" rx="3" fill="#1A365D" opacity="0.85"/>
+    <line x1="32" y1="132" x2="138" y2="28" stroke="url(#ag)" stroke-width="11"
+          stroke-linecap="round"/>
+    <polygon points="138,28 110,34 126,56" fill="#48BB78"/>
+  </g>
+</svg>

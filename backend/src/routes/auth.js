@@ -1,0 +1,653 @@
+const express = require('express');
+const path = require('path');
+const fs = require('fs');
+const jwt = require('jsonwebtoken');
+const bcrypt = require('bcryptjs');
+const multer = require('multer');
+const { z } = require('zod');
+const { notificationService } = require('../services/notification.service');
+const { logger, auditLogger } = require('../utils/logger');
+const authMiddleware = require('../middlewares/auth.middleware');
+const { validatePasswordStrength } = require('../utils/passwordUtils');
+
+const router = express.Router();
+
+const avatarsDir = path.join(__dirname, '../../uploads/avatars');
+const uploadAvatar = multer({
+    storage: multer.diskStorage({
+        destination(_req, _file, cb) {
+            fs.mkdirSync(avatarsDir, { recursive: true });
+            cb(null, avatarsDir);
+        },
+        filename(req, file, cb) {
+            const ext = (path.extname(file.originalname) || '.jpg').toLowerCase();
+            cb(null, `${req.user.id}${ext}`);
+        },
+    }),
+    limits: { fileSize: 5 * 1024 * 1024 },
+    fileFilter(_req, file, cb) {
+        const allowed = /\.(jpe?g|png|gif|webp)$/i.test(file.originalname);
+        cb(null, !!allowed);
+    },
+});
+
+/** Parse expiry string (e.g. '7d', '24h', '15m') to milliseconds */
+function parseExpiryToMs(expiry) {
+    if (!expiry || typeof expiry !== 'string') return 7 * 24 * 60 * 60 * 1000;
+    const match = expiry.trim().match(/^(\d+)(d|h|m|s)$/i);
+    if (!match) return 7 * 24 * 60 * 60 * 1000;
+    const [, n, unit] = match;
+    const num = parseInt(n, 10);
+    const multipliers = { d: 86400000, h: 3600000, m: 60000, s: 1000 };
+    return num * (multipliers[unit.toLowerCase()] || 86400000);
+}
+
+const loginSchema = z.object({
+    email: z.string().email(),
+    password: z.string().min(6),
+});
+
+/**
+ * @swagger
+ * tags:
+ *   name: Auth
+ *   description: Authentification et gestion des tokens
+ */
+
+/**
+ * @swagger
+ * /api/auth/login:
+ *   post:
+ *     summary: Se connecter (retourne accessToken + refreshToken + user)
+ *     tags: [Auth]
+ *     security: []
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             required: [email, password]
+ *             properties:
+ *               email:
+ *                 type: string
+ *                 format: email
+ *               password:
+ *                 type: string
+ *     responses:
+ *       200:
+ *         description: Connexion réussie
+ *       401:
+ *         description: Identifiants incorrects
+ *       403:
+ *         description: Compte désactivé
+ */
+router.post('/login', async (req, res) => {
+    try {
+        const { email, password } = loginSchema.parse(req.body);
+
+        const user = await req.prisma.user.findUnique({ where: { email } });
+
+        if (!user || !(await bcrypt.compare(password, user.passwordHash))) {
+            logger.warn('LOGIN_FAILED', `Tentative échouée pour ${email}`, { email, ip: req.ip });
+            return res.status(401).json({ error: 'Email ou mot de passe incorrect' });
+        }
+
+        if (!user.isActive) {
+            logger.warn('LOGIN_DISABLED', `Compte désactivé : ${email}`, { email });
+            return res.status(403).json({ error: 'Compte désactivé. Contactez votre administrateur.' });
+        }
+
+        // Vérifier si la 2FA est requise
+        if (user.twoFactorEnabled && user.twoFactorSecret) {
+            const globalSetting = await req.prisma.appSetting.findUnique({ where: { key: '2fa_enabled' } });
+            if (globalSetting?.value === 'true') {
+                // Émettre un token temporaire (5 min) pour l'étape 2FA
+                const tempToken = jwt.sign(
+                    { id: user.id, purpose: '2fa_challenge' },
+                    process.env.JWT_SECRET,
+                    { expiresIn: '5m' }
+                );
+                logger.info('2FA_CHALLENGE', `Challenge 2FA émis pour ${email}`, { userId: user.id });
+                return res.json({ twoFactorRequired: true, tempToken });
+            }
+        }
+
+        const accessToken = jwt.sign(
+            { id: user.id, email: user.email, role: user.role },
+            process.env.JWT_SECRET,
+            { expiresIn: process.env.JWT_EXPIRY || '15m' }
+        );
+
+        const refreshToken = jwt.sign(
+            { id: user.id },
+            process.env.JWT_SECRET,
+            { expiresIn: process.env.JWT_REFRESH_EXPIRY || '7d' }
+        );
+
+        const refreshExpiryMs = parseExpiryToMs(process.env.JWT_REFRESH_EXPIRY);
+        await req.prisma.refreshToken.create({
+            data: {
+                userId: user.id,
+                token: refreshToken,
+                expiresAt: new Date(Date.now() + refreshExpiryMs),
+            },
+        });
+
+        logger.logAuth('LOGIN', email, true);
+        auditLogger.info('LOGIN', `Connexion de ${email}`, { userId: user.id, email, ip: req.ip });
+
+        res.json({
+            accessToken,
+            refreshToken,
+            user: { id: user.id, name: user.name, email: user.email, role: user.role, avatarUrl: user.avatarUrl },
+        });
+
+        req.prisma.auditLog.create({
+            data: {
+                userId: user.id,
+                action: 'LOGIN',
+                entity: 'User',
+                entityId: user.id,
+                ipAddress: req.ip,
+                details: `Connexion de ${email}`,
+            },
+        }).catch(() => {});
+    } catch (error) {
+        logger.error('LOGIN_ERROR', 'Erreur login', { error: error.message });
+        res.status(400).json({ error: error.message });
+    }
+});
+
+/**
+ * POST /api/auth/2fa-login
+ * Étape 2 de la connexion : valider le code TOTP avec le tempToken
+ */
+router.post('/2fa-login', async (req, res) => {
+    try {
+        const speakeasy = require('speakeasy');
+        const { tempToken, code } = req.body || {};
+        if (!tempToken || !code) {
+            return res.status(400).json({ error: 'tempToken et code requis.' });
+        }
+
+        let payload;
+        try {
+            payload = jwt.verify(tempToken, process.env.JWT_SECRET);
+        } catch {
+            return res.status(401).json({ error: 'Token expiré. Reconnectez-vous.' });
+        }
+        if (payload.purpose !== '2fa_challenge') {
+            return res.status(401).json({ error: 'Token invalide.' });
+        }
+
+        const user = await req.prisma.user.findUnique({ where: { id: payload.id } });
+        if (!user || !user.isActive || !user.twoFactorEnabled || !user.twoFactorSecret) {
+            return res.status(401).json({ error: '2FA non configurée.' });
+        }
+
+        const valid = speakeasy.totp.verify({
+            secret: user.twoFactorSecret,
+            encoding: 'base32',
+            token: String(code).trim(),
+            window: 1,
+        });
+        if (!valid) {
+            logger.warn('2FA_LOGIN_FAILED', `Code invalide pour ${user.email}`, { userId: user.id });
+            return res.status(401).json({ error: 'Code invalide. Vérifiez votre application d\'authentification.' });
+        }
+
+        const accessToken = jwt.sign(
+            { id: user.id, email: user.email, role: user.role },
+            process.env.JWT_SECRET,
+            { expiresIn: process.env.JWT_EXPIRY || '15m' }
+        );
+        const refreshToken = jwt.sign(
+            { id: user.id },
+            process.env.JWT_SECRET,
+            { expiresIn: process.env.JWT_REFRESH_EXPIRY || '7d' }
+        );
+        const refreshExpiryMs = parseExpiryToMs(process.env.JWT_REFRESH_EXPIRY);
+        await req.prisma.refreshToken.create({
+            data: { userId: user.id, token: refreshToken, expiresAt: new Date(Date.now() + refreshExpiryMs) },
+        });
+
+        logger.logAuth('LOGIN_2FA', user.email, true);
+        res.json({
+            accessToken,
+            refreshToken,
+            user: { id: user.id, name: user.name, email: user.email, role: user.role, avatarUrl: user.avatarUrl },
+        });
+    } catch (error) {
+        logger.error('2FA_LOGIN', error.message);
+        res.status(500).json({ error: error.message });
+    }
+});
+
+/**
+ * @swagger
+ * /api/auth/refresh:
+ *   post:
+ *     summary: Rafraîchir le token d'accès
+ *     tags: [Auth]
+ *     security: []
+ */
+router.post('/refresh', async (req, res) => {
+    try {
+        const { refreshToken } = req.body;
+        if (!refreshToken) {
+            return res.status(401).json({ error: 'No refresh token' });
+        }
+
+        const decoded = jwt.verify(refreshToken, process.env.JWT_SECRET);
+        const storedToken = await req.prisma.refreshToken.findUnique({ where: { token: refreshToken } });
+
+        if (!storedToken || storedToken.isRevoked) {
+            return res.status(401).json({ error: 'Token révoqué ou invalide' });
+        }
+
+        if (new Date() > new Date(storedToken.expiresAt)) {
+            await req.prisma.refreshToken.update({
+                where: { id: storedToken.id },
+                data: { isRevoked: true },
+            }).catch(() => {});
+            return res.status(401).json({ error: 'Refresh token expiré' });
+        }
+
+        const user = await req.prisma.user.findUnique({ where: { id: decoded.id } });
+        if (!user || !user.isActive) {
+            return res.status(401).json({ error: 'Compte invalide' });
+        }
+
+        const accessToken = jwt.sign(
+            { id: user.id, email: user.email, role: user.role },
+            process.env.JWT_SECRET,
+            { expiresIn: process.env.JWT_EXPIRY || '15m' }
+        );
+
+        res.json({ accessToken });
+    } catch (err) {
+        if (err.name === 'TokenExpiredError') {
+            return res.status(401).json({ error: 'Refresh token expiré' });
+        }
+        if (err.name === 'JsonWebTokenError') {
+            return res.status(401).json({ error: 'Token invalide' });
+        }
+        logger.warn('REFRESH_TOKEN_ERROR', err.message, {});
+        res.status(401).json({ error: 'Token invalide' });
+    }
+});
+
+/**
+ * @swagger
+ * /api/auth/logout:
+ *   post:
+ *     summary: Se déconnecter
+ *     tags: [Auth]
+ *     security: []
+ */
+router.post('/logout', async (req, res) => {
+    try {
+        const { refreshToken } = req.body;
+        if (refreshToken) {
+            await req.prisma.refreshToken.updateMany({
+                where: { token: refreshToken },
+                data: { isRevoked: true },
+            });
+        }
+        res.json({ success: true });
+    } catch (error) {
+        res.status(400).json({ error: error.message });
+    }
+});
+
+/**
+ * @swagger
+ * /api/auth/activate:
+ *   post:
+ *     summary: Activer un compte avec le token reçu par email
+ *     tags: [Auth]
+ *     security: []
+ *     requestBody:
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             properties:
+ *               token:
+ *                 type: string
+ *     responses:
+ *       200:
+ *         description: Compte activé
+ *       400:
+ *         description: Token invalide ou expiré
+ */
+router.post('/activate', async (req, res) => {
+    try {
+        const token = req.body?.token || req.query?.token;
+        if (!token) {
+            return res.status(400).json({ error: 'Token d\'activation requis' });
+        }
+
+        const decoded = jwt.verify(token, process.env.JWT_SECRET);
+        if (decoded.purpose !== 'account_activation') {
+            return res.status(400).json({ error: 'Token invalide' });
+        }
+
+        const user = await req.prisma.user.findUnique({ where: { id: decoded.id } });
+        if (!user) {
+            return res.status(400).json({ error: 'Utilisateur introuvable' });
+        }
+        if (user.isActive) {
+            return res.status(200).json({ success: true, message: 'Compte déjà activé. Vous pouvez vous connecter.' });
+        }
+
+        await req.prisma.user.update({
+            where: { id: user.id },
+            data: { isActive: true },
+        });
+
+        auditLogger.info('ACCOUNT_ACTIVATED', `Compte activé : ${user.email}`, { userId: user.id, ip: req.ip });
+        res.json({ success: true, message: 'Compte activé. Vous pouvez maintenant vous connecter.' });
+    } catch (err) {
+        if (err.name === 'TokenExpiredError') {
+            return res.status(400).json({ error: 'Lien d\'activation expiré. Demandez à l\'administrateur de renvoyer un email d\'activation.' });
+        }
+        if (err.name === 'JsonWebTokenError') {
+            return res.status(400).json({ error: 'Token d\'activation invalide' });
+        }
+        logger.warn('ACTIVATE_ACCOUNT_ERROR', err.message, {});
+        res.status(400).json({ error: 'Token invalide' });
+    }
+});
+
+/**
+ * @swagger
+ * /api/auth/me:
+ *   get:
+ *     summary: Profil de l'utilisateur connecté
+ *     tags: [Auth]
+ *     security:
+ *       - bearerAuth: []
+ */
+router.get('/me', authMiddleware, async (req, res) => {
+    try {
+        const user = await req.prisma.user.findUnique({
+            where: { id: req.user.id },
+            select: { id: true, name: true, email: true, role: true, isActive: true, avatarUrl: true, createdAt: true },
+        });
+        if (!user) return res.status(404).json({ error: 'Utilisateur non trouvé' });
+        res.json(user);
+    } catch (error) {
+        res.status(400).json({ error: error.message });
+    }
+});
+
+/**
+ * @swagger
+ * /api/auth/me/avatar:
+ *   post:
+ *     summary: Mettre à jour sa photo de profil
+ *     tags: [Auth]
+ *     security:
+ *       - bearerAuth: []
+ *     requestBody:
+ *       content:
+ *         multipart/form-data:
+ *           schema:
+ *             type: object
+ *             properties:
+ *               avatar:
+ *                 type: string
+ *                 format: binary
+ *     responses:
+ *       200:
+ *         description: Photo mise à jour (avatarUrl dans la réponse)
+ *       400:
+ *         description: Fichier invalide ou absent
+ */
+router.post('/me/avatar', authMiddleware, uploadAvatar.single('avatar'), async (req, res) => {
+    try {
+        if (!req.file) {
+            return res.status(400).json({ error: 'Aucun fichier envoyé. Utilisez le champ "avatar" (image JPG, PNG, GIF ou WebP, max 5 Mo).' });
+        }
+        const avatarUrl = `/uploads/avatars/${req.file.filename}`;
+        const updated = await req.prisma.user.update({
+            where: { id: req.user.id },
+            data: { avatarUrl },
+            select: { id: true, name: true, email: true, role: true, avatarUrl: true, updatedAt: true },
+        });
+        auditLogger.info('AVATAR_UPDATED', `Photo de profil mise à jour`, { userId: req.user.id });
+        res.json({ avatarUrl, user: updated });
+    } catch (error) {
+        logger.error('AVATAR_UPLOAD', error.message, { userId: req.user?.id });
+        res.status(400).json({ error: error.message });
+    }
+});
+
+/**
+ * @swagger
+ * /api/auth/me/avatar:
+ *   delete:
+ *     summary: Supprimer sa photo de profil
+ *     tags: [Auth]
+ *     security:
+ *       - bearerAuth: []
+ *     responses:
+ *       200:
+ *         description: Photo supprimée
+ */
+router.delete('/me/avatar', authMiddleware, async (req, res) => {
+    try {
+        const user = await req.prisma.user.findUnique({
+            where: { id: req.user.id },
+            select: { avatarUrl: true },
+        });
+        // Supprimer le fichier physique s'il existe
+        if (user?.avatarUrl) {
+            const filePath = path.join(__dirname, '../../', user.avatarUrl);
+            try { fs.unlinkSync(filePath); } catch (_) { /* fichier déjà absent */ }
+        }
+        const updated = await req.prisma.user.update({
+            where: { id: req.user.id },
+            data: { avatarUrl: null },
+            select: { id: true, name: true, email: true, role: true, avatarUrl: true, updatedAt: true },
+        });
+        auditLogger.info('AVATAR_DELETED', 'Photo de profil supprimée', { userId: req.user.id });
+        res.json({ avatarUrl: null, user: updated });
+    } catch (error) {
+        logger.error('AVATAR_DELETE', error.message, { userId: req.user?.id });
+        res.status(500).json({ error: 'Erreur lors de la suppression de la photo' });
+    }
+});
+
+/**
+ * @swagger
+ * /api/auth/change-password:
+ *   put:
+ *     summary: Changer son propre mot de passe
+ *     tags: [Auth]
+ *     security:
+ *       - bearerAuth: []
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             required: [currentPassword, newPassword]
+ *             properties:
+ *               currentPassword:
+ *                 type: string
+ *               newPassword:
+ *                 type: string
+ *                 minLength: 8
+ */
+router.put('/change-password', authMiddleware, async (req, res) => {
+    try {
+        const { currentPassword, newPassword } = req.body;
+
+        const strengthError = validatePasswordStrength(newPassword);
+        if (strengthError) return res.status(400).json({ error: strengthError });
+
+        const user = await req.prisma.user.findUnique({
+            where: { id: req.user.id },
+            include: { passwordHistory: { orderBy: { createdAt: 'desc' }, take: 3 } },
+        });
+
+        if (!(await bcrypt.compare(currentPassword, user.passwordHash))) {
+            return res.status(401).json({ error: 'Mot de passe actuel incorrect' });
+        }
+
+        // Vérifier historique 3 derniers mots de passe (CDC §3.1.2)
+        for (const old of user.passwordHistory) {
+            if (await bcrypt.compare(newPassword, old.passwordHash)) {
+                return res.status(400).json({ error: 'Impossible de réutiliser un des 3 derniers mots de passe.' });
+            }
+        }
+
+        const newHash = await bcrypt.hash(newPassword, 12);
+
+        await req.prisma.passwordHistory.create({ data: { userId: req.user.id, passwordHash: newHash } });
+        await req.prisma.user.update({ where: { id: req.user.id }, data: { passwordHash: newHash } });
+
+        // Révoquer tous les refresh tokens pour forcer la reconnexion
+        await req.prisma.refreshToken.updateMany({
+            where: { userId: req.user.id },
+            data: { isRevoked: true },
+        });
+
+        auditLogger.info('PASSWORD_CHANGED', `Mot de passe changé par ${req.user.email}`, { userId: req.user.id });
+
+        res.json({ success: true, message: 'Mot de passe modifié. Veuillez vous reconnecter.' });
+    } catch (error) {
+        logger.error('CHANGE_PASSWORD', 'Erreur', { error: error.message });
+        res.status(400).json({ error: error.message });
+    }
+});
+
+/**
+ * @swagger
+ * /api/auth/forgot-password:
+ *   post:
+ *     summary: Demander une réinitialisation de mot de passe par email
+ *     tags: [Auth]
+ *     security: []
+ */
+router.post('/forgot-password', async (req, res) => {
+    try {
+        const { email } = req.body;
+        const user = await req.prisma.user.findUnique({ where: { email } });
+
+        if (!user || !user.isActive) {
+            return res.json({ success: true, message: 'Si cet email est enregistré, un lien vous a été envoyé.' });
+        }
+
+        // Token signé avec le hash actuel → invalidé automatiquement dès que le mdp change
+        const resetToken = jwt.sign(
+            { id: user.id, purpose: 'password_reset' },
+            process.env.JWT_SECRET + user.passwordHash.slice(-8),
+            { expiresIn: '1h' }
+        );
+
+        const resetUrl = `${process.env.FRONTEND_URL || 'http://localhost:5173'}/reset-password?token=${resetToken}`;
+        await notificationService.sendEmail(email, 'PASSWORD_RESET', [user, resetUrl]);
+
+        logger.info('PASSWORD_RESET_REQUESTED', `Demande reset pour ${email}`, { email });
+        res.json({ success: true, message: 'Si cet email est enregistré, un lien vous a été envoyé.' });
+    } catch (error) {
+        logger.error('FORGOT_PASSWORD', 'Erreur', { error: error.message });
+        res.status(400).json({ error: error.message });
+    }
+});
+
+/**
+ * @swagger
+ * /api/auth/reset-password:
+ *   post:
+ *     summary: Réinitialiser le mot de passe via token
+ *     tags: [Auth]
+ *     security: []
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             required: [token, newPassword]
+ *             properties:
+ *               token:
+ *                 type: string
+ *               newPassword:
+ *                 type: string
+ *                 minLength: 8
+ */
+router.post('/reset-password', async (req, res) => {
+    try {
+        const { token, newPassword } = req.body;
+
+        if (!token || !newPassword) {
+            return res.status(400).json({ error: 'Token et nouveau mot de passe requis' });
+        }
+
+        const strengthError = validatePasswordStrength(newPassword);
+        if (strengthError) return res.status(400).json({ error: strengthError });
+
+        const decoded = jwt.decode(token);
+        if (!decoded || decoded.purpose !== 'password_reset') {
+            return res.status(400).json({ error: 'Token invalide' });
+        }
+
+        const user = await req.prisma.user.findUnique({ where: { id: decoded.id } });
+        if (!user) return res.status(400).json({ error: 'Utilisateur introuvable' });
+
+        // Vérifier avec le secret incluant le hash (auto-invalidation après changement)
+        jwt.verify(token, process.env.JWT_SECRET + user.passwordHash.slice(-8));
+
+        const newHash = await bcrypt.hash(newPassword, 12);
+        await req.prisma.passwordHistory.create({ data: { userId: user.id, passwordHash: newHash } }).catch(() => {});
+        await req.prisma.user.update({ where: { id: user.id }, data: { passwordHash: newHash } });
+
+        await req.prisma.refreshToken.updateMany({
+            where: { userId: user.id },
+            data: { isRevoked: true },
+        });
+
+        auditLogger.info('PASSWORD_RESET', `Mot de passe réinitialisé pour ${user.email}`, { userId: user.id });
+
+        res.json({ success: true, message: 'Mot de passe réinitialisé. Vous pouvez vous connecter.' });
+    } catch (error) {
+        if (error.name === 'TokenExpiredError') {
+            return res.status(400).json({ error: 'Lien expiré. Refaites une demande de réinitialisation.' });
+        }
+        logger.error('RESET_PASSWORD', 'Erreur reset', { error: error.message });
+        res.status(400).json({ error: 'Token invalide ou expiré' });
+    }
+});
+
+/**
+ * POST /api/auth/me/push-token
+ * Raccourci: enregistre un device token push (appelé depuis mobileService.js).
+ */
+router.post('/me/push-token', authMiddleware, async (req, res) => {
+    try {
+        const { token, platform } = req.body || {};
+        if (!token || typeof token !== 'string' || token.length < 10) {
+            return res.status(400).json({ error: 'Token push invalide.' });
+        }
+        if (!['android', 'ios', 'web'].includes(platform)) {
+            return res.status(400).json({ error: 'Platform invalide.' });
+        }
+        await req.prisma.deviceToken.upsert({
+            where:  { token },
+            create: { userId: req.user.id, token, platform },
+            update: { userId: req.user.id, platform },
+        });
+        res.json({ success: true });
+    } catch (error) {
+        logger.error('PUSH_TOKEN_REGISTER', error.message, { userId: req.user?.id });
+        res.status(500).json({ error: 'Erreur lors de l\'enregistrement du token.' });
+    }
+});
+
+module.exports = router;

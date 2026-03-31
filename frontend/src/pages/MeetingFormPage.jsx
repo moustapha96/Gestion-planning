@@ -1,0 +1,253 @@
+import { useEffect, useMemo, useState } from 'react';
+import { useNavigate, useParams, useSearchParams } from 'react-router-dom';
+import { Card, Typography, Form, Input, Select, DatePicker, Button, Row, Col, Space, Alert, Spin, App } from 'antd';
+import { ArrowLeftOutlined } from '@ant-design/icons';
+import dayjs from 'dayjs';
+import api from '../api/client';
+
+const { Title, Text } = Typography;
+
+export default function MeetingFormPage() {
+    const { id } = useParams();
+    const isEdit = Boolean(id);
+    const [searchParams] = useSearchParams();
+    const navigate = useNavigate();
+    const { message } = App.useApp();
+    const [form] = Form.useForm();
+
+    const [rooms, setRooms] = useState([]);
+    const [users, setUsers] = useState([]);
+    const [directions, setDirections] = useState([]);
+    const [projects, setProjects] = useState([]);
+    const [availableRooms, setAvailableRooms] = useState([]);
+    const [loadingRooms, setLoadingRooms] = useState(false);
+    const [loading, setLoading] = useState(true);
+    const [saving, setSaving] = useState(false);
+    const [submitError, setSubmitError] = useState('');
+
+    const startTime = Form.useWatch('startTime', form);
+    const endTime = Form.useWatch('endTime', form);
+
+    const pageTitle = useMemo(
+        () => (isEdit ? 'Modifier la réunion' : 'Nouvelle réunion'),
+        [isEdit]
+    );
+
+    useEffect(() => {
+        let mounted = true;
+        const load = async () => {
+            setLoading(true);
+            try {
+                const [roomRes, userRes, taxonomyRes] = await Promise.all([
+                    api.get('/rooms'),
+                    api.get('/users/participants'),
+                    api.get('/events/taxonomy'),
+                ]);
+                if (!mounted) return;
+                setRooms(roomRes.data || []);
+                setUsers(userRes.data || []);
+                setDirections(taxonomyRes?.data?.directions || []);
+                setProjects(taxonomyRes?.data?.projects || []);
+
+                if (isEdit) {
+                    const { data } = await api.get(`/meetings/${id}`);
+                    if (!mounted) return;
+                    form.setFieldsValue({
+                        title: data.title,
+                        agenda: data.agenda,
+                        roomId: data.roomId || undefined,
+                        directionId: data.directionId || undefined,
+                        projectId: data.projectId || undefined,
+                        meetingLink: data.meetingLink || '',
+                        startTime: data.startTime ? dayjs(data.startTime) : null,
+                        endTime: data.endTime ? dayjs(data.endTime) : null,
+                    });
+                } else {
+                    const dateParam = searchParams.get('date');
+                    const roomIdParam = searchParams.get('roomId');
+                    let start = dayjs().hour(9).minute(0).second(0);
+                    let end = dayjs().hour(10).minute(0).second(0);
+                    if (dateParam && /^\d{4}-\d{2}-\d{2}$/.test(dateParam)) {
+                        const d = dayjs(dateParam);
+                        start = d.hour(9).minute(0).second(0);
+                        end = d.hour(10).minute(0).second(0);
+                    }
+                    form.setFieldsValue({
+                        startTime: start,
+                        endTime: end,
+                        roomId: roomIdParam || undefined,
+                        meetingLink: '',
+                        title: '',
+                        agenda: '',
+                        participantIds: [],
+                    });
+                }
+            } catch (err) {
+                message.error(err?.response?.data?.error || 'Impossible de charger les données');
+                if (isEdit) navigate('/meetings');
+            } finally {
+                if (mounted) setLoading(false);
+            }
+        };
+        load();
+        return () => { mounted = false; };
+    }, [id, isEdit]);
+
+    useEffect(() => {
+        if (!startTime || !endTime) {
+            setAvailableRooms([]);
+            return;
+        }
+        const start = startTime.toDate ? startTime.toDate() : new Date(startTime);
+        const end = endTime.toDate ? endTime.toDate() : new Date(endTime);
+        if (start >= end) {
+            setAvailableRooms([]);
+            return;
+        }
+        setLoadingRooms(true);
+        api.get('/rooms/available', {
+            params: {
+                startTime: start.toISOString(),
+                endTime: end.toISOString(),
+                excludeMeetingId: isEdit ? id : undefined,
+            },
+        })
+            .then((res) => setAvailableRooms(res.data || []))
+            .catch(() => setAvailableRooms([]))
+            .finally(() => setLoadingRooms(false));
+    }, [startTime, endTime, id, isEdit]);
+
+    const onSubmit = async (values) => {
+        const start = values.startTime?.toDate?.() ?? values.startTime;
+        const end = values.endTime?.toDate?.() ?? values.endTime;
+        const link = String(values.meetingLink || '').trim();
+        setSubmitError('');
+        if (!start || !end || start >= end) {
+            setSubmitError('Choisissez un créneau valide (fin après le début).');
+            return;
+        }
+        if (!values.roomId && !link) {
+            setSubmitError('Renseignez une salle ou un lien de visioconférence.');
+            return;
+        }
+        if (link) {
+            try {
+                const u = new URL(link);
+                if (!['http:', 'https:'].includes(u.protocol)) throw new Error('invalid');
+            } catch {
+                setSubmitError('Lien de visioconférence invalide (http/https requis).');
+                return;
+            }
+        }
+        setSaving(true);
+        try {
+            if (isEdit) {
+                await api.put(`/meetings/${id}`, {
+                    title: values.title,
+                    agenda: values.agenda,
+                    roomId: values.roomId || null,
+                    directionId: values.directionId || null,
+                    projectId: values.projectId || null,
+                    meetingLink: link || null,
+                    startTime: start.toISOString(),
+                    endTime: end.toISOString(),
+                });
+                message.success('Réunion modifiée');
+                navigate(`/meetings/${id}`);
+                return;
+            }
+
+            await api.post('/meetings', {
+                title: values.title,
+                agenda: values.agenda,
+                roomId: values.roomId || undefined,
+                directionId: values.directionId || undefined,
+                projectId: values.projectId || undefined,
+                meetingLink: link || undefined,
+                startTime: start.toISOString(),
+                endTime: end.toISOString(),
+                participants: values.participantIds || [],
+            });
+            message.success('Réunion créée');
+            navigate('/meetings');
+        } catch (err) {
+            setSubmitError(err?.response?.data?.error || 'Erreur lors de l’enregistrement');
+        } finally {
+            setSaving(false);
+        }
+    };
+
+    if (loading) {
+        return <div style={{ textAlign: 'center', padding: 48 }}><Spin size="large" /></div>;
+    }
+
+    return (
+        <div>
+            <Space style={{ marginBottom: 16 }}>
+                <Button icon={<ArrowLeftOutlined />} onClick={() => navigate(isEdit ? `/meetings/${id}` : '/meetings')}>
+                    Retour
+                </Button>
+                <Title level={3} style={{ margin: 0 }}>{pageTitle}</Title>
+            </Space>
+
+            <Card>
+                {submitError && <Alert type="error" showIcon message={submitError} style={{ marginBottom: 16 }} />}
+                <Form form={form} layout="vertical" onFinish={onSubmit}>
+                    <Form.Item name="title" label="Titre" rules={[{ required: true, message: 'Titre requis' }]}>
+                        <Input />
+                    </Form.Item>
+                    <Form.Item name="agenda" label="Ordre du jour">
+                        <Input.TextArea rows={4} />
+                    </Form.Item>
+                    <Row gutter={16}>
+                        <Col xs={24} sm={12}>
+                            <Form.Item name="directionId" label="Direction (optionnel)">
+                                <Select allowClear options={directions.map((d) => ({ value: d.id, label: d.code ? `${d.name} (${d.code})` : d.name }))} />
+                            </Form.Item>
+                        </Col>
+                        <Col xs={24} sm={12}>
+                            <Form.Item name="projectId" label="Projet (optionnel)">
+                                <Select allowClear options={projects.map((p) => ({ value: p.id, label: p.code ? `${p.name} (${p.code})` : p.name }))} />
+                            </Form.Item>
+                        </Col>
+                    </Row>
+                    <Row gutter={16}>
+                        <Col xs={24} sm={12}>
+                            <Form.Item name="startTime" label="Début" rules={[{ required: true, message: 'Requis' }]}>
+                                <DatePicker showTime format="DD/MM/YYYY HH:mm" style={{ width: '100%' }} />
+                            </Form.Item>
+                        </Col>
+                        <Col xs={24} sm={12}>
+                            <Form.Item name="endTime" label="Fin" rules={[{ required: true, message: 'Requis' }]}>
+                                <DatePicker showTime format="DD/MM/YYYY HH:mm" style={{ width: '100%' }} />
+                            </Form.Item>
+                        </Col>
+                    </Row>
+                    <Form.Item name="roomId" label="Salle (libre sur le créneau)">
+                        <Select
+                            allowClear
+                            loading={loadingRooms}
+                            placeholder="Sélectionner une salle libre"
+                            options={availableRooms.map((r) => ({ value: r.id, label: `${r.name} — ${r.capacity} pers. ${r.location ? `· ${r.location}` : ''}` }))}
+                        />
+                    </Form.Item>
+                    <Form.Item name="meetingLink" label="Lien visio (optionnel)">
+                        <Input placeholder="https://meet.google.com/..." />
+                    </Form.Item>
+                    {!isEdit && (
+                        <Form.Item name="participantIds" label="Participants supplémentaires">
+                            <Select mode="multiple" optionFilterProp="label" options={users.map((u) => ({ value: u.id, label: `${u.name} — ${u.email}` }))} />
+                        </Form.Item>
+                    )}
+                    <Space>
+                        <Button type="primary" htmlType="submit" loading={saving}>
+                            {isEdit ? 'Enregistrer' : 'Créer la réunion'}
+                        </Button>
+                        <Text type="secondary">Salle ou lien visio obligatoire.</Text>
+                    </Space>
+                </Form>
+            </Card>
+        </div>
+    );
+}
+

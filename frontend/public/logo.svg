@@ -1,0 +1,49 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 440 150" role="img" aria-label="Gestion Planning">
+  <defs>
+    <linearGradient id="shieldGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#1A365D"/>
+      <stop offset="100%" stop-color="#2B6CB0"/>
+    </linearGradient>
+    <linearGradient id="arrowGrad" x1="0%" y1="100%" x2="100%" y2="0%">
+      <stop offset="0%" stop-color="#38A169"/>
+      <stop offset="100%" stop-color="#68D391"/>
+    </linearGradient>
+    <clipPath id="shieldClip">
+      <path d="M68,12 C46,12 28,30 28,52 C28,80 68,128 68,128 C68,128 108,80 108,52 C108,30 90,12 68,12 Z"/>
+    </clipPath>
+  </defs>
+
+  <!-- Shield / location-pin outline -->
+  <path d="M68,6 C43,6 22,27 22,52 C22,84 68,136 68,136 C68,136 114,84 114,52 C114,27 93,6 68,6 Z"
+        fill="none" stroke="url(#shieldGrad)" stroke-width="5.5"/>
+
+  <!-- Left partial circle arc -->
+  <path d="M34,52 A34,34 0 0,1 68,18" fill="none" stroke="#1A365D" stroke-width="4.5"
+        stroke-linecap="round" opacity="0.55"/>
+
+  <!-- Bar chart (clipped inside shield) -->
+  <g clip-path="url(#shieldClip)">
+    <rect x="29" y="84" width="11" height="38" rx="2" fill="#1A365D" opacity="0.85"/>
+    <rect x="43" y="72" width="11" height="50" rx="2" fill="#1A365D" opacity="0.85"/>
+    <rect x="57" y="58" width="11" height="64" rx="2" fill="#1A365D" opacity="0.85"/>
+    <rect x="71" y="44" width="11" height="78" rx="2" fill="#1A365D" opacity="0.85"/>
+    <rect x="85" y="30" width="11" height="92" rx="2" fill="#1A365D" opacity="0.85"/>
+
+    <!-- Green diagonal arrow -->
+    <line x1="28" y1="94" x2="98" y2="24" stroke="url(#arrowGrad)" stroke-width="7"
+          stroke-linecap="round"/>
+    <polygon points="98,24 78,26 88,40" fill="#48BB78"/>
+  </g>
+
+  <!-- "Gestion" text -->
+  <text x="130" y="58" font-family="'Segoe UI', Arial, sans-serif" font-weight="800"
+        font-size="38" fill="#1A365D" letter-spacing="-0.5">Gestion</text>
+
+  <!-- "Planning" text -->
+  <text x="130" y="100" font-family="'Segoe UI', Arial, sans-serif" font-weight="800"
+        font-size="38" fill="#48BB78" letter-spacing="-0.5">Planning</text>
+
+  <!-- Subtitle -->
+  <text x="132" y="122" font-family="'Segoe UI', Arial, sans-serif" font-size="10.5"
+        fill="#2B6CB0" letter-spacing="1.8" opacity="0.8">OPTIMISATION ET ORGANISATION</text>
+</svg>

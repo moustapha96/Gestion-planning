@@ -1,0 +1,16 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(node --check src/routes/plannings.js)",
+      "Bash(node --check src/routes/auth.js)",
+      "Bash(node --check src/routes/users.js)",
+      "Bash(pandoc --track-changes=all \"cahier_des_charges_gestion_planning_v2.docx\" -o /tmp/cdc_output.md)",
+      "Read(//tmp/**)",
+      "Bash(npm install:*)",
+      "Bash(npx prisma:*)",
+      "Read(//c/Users/alhus/AppData/Roaming/Claude/local-agent-mode-sessions/skills-plugin/d1add896-061a-445a-8aea-4088c667b0e3/c3e96315-a4c4-45ae-ae75-7bd60ecf8390/skills/docx/**)",
+      "Bash(pandoc --track-changes=all \"D:/Gestion planning/cahier_des_charges_gestion_planning_v2.docx\" -o output.md)",
+      "mcp__Claude_Preview__preview_start"
+    ]
+  }
+}

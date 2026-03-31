@@ -1,0 +1,29 @@
+{
+  "project_info": {
+    "project_number": "768521820760",
+    "project_id": "gestion-planning-7807b",
+    "storage_bucket": "gestion-planning-7807b.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:768521820760:android:84ae062baa5d79d1e4482d",
+        "android_client_info": {
+          "package_name": "com.khouma.gestionplanning"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyC6fLKvCAVZ31Bm33IVYzTea8Ps-DlwcnE"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}

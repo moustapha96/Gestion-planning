@@ -1,0 +1,433 @@
+@import "tailwindcss";
+@config "../tailwind.config.js";
+
+/* ══════════════════════════════════════════════════════════════
+   VARIABLES GLOBALES — Safe areas Capacitor / iOS / Android
+   ══════════════════════════════════════════════════════════════ */
+:root {
+    --sat:            env(safe-area-inset-top,    0px);
+    --sar:            env(safe-area-inset-right,  0px);
+    --sab:            env(safe-area-inset-bottom, 0px);
+    --sal:            env(safe-area-inset-left,   0px);
+    --keyboard-height: 0px;
+
+    /* Hauteur header (utilisée pour le sticky + offset de scroll) */
+    --header-height:  56px;
+
+    /* Couleur primaire app */
+    --color-primary:  #1A365D;
+    --color-primary-light: #2a5282;
+}
+
+/* ══════════════════════════════════════════════════════════════
+   RESET MOBILE
+   ══════════════════════════════════════════════════════════════ */
+html {
+    -webkit-tap-highlight-color: transparent;
+    -webkit-text-size-adjust: 100%;
+    text-size-adjust: 100%;
+    /* Désactiver le zoom sur double-tap iOS */
+    touch-action: manipulation;
+}
+
+body {
+    @apply text-gray-900 bg-gray-50;
+    /* Padding safe areas (encoche iOS, barre navigation Android) */
+    padding-top:    env(safe-area-inset-top,    0px);
+    padding-right:  env(safe-area-inset-right,  0px);
+    padding-bottom: env(safe-area-inset-bottom, 0px);
+    padding-left:   env(safe-area-inset-left,   0px);
+    /* Prevent pull-to-refresh sur Capacitor */
+    overscroll-behavior-y: contain;
+}
+
+#root {
+    @apply min-h-screen;
+}
+
+/* ══════════════════════════════════════════════════════════════
+   Z-INDEX HIERARCHY
+   ══════════════════════════════════════════════════════════════
+   10   — éléments sticky internes (chat footer, etc.)
+   99   — header sticky
+   100  — sidebar fixe
+   900  — bannière hors-ligne
+   1000 — modals / drawers Ant Design (défaut)
+   1050 — dropdowns / popovers Ant Design (défaut)
+   1070 — tooltips Ant Design (défaut)
+   1080 — panneau notifications (custom)
+   ══════════════════════════════════════════════════════════════ */
+
+/* ══════════════════════════════════════════════════════════════
+   CLAVIER MOBILE (Capacitor resize:body)
+   Quand le clavier est ouvert, le body est réduit.
+   Les éléments sticky bottom doivent suivre.
+   ══════════════════════════════════════════════════════════════ */
+body.keyboard-open .discussions-footer,
+body.keyboard-open .chat-input-bar {
+    padding-bottom: max(8px, env(safe-area-inset-bottom, 0px));
+}
+
+/* iOS : éviter que le contenu glisse sous le clavier */
+body.keyboard-open {
+    /* On iOS, translateY par la hauteur du clavier pour les éléments fixed */
+    --keyboard-offset: var(--keyboard-height);
+}
+
+/* ══════════════════════════════════════════════════════════════
+   ZONES TACTILES
+   iOS recommande 44pt, Android recommande 48dp
+   ══════════════════════════════════════════════════════════════ */
+.touch-target {
+    min-height: 44px;
+    min-width:  44px;
+    display:    flex;
+    align-items: center;
+    justify-content: center;
+}
+
+/* Ant Design : agrandir tous les boutons sur mobile */
+@media (max-width: 767px) {
+    .ant-btn {
+        min-height: 40px;
+        padding-left:  14px;
+        padding-right: 14px;
+    }
+    .ant-btn-sm {
+        min-height: 34px;
+    }
+    .ant-btn-icon-only {
+        min-width: 40px;
+    }
+}
+
+/* ══════════════════════════════════════════════════════════════
+   SCROLL
+   ══════════════════════════════════════════════════════════════ */
+.mobile-scroll {
+    -webkit-overflow-scrolling: touch;
+    overscroll-behavior: contain;
+}
+
+/* Masquer la scrollbar sur Webkit tout en gardant le scroll */
+.scroll-hide::-webkit-scrollbar {
+    display: none;
+}
+.scroll-hide {
+    -ms-overflow-style:  none;
+    scrollbar-width:     none;
+}
+
+/* ══════════════════════════════════════════════════════════════
+   TABLES responsive
+   ══════════════════════════════════════════════════════════════ */
+.ant-table-wrapper {
+    overflow-x: auto;
+    -webkit-overflow-scrolling: touch;
+}
+
+/* ══════════════════════════════════════════════════════════════
+   MODALS — Pleine largeur sur mobile
+   ══════════════════════════════════════════════════════════════ */
+@media (max-width: 575px) {
+    .ant-modal {
+        max-width: calc(100vw - 12px) !important;
+        margin: 6px auto !important;
+    }
+    .ant-modal-content {
+        border-radius: 16px;
+    }
+    .ant-modal-header {
+        padding: 14px 16px;
+    }
+    .ant-modal-body {
+        padding: 12px 16px;
+    }
+    .ant-modal-footer {
+        padding: 10px 16px;
+    }
+}
+
+/* ══════════════════════════════════════════════════════════════
+   DRAWERS — animation fluide sur mobile
+   ══════════════════════════════════════════════════════════════ */
+.ant-drawer-content-wrapper {
+    will-change: transform;
+}
+
+/* Menu latéral : ne pas dépasser la largeur de l’écran sur petits téléphones */
+.app-sidebar-drawer .ant-drawer-content-wrapper {
+    max-width: min(100vw, 300px);
+}
+
+/* En-tête applicatif : éviter les débordements horizontaux */
+.app-shell-header {
+    box-sizing: border-box;
+    width: 100%;
+    max-width: 100%;
+}
+
+/* Navbar legacy : drawer ne dépasse pas l’écran sur petits téléphones */
+.navbar-drawer-root .ant-drawer-content-wrapper {
+    max-width: min(100vw - 16px, 320px);
+}
+
+
+/* ══════════════════════════════════════════════════════════════
+   PAGES D'AUTH
+   ══════════════════════════════════════════════════════════════ */
+.auth-page {
+    padding: 12px;
+    min-height: 100vh;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+@media (min-width: 576px) {
+    .auth-page { padding: 24px; }
+}
+
+/* ══════════════════════════════════════════════════════════════
+   CONTENU PRINCIPAL
+   ══════════════════════════════════════════════════════════════ */
+.app-content {
+    padding: 24px;
+}
+@media (max-width: 767px) {
+    .app-content { padding: 12px; }
+}
+
+/* ══════════════════════════════════════════════════════════════
+   DISCUSSIONS / MESSAGERIE — Mobile-first
+   ══════════════════════════════════════════════════════════════ */
+
+/* Conteneur conversation liste (colonne gauche) */
+.discussions-sidebar {
+    height: calc(100vh - var(--header-height) - var(--sat) - var(--sab));
+    overflow-y: auto;
+    -webkit-overflow-scrolling: touch;
+}
+
+/* Conteneur messages (colonne droite) */
+.discussions-messages {
+    display: flex;
+    flex-direction: column;
+    height: calc(100vh - var(--header-height) - var(--sat) - var(--sab));
+    overflow: hidden;
+}
+
+/* Zone de défilement des messages */
+.discussions-messages-scroll {
+    flex: 1;
+    overflow-y: auto;
+    -webkit-overflow-scrolling: touch;
+    overscroll-behavior: contain;
+    padding: 12px;
+}
+
+/* Barre de saisie (footer fixe, toujours au-dessus du clavier) */
+.discussions-footer {
+    flex-shrink: 0;
+    background: #fff;
+    border-top: 1px solid #f0f0f0;
+    padding: 8px 12px;
+    padding-bottom: max(8px, env(safe-area-inset-bottom, 0px));
+    /* Reste visible au-dessus du clavier natif */
+    position: sticky;
+    bottom: 0;
+    z-index: 10;
+}
+
+/* Sur mobile : conversations en plein écran */
+@media (max-width: 767px) {
+    .discussions-sidebar,
+    .discussions-messages {
+        height: calc(100svh - var(--header-height) - env(safe-area-inset-top, 0px) - env(safe-area-inset-bottom, 0px));
+    }
+}
+
+/* Bulle de message */
+.msg-bubble {
+    max-width: 75%;
+    word-break: break-word;
+    border-radius: 16px;
+    padding: 8px 12px;
+    line-height: 1.4;
+}
+@media (max-width: 575px) {
+    .msg-bubble { max-width: 85%; }
+}
+
+/* ══════════════════════════════════════════════════════════════
+   WHATSAPP DISCUSSIONS
+   ══════════════════════════════════════════════════════════════ */
+
+/* Bouton retour mobile — visible uniquement sur petit écran */
+.wa-back-btn { display: none !important; }
+
+@media (max-width: 767px) {
+    .wa-back-btn { display: flex !important; }
+
+    .wa-sidebar {
+        width: 100% !important;
+        min-width: unset !important;
+        border-right: none !important;
+    }
+    .wa-chat { width: 100% !important; }
+
+    /* Masquer l'un ou l'autre selon l'état JS (classe ajoutée par React) */
+    .wa-hidden-mobile { display: none !important; }
+}
+
+/* Scrollbar fine dans la zone messages */
+.wa-chat ::-webkit-scrollbar { width: 5px; }
+.wa-chat ::-webkit-scrollbar-track { background: transparent; }
+.wa-chat ::-webkit-scrollbar-thumb { background: rgba(0,0,0,0.15); border-radius: 3px; }
+
+/* ══════════════════════════════════════════════════════════════
+   INDICATEURS RÉSEAU (bannière hors-ligne)
+   ══════════════════════════════════════════════════════════════ */
+.offline-banner {
+    position: fixed;
+    top: calc(var(--header-height) + env(safe-area-inset-top, 0px));
+    left: 0;
+    right: 0;
+    background: #ff4d4f;
+    color: #fff;
+    text-align: center;
+    padding: 6px 12px;
+    font-size: 13px;
+    font-weight: 500;
+    z-index: 900;
+    animation: slideDown 0.3s ease;
+}
+
+@keyframes slideDown {
+    from { transform: translateY(-100%); opacity: 0; }
+    to   { transform: translateY(0);     opacity: 1; }
+}
+
+/* ══════════════════════════════════════════════════════════════
+   CARTES Ant Design — Meilleur rendu mobile
+   ══════════════════════════════════════════════════════════════ */
+@media (max-width: 575px) {
+    .ant-card {
+        border-radius: 12px;
+    }
+    .ant-card-head {
+        padding: 0 14px;
+        min-height: 44px;
+    }
+    .ant-card-body {
+        padding: 14px;
+    }
+}
+
+/* ══════════════════════════════════════════════════════════════
+   SÉLECTION DE TEXTE — Désactiver pour les éléments UI
+   ══════════════════════════════════════════════════════════════ */
+.ant-menu,
+.ant-btn,
+.ant-tag,
+.ant-badge {
+    -webkit-user-select: none;
+    user-select: none;
+}
+
+/* ══════════════════════════════════════════════════════════════
+   ANIMATIONS FLUIDES
+   ══════════════════════════════════════════════════════════════ */
+@media (prefers-reduced-motion: no-preference) {
+    .ant-layout-sider,
+    .ant-drawer-content-wrapper {
+        transition-timing-function: cubic-bezier(0.4, 0, 0.2, 1);
+    }
+}
+
+
+
+
+
+
+
+/* Désactiver toutes les animations si l'utilisateur le préfère */
+/* @media (prefers-reduced-motion: reduce) {
+    *,
+    *::before,
+    *::after {
+        animation-duration: 0.01ms !important;
+        animation-iteration-count: 1 !important;
+        transition-duration: 0.01ms !important;
+    }
+} */
+/* ══════════════════════════════════════════════════════════════
+   INPUT / FORM — Taille de police ≥ 16px sur iOS (évite le zoom)
+   ══════════════════════════════════════════════════════════════ */
+/* @media (max-width: 767px) {
+    input[type="text"],
+    input[type="email"],
+    input[type="password"],
+    input[type="search"],
+    input[type="tel"],
+    input[type="number"],
+    textarea,
+    select,
+    .ant-input,
+    .ant-input-password input,
+    .ant-select-selector {
+        font-size: 16px !important;
+    }
+}
+ */
+
+
+/* ══════════════════════════════════════════════════════════════
+   NOTCH / DYNAMIC ISLAND (iPhone 14 Pro+)
+   ══════════════════════════════════════════════════════════════ */
+.safe-top    { padding-top:    env(safe-area-inset-top,    0px); }
+.safe-bottom { padding-bottom: env(safe-area-inset-bottom, 0px); }
+.safe-left   { padding-left:   env(safe-area-inset-left,   0px); }
+.safe-right  { padding-right:  env(safe-area-inset-right,  0px); }
+
+/* ══════════════════════════════════════════════════════════════
+   RESPONSIVE GLOBAL — Tables scroll horizontal
+   ══════════════════════════════════════════════════════════════ */
+.ant-table-wrapper .ant-table {
+    overflow-x: auto;
+}
+
+/* Pagination compacte sur mobile */
+@media (max-width: 575px) {
+    .ant-pagination {
+        display: flex;
+        flex-wrap: wrap;
+        justify-content: center;
+        gap: 4px;
+    }
+    .ant-pagination .ant-pagination-options {
+        display: none;
+    }
+}
+
+/* Steps responsive: vertical sur mobile */
+@media (max-width: 575px) {
+    .ant-steps-horizontal:not(.ant-steps-label-vertical) {
+        flex-direction: column;
+    }
+}
+
+/* Titres de page : empêcher dépassement sur mobile */
+@media (max-width: 575px) {
+    .ant-typography h1,
+    .ant-typography h2,
+    .ant-typography h3 {
+        font-size: clamp(16px, 4vw, 24px) !important;
+    }
+}
+
+/* Statistic responsive */
+@media (max-width: 575px) {
+    .ant-statistic-content-value {
+        font-size: 20px !important;
+    }
+}

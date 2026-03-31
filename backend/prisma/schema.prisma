@@ -1,0 +1,418 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model User {
+  id                 String    @id @default(cuid())
+  name               String
+  email              String    @unique
+  passwordHash       String
+  role               String    @default("RESPONSABLE")
+  isActive           Boolean   @default(true)
+  isDeleted          Boolean   @default(false)
+  avatarUrl          String?
+  createdAt          DateTime  @default(now())
+  updatedAt          DateTime  @updatedAt
+
+  plannings          Planning[]
+  meetings           Meeting[] @relation("organizer")
+  invitations        Invitation[]
+  bookings           RoomBooking[]
+  notifications      Notification[]
+  auditLogs          AuditLog[]
+  refreshTokens      RefreshToken[]
+  missionsCreated    Mission[] @relation("MissionsCreated")
+  missionAssignments MissionAssignment[]
+  passwordHistory    PasswordHistory[]
+  meetingFiles       MeetingFile[]
+  missionFiles       MissionFile[]
+  meetingMessages    MeetingMessage[]
+  sentDirectMessages DirectMessage[] @relation("DirectMessageSender")
+  receivedDirectMessages DirectMessage[] @relation("DirectMessageReceiver")
+
+  twoFactorSecret    String?
+  twoFactorEnabled   Boolean  @default(false)
+
+  deviceTokens       DeviceToken[]
+
+  backupsCreated     Backup[]       @relation("BackupCreatedBy")
+  projectsCreated    Project[]      @relation("ProjectCreatedBy")
+  projectFiles       ProjectFile[]
+}
+
+/// Sauvegardes PostgreSQL (pg_dump) — super admin
+model Backup {
+  id            String    @id @default(cuid())
+  fileName      String
+  relativePath  String
+  sizeBytes     Int?
+  status        String    @default("PENDING") // PENDING | SUCCESS | FAILED
+  errorMessage  String?
+  kind          String    @default("MANUAL") // MANUAL | SCHEDULED
+  startedAt     DateTime  @default(now())
+  finishedAt    DateTime?
+  createdById   String?
+  createdBy     User?     @relation("BackupCreatedBy", fields: [createdById], references: [id], onDelete: SetNull)
+
+  @@index([startedAt])
+  @@index([status])
+}
+
+model DeviceToken {
+  id        String   @id @default(cuid())
+  userId    String
+  token     String   @unique
+  platform  String   // 'android' | 'ios' | 'web'
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+}
+
+model DirectMessage {
+  id         String   @id @default(cuid())
+  senderId   String
+  receiverId String
+  parentId   String?
+  body       String?
+  fileName   String?
+  fileUrl    String?
+  mimeType   String?
+  size       Int?
+  isRead     Boolean  @default(false)
+  createdAt  DateTime @default(now())
+
+  sender     User     @relation("DirectMessageSender", fields: [senderId], references: [id], onDelete: Cascade)
+  receiver   User     @relation("DirectMessageReceiver", fields: [receiverId], references: [id], onDelete: Cascade)
+  parent     DirectMessage?  @relation("DirectMessageReplies", fields: [parentId], references: [id], onDelete: SetNull)
+  replies    DirectMessage[] @relation("DirectMessageReplies")
+
+  @@index([senderId, receiverId, createdAt])
+  @@index([receiverId, createdAt])
+  @@index([receiverId, senderId, isRead])
+  @@index([parentId])
+}
+
+model Room {
+  id                 String    @id @default(cuid())
+  name               String    @unique
+  capacity           Int
+  location           String
+  equipment          String
+  openFrom           String    @default("08:00")
+  openTo             String    @default("19:00")
+  status             String    @default("ACTIVE")
+  createdAt          DateTime  @default(now())
+  updatedAt          DateTime  @updatedAt
+
+  planningEvents     PlanningEvent[]
+  meetings           Meeting[]
+  bookings           RoomBooking[]
+}
+
+model Planning {
+  id                 String    @id @default(cuid())
+  userId             String
+  weekStart          DateTime
+  submittedAt        DateTime?
+  consolidatedAt     DateTime?
+  validatedAt        DateTime?
+  returnedAt         DateTime?
+  status             String    @default("DRAFT")
+  returnComment      String?
+  createdAt          DateTime  @default(now())
+  updatedAt          DateTime  @updatedAt
+
+  user               User      @relation(fields: [userId], references: [id])
+  events             PlanningEvent[]
+
+  @@unique([userId, weekStart])
+}
+
+model PlanningEvent {
+  id                 String    @id @default(cuid())
+  planningId         String
+  title              String
+  type               String
+  startTime          DateTime
+  endTime            DateTime
+  roomId             String?
+  directionId        String?
+  projectId          String?
+  destination        String?
+  description        String?
+  createdAt          DateTime  @default(now())
+
+  planning           Planning  @relation(fields: [planningId], references: [id], onDelete: Cascade)
+  room               Room?     @relation(fields: [roomId], references: [id])
+  direction          Direction? @relation(fields: [directionId], references: [id])
+  project            Project?   @relation(fields: [projectId], references: [id])
+
+  @@index([directionId])
+  @@index([projectId])
+}
+
+model Meeting {
+  id                 String    @id @default(cuid())
+  title              String
+  agenda             String
+  organizerId        String
+  roomId             String?
+  directionId        String?
+  projectId          String?
+  meetingLink        String?
+  startTime          DateTime
+  endTime            DateTime
+  status             String    @default("DRAFT")
+  orderOfDay         String?
+  attachments        String?
+  createdAt          DateTime  @default(now())
+  updatedAt          DateTime  @updatedAt
+
+  organizer          User      @relation("organizer", fields: [organizerId], references: [id])
+  room               Room?     @relation(fields: [roomId], references: [id])
+  direction          Direction? @relation(fields: [directionId], references: [id])
+  project            Project?   @relation(fields: [projectId], references: [id])
+  invitations        Invitation[]
+  booking            RoomBooking?
+  files              MeetingFile[]
+  messages           MeetingMessage[]
+
+  @@index([directionId])
+  @@index([projectId])
+}
+
+model MeetingFile {
+  id           String   @id @default(cuid())
+  meetingId    String
+  uploadedById String
+  kind         String   @default("DOCUMENT")
+  fileName     String
+  fileUrl      String
+  mimeType     String?
+  size         Int?
+  createdAt    DateTime @default(now())
+
+  meeting      Meeting  @relation(fields: [meetingId], references: [id], onDelete: Cascade)
+  uploadedBy   User     @relation(fields: [uploadedById], references: [id])
+
+  @@index([meetingId, createdAt])
+}
+
+model MeetingMessage {
+  id         String   @id @default(cuid())
+  meetingId  String
+  senderId   String
+  body       String
+  parentId   String?
+  createdAt  DateTime @default(now())
+
+  meeting    Meeting  @relation(fields: [meetingId], references: [id], onDelete: Cascade)
+  sender     User     @relation(fields: [senderId], references: [id])
+  parent     MeetingMessage?  @relation("MeetingMessageReplies", fields: [parentId], references: [id], onDelete: SetNull)
+  replies    MeetingMessage[] @relation("MeetingMessageReplies")
+
+  @@index([meetingId, createdAt])
+  @@index([parentId])
+}
+
+model Invitation {
+  id                 String    @id @default(cuid())
+  meetingId          String
+  userId             String
+  status             String    @default("PENDING")
+  sentAt             DateTime?
+  respondedAt        DateTime?
+  createdAt          DateTime  @default(now())
+
+  meeting            Meeting   @relation(fields: [meetingId], references: [id], onDelete: Cascade)
+  user               User      @relation(fields: [userId], references: [id])
+
+  @@unique([meetingId, userId])
+}
+
+model RoomBooking {
+  id                 String    @id @default(cuid())
+  roomId             String
+  meetingId          String?   @unique
+  userId             String
+  date               DateTime
+  startTime          String
+  endTime            String
+  status             String    @default("CONFIRMED")
+  createdAt          DateTime  @default(now())
+
+  room               Room      @relation(fields: [roomId], references: [id])
+  meeting            Meeting?  @relation(fields: [meetingId], references: [id])
+  bookedBy           User      @relation(fields: [userId], references: [id])
+}
+
+model Notification {
+  id                 String    @id @default(cuid())
+  userId             String
+  type               String
+  title              String
+  body               String
+  link               String?
+  isRead             Boolean   @default(false)
+  createdAt          DateTime  @default(now())
+
+  user               User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+}
+
+model AuditLog {
+  id                 String    @id @default(cuid())
+  userId             String?
+  action             String
+  entity             String
+  entityId           String
+  ipAddress          String?
+  details            String?
+  createdAt          DateTime  @default(now())
+
+  user               User?     @relation(fields: [userId], references: [id])
+}
+
+model RefreshToken {
+  id                 String    @id @default(cuid())
+  userId             String
+  token              String    @unique
+  expiresAt          DateTime
+  isRevoked          Boolean   @default(false)
+  createdAt          DateTime  @default(now())
+
+  user               User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+}
+
+model Mission {
+  id           String    @id @default(cuid())
+  title        String
+  description  String?
+  location     String
+  startTime    DateTime
+  endTime      DateTime
+  directionId  String?
+  projectId    String?
+  createdById  String
+  status       String    @default("CONFIRMED")
+  createdAt    DateTime  @default(now())
+  updatedAt    DateTime  @updatedAt
+
+  createdBy    User      @relation("MissionsCreated", fields: [createdById], references: [id])
+  direction    Direction? @relation(fields: [directionId], references: [id])
+  project      Project?   @relation(fields: [projectId], references: [id])
+  assignments  MissionAssignment[]
+  files        MissionFile[]
+
+  @@index([directionId])
+  @@index([projectId])
+}
+
+model MissionFile {
+  id           String   @id @default(cuid())
+  missionId    String
+  uploadedById String
+  kind         String   @default("DOCUMENT")
+  fileName     String
+  fileUrl      String
+  mimeType     String?
+  size         Int?
+  createdAt    DateTime @default(now())
+
+  mission      Mission  @relation(fields: [missionId], references: [id], onDelete: Cascade)
+  uploadedBy   User     @relation(fields: [uploadedById], references: [id])
+
+  @@index([missionId, createdAt])
+}
+
+model MissionAssignment {
+  id        String   @id @default(cuid())
+  missionId String
+  userId    String
+  createdAt DateTime @default(now())
+
+  mission   Mission  @relation(fields: [missionId], references: [id], onDelete: Cascade)
+  user      User     @relation(fields: [userId], references: [id])
+
+  @@unique([missionId, userId])
+}
+
+// Paramètres globaux de l'application (admin)
+model AppSetting {
+  key       String   @id
+  value     String
+  updatedAt DateTime @updatedAt
+}
+
+model Direction {
+  id            String         @id @default(cuid())
+  name          String
+  code          String?        @unique
+  description   String?
+  isActive      Boolean        @default(true)
+  createdAt     DateTime       @default(now())
+  updatedAt     DateTime       @updatedAt
+
+  meetings      Meeting[]
+  missions      Mission[]
+  planningEvents PlanningEvent[]
+
+  @@unique([name])
+}
+
+model Project {
+  id            String         @id @default(cuid())
+  name          String
+  code          String?        @unique
+  description   String?
+  isActive      Boolean        @default(true)
+  status        String         @default("ACTIVE") // ACTIVE | PAUSED | COMPLETED
+  createdById   String?
+  createdAt     DateTime       @default(now())
+  updatedAt     DateTime       @updatedAt
+
+  createdBy     User?          @relation("ProjectCreatedBy", fields: [createdById], references: [id], onDelete: SetNull)
+  meetings      Meeting[]
+  missions      Mission[]
+  planningEvents PlanningEvent[]
+  files         ProjectFile[]
+
+  @@unique([name])
+  @@index([status])
+  @@index([createdById])
+}
+
+model ProjectFile {
+  id           String   @id @default(cuid())
+  projectId    String
+  uploadedById String
+  fileName     String
+  fileUrl      String
+  mimeType     String?
+  size         Int?
+  createdAt    DateTime @default(now())
+
+  project      Project  @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  uploadedBy   User     @relation(fields: [uploadedById], references: [id])
+
+  @@index([projectId, createdAt])
+}
+
+// Historique des mots de passe – CDC §3.1.2 (interdiction de réutiliser les 3 derniers)
+model PasswordHistory {
+  id           String   @id @default(cuid())
+  userId       String
+  passwordHash String
+  createdAt    DateTime @default(now())
+
+  user         User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, createdAt])
+}
