@@ -8,7 +8,7 @@ import {
     MenuFoldOutlined, MenuUnfoldOutlined, DashboardOutlined, CalendarOutlined,
     TeamOutlined, HomeOutlined, SettingOutlined, UserOutlined, LogoutOutlined,
     BellOutlined, FlagOutlined, ScheduleOutlined, MessageOutlined,
-    UnorderedListOutlined, ProjectOutlined, SearchOutlined,
+    UnorderedListOutlined, ProjectOutlined, SearchOutlined, MoonOutlined, SunOutlined,
 } from '@ant-design/icons';
 import { useAuth } from '../context/AuthContext';
 import NotificationBell from './NotificationBell';
@@ -21,6 +21,7 @@ import {
 } from '../realtime/socket';
 import { isPrivilegedAdmin, isSuperAdmin } from '../utils/roles';
 import { getAdminNavForRole } from '../pages/admin/adminNavConfig';
+import { useThemeMode } from '../context/ThemeModeContext';
 
 const { Header, Content, Sider } = Layout;
 const { useBreakpoint } = Grid;
@@ -46,6 +47,7 @@ export default function AppLayout() {
     const navigate = useNavigate();
     const location = useLocation();
     const { modal, notification } = App.useApp();
+    const { isDark, toggleMode } = useThemeMode();
     const screens = useBreakpoint();
     const isXs = !screens.sm;
     const isMobile = !screens.md;
@@ -473,6 +475,12 @@ export default function AppLayout() {
             label: 'Mon profil',
             onClick: () => navigate('/profile'),
         },
+        {
+            key: 'theme-toggle',
+            icon: isDark ? <SunOutlined /> : <MoonOutlined />,
+            label: isDark ? 'Passer en mode clair' : 'Passer en mode sombre',
+            onClick: toggleMode,
+        },
         { type: 'divider' },
         {
             key: 'logout',
@@ -704,8 +712,8 @@ export default function AppLayout() {
                         padding: isMobile
                             ? '0 max(8px, env(safe-area-inset-right)) 0 max(4px, env(safe-area-inset-left))'
                             : '0 max(16px, env(safe-area-inset-right)) 0 max(8px, env(safe-area-inset-left))',
-                        background: '#fff',
-                        borderBottom: '1px solid #f0f0f0',
+                        background: isDark ? '#14171c' : '#fff',
+                        borderBottom: isDark ? '1px solid #2b2f36' : '1px solid #f0f0f0',
                         height: 56,
                         minHeight: 56,
                         gap: isXs ? 4 : 8,
@@ -795,6 +803,13 @@ export default function AppLayout() {
                     )}
 
                     <Space size={isXs ? 2 : 8} style={{ flexShrink: 0, marginLeft: isXs ? 0 : 4 }}>
+                        <Button
+                            type="text"
+                            icon={isDark ? <SunOutlined /> : <MoonOutlined />}
+                            onClick={toggleMode}
+                            className="touch-target"
+                            title={isDark ? 'Activer le mode clair' : 'Activer le mode sombre'}
+                        />
                         {showInlineSearch && (
                             <Tooltip title={getSocketStatusDetail(rtSocket)}>
                                 <Tag
@@ -849,7 +864,7 @@ export default function AppLayout() {
                                     transition: 'background 0.15s',
                                     maxWidth: showHeaderUserDetails ? 220 : 52,
                                 }}
-                                onMouseEnter={(e) => { e.currentTarget.style.background = '#f5f5f5'; }}
+                                onMouseEnter={(e) => { e.currentTarget.style.background = isDark ? '#2a2f36' : '#f5f5f5'; }}
                                 onMouseLeave={(e) => { e.currentTarget.style.background = 'transparent'; }}
                             >
                                 <UserAvatar user={user} size={isXs ? 26 : 28} />
@@ -876,7 +891,7 @@ export default function AppLayout() {
                     style={{
                         padding: isXs ? 8 : isMobile ? 12 : isTablet ? 16 : 24,
                         paddingBottom: `max(${isXs ? 16 : 24}px, env(safe-area-inset-bottom))`,
-                        background: '#f5f5f5',
+                        background: isDark ? '#0f1115' : '#f5f5f5',
                         minHeight: 'calc(100vh - 56px)',
                         minWidth: 0,
                         boxSizing: 'border-box',

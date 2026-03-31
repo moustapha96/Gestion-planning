@@ -41,6 +41,16 @@ body {
     overscroll-behavior-y: contain;
 }
 
+body.app-dark {
+    background: #0f1115;
+    color: #e6e8eb;
+}
+
+body.app-dark .discussions-footer {
+    background: #14171c;
+    border-top: 1px solid #2b2f36;
+}
+
 #root {
     @apply min-h-screen;
 }

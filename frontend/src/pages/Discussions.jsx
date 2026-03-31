@@ -11,6 +11,7 @@ import isToday from 'dayjs/plugin/isToday';
 import isYesterday from 'dayjs/plugin/isYesterday';
 import api, { API_BASE } from '../api/client';
 import { useAuth } from '../context/AuthContext';
+import { useThemeMode } from '../context/ThemeModeContext';
 import UserAvatar from '../components/UserAvatar';
 import { isPrivilegedAdmin, isSuperAdmin } from '../utils/roles';
 import {
@@ -25,6 +26,7 @@ dayjs.locale('fr');
 const OUTBOX_KEY       = 'directMessagesOutboxV1';
 const FILE_OUTBOX_DB   = 'directMessagesOfflineDB';
 const FILE_OUTBOX_STORE = 'fileOutbox';
+const MAX_UPLOAD_BATCH = 5;
 
 function readOutbox() {
     try { const r = localStorage.getItem(OUTBOX_KEY); return Array.isArray(JSON.parse(r)) ? JSON.parse(r) : []; }
@@ -81,11 +83,11 @@ function dateSeparatorLabel(dateStr) {
     return d.format('dddd D MMMM YYYY');
 }
 
-function MessageTicks({ m }) {
+function MessageTicks({ m, ui }) {
     if (m._failed)    return <WarningOutlined style={{ color: '#ff4d4f', fontSize: 12 }} />;
-    if (m._queued || m._optimistic) return <ClockCircleOutlined style={{ color: '#8696a0', fontSize: 11 }} />;
+    if (m._queued || m._optimistic) return <ClockCircleOutlined style={{ color: ui.textMuted, fontSize: 11 }} />;
     if (m.isRead)     return <span style={{ color: '#53bdeb', fontSize: 12, fontWeight: 700, letterSpacing: -2 }}>✓✓</span>;
-    return <span style={{ color: '#8696a0', fontSize: 12, letterSpacing: -2 }}>✓</span>;
+    return <span style={{ color: ui.textMuted, fontSize: 12, letterSpacing: -2 }}>✓</span>;
 }
 
 function getFileExt(fileName = '') {
@@ -113,7 +115,7 @@ function isWordAttachment(m) {
         || ['doc', 'docx'].includes(ext);
 }
 
-function MessageBubble({ m, mine, onReply, onDelete, onRetry, canModerate, hideReply }) {
+function MessageBubble({ m, mine, onReply, onDelete, onRetry, canModerate, hideReply, ui }) {
     const fileHref = m.fileUrl ? `${API_BASE}${m.fileUrl}` : null;
     const imageFile = isImageAttachment(m);
     const pdfFile = isPdfAttachment(m);
@@ -137,18 +139,18 @@ function MessageBubble({ m, mine, onReply, onDelete, onRetry, canModerate, hideR
             {/* Bubble */}
             <div
                 style={{
-                    background: mine ? '#d9fdd3' : '#fff',
+                    background: mine ? ui.bubbleMineBg : ui.bubbleOtherBg,
                     borderRadius: mine ? '12px 12px 2px 12px' : '12px 12px 12px 2px',
                     padding: '6px 10px 4px',
                     maxWidth: '100%',
-                    boxShadow: '0 1px 2px rgba(11,20,26,.13)',
+                    boxShadow: ui.bubbleShadow,
                     position: 'relative',
                     opacity: m._optimistic || m._queued ? 0.75 : 1,
                 }}
             >
                 {/* Sender name (theirs) */}
                 {!mine && (
-                    <div style={{ fontSize: 12, fontWeight: 700, color: '#128c7e', marginBottom: 2 }}>
+                    <div style={{ fontSize: 12, fontWeight: 700, color: ui.accent, marginBottom: 2 }}>
                         {m.sender?.name || 'Utilisateur'}
                     </div>
                 )}
@@ -156,17 +158,17 @@ function MessageBubble({ m, mine, onReply, onDelete, onRetry, canModerate, hideR
                 {/* Reply quote */}
                 {m.parent && (
                     <div style={{
-                        background: mine ? 'rgba(0,0,0,0.06)' : '#f0f0f0',
-                        borderLeft: '3px solid #128c7e',
+                        background: mine ? ui.quoteMineBg : ui.quoteOtherBg,
+                        borderLeft: `3px solid ${ui.accent}`,
                         borderRadius: '4px',
                         padding: '4px 8px',
                         marginBottom: 4,
                         fontSize: 12,
                     }}>
-                        <div style={{ fontWeight: 600, color: '#128c7e', fontSize: 11 }}>
+                        <div style={{ fontWeight: 600, color: ui.accent, fontSize: 11 }}>
                             {m.parent.sender?.name || 'Message'}
                         </div>
-                        <div style={{ color: '#555', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                        <div style={{ color: ui.textSecondary, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
                             {m.parent.body || m.parent.fileName || 'Fichier'}
                         </div>
                     </div>
@@ -183,7 +185,7 @@ function MessageBubble({ m, mine, onReply, onDelete, onRetry, canModerate, hideR
                 {(m.fileName || fileHref) && (
                     <div style={{
                         display: 'flex', alignItems: 'center', gap: 6, flexDirection: 'column',
-                        background: mine ? 'rgba(0,0,0,0.06)' : '#f0f2f5',
+                        background: mine ? ui.quoteMineBg : ui.quoteOtherBg,
                         borderRadius: 6, padding: '6px 8px', marginTop: m.body ? 4 : 0, width: '100%',
                     }}>
                         {imageFile && fileHref && (
@@ -205,14 +207,14 @@ function MessageBubble({ m, mine, onReply, onDelete, onRetry, canModerate, hideR
                         )}
 
                         <div style={{ display: 'flex', alignItems: 'center', gap: 6, width: '100%' }}>
-                            <FileOutlined style={{ fontSize: 18, color: '#1A365D', flexShrink: 0 }} />
+                            <FileOutlined style={{ fontSize: 18, color: ui.fileColor, flexShrink: 0 }} />
                             {fileHref ? (
                                 <a href={fileHref} target="_blank" rel="noopener noreferrer"
-                                    style={{ fontSize: 13, color: '#1A365D', textDecoration: 'underline', flex: 1, minWidth: 0 }}>
+                                    style={{ fontSize: 13, color: ui.fileColor, textDecoration: 'underline', flex: 1, minWidth: 0 }}>
                                     {m.fileName || 'Fichier joint'}
                                 </a>
                             ) : (
-                                <span style={{ fontSize: 13, color: '#555', flex: 1 }}>{m.fileName || 'Fichier (envoi en cours…)'}</span>
+                                <span style={{ fontSize: 13, color: ui.textSecondary, flex: 1 }}>{m.fileName || 'Fichier (envoi en cours…)'}</span>
                             )}
                         </div>
 
@@ -246,10 +248,10 @@ function MessageBubble({ m, mine, onReply, onDelete, onRetry, canModerate, hideR
                     display: 'flex', justifyContent: 'flex-end', alignItems: 'center',
                     gap: 3, marginTop: 2, marginBottom: -1,
                 }}>
-                    <span style={{ fontSize: 11, color: '#8696a0', whiteSpace: 'nowrap' }}>
+                    <span style={{ fontSize: 11, color: ui.textMuted, whiteSpace: 'nowrap' }}>
                         {dayjs(m.createdAt).format('HH:mm')}
                     </span>
-                    {mine && <MessageTicks m={m} />}
+                    {mine && <MessageTicks m={m} ui={ui} />}
                 </div>
             </div>
 
@@ -264,9 +266,9 @@ function MessageBubble({ m, mine, onReply, onDelete, onRetry, canModerate, hideR
                     <button
                         onClick={() => !hideReply && onReply(m)}
                         style={{
-                            background: 'rgba(0,0,0,0.06)', border: 'none', borderRadius: '50%',
+                            background: ui.actionBtnBg, border: 'none', borderRadius: '50%',
                             width: 26, height: 26, cursor: hideReply ? 'default' : 'pointer', display: hideReply ? 'none' : 'flex',
-                            alignItems: 'center', justifyContent: 'center', fontSize: 11, color: '#555',
+                            alignItems: 'center', justifyContent: 'center', fontSize: 11, color: ui.textSecondary,
                         }}
                     >
                         ↩
@@ -279,7 +281,7 @@ function MessageBubble({ m, mine, onReply, onDelete, onRetry, canModerate, hideR
                         onConfirm={() => onDelete(m.id)}
                     >
                         <button style={{
-                            background: 'rgba(0,0,0,0.06)', border: 'none', borderRadius: '50%',
+                            background: ui.actionBtnBg, border: 'none', borderRadius: '50%',
                             width: 26, height: 26, cursor: 'pointer', display: 'flex',
                             alignItems: 'center', justifyContent: 'center', color: '#ff4d4f',
                         }}>
@@ -295,6 +297,7 @@ function MessageBubble({ m, mine, onReply, onDelete, onRetry, canModerate, hideR
 // ── Composant principal ───────────────────────────────────────────
 export default function Discussions() {
     const { user }    = useAuth();
+    const { isDark } = useThemeMode();
     const { message, notification } = App.useApp();
 
     const [enabled,         setEnabled]         = useState(true);
@@ -818,7 +821,41 @@ export default function Discussions() {
     );
 
     // ── Render ────────────────────────────────────────────────────
-    const chatBg = '#efeae2';
+    const ui = {
+        pageBorder: isDark ? '#2b2f36' : '#dfe5e7',
+        pageShadow: isDark ? '0 4px 20px rgba(0,0,0,0.35)' : '0 4px 20px rgba(0,0,0,0.08)',
+        sidebarBg: isDark ? '#14171c' : '#fff',
+        sidebarHeaderBg: isDark ? '#0f2239' : '#1A365D',
+        sidebarSearchBg: isDark ? '#1b2027' : '#f0f2f5',
+        sidebarSearchBorder: isDark ? '#2b3139' : '#e9edef',
+        searchInputBg: isDark ? '#232a33' : '#fff',
+        rowSelectedBg: isDark ? '#27303a' : '#f0f2f5',
+        rowHoverBg: isDark ? '#212832' : '#f9f9f9',
+        rowBorder: isDark ? '#2b3139' : '#f5f5f5',
+        textPrimary: isDark ? '#e6e8eb' : '#111b21',
+        textSecondary: isDark ? '#b9c0c8' : '#555',
+        textMuted: isDark ? '#9aa4af' : '#8696a0',
+        chatBg: isDark ? '#0f1115' : '#efeae2',
+        chatHeaderBg: isDark ? '#0f2239' : '#1A365D',
+        separatorBg: isDark ? 'rgba(35,42,51,0.92)' : 'rgba(255,255,255,0.85)',
+        separatorColor: isDark ? '#c5ccd4' : '#54656f',
+        toolbarBg: isDark ? '#1b2027' : '#f0f2f5',
+        toolbarBorder: isDark ? '#2b3139' : '#e9edef',
+        quotePanelBg: isDark ? '#232a33' : '#fff',
+        accent: '#128c7e',
+        attachColor: isDark ? '#9aa4af' : '#8696a0',
+        attachColorDisabled: isDark ? '#5d6670' : '#bbb',
+        textInputBg: isDark ? '#232a33' : '#fff',
+        sendDisabled: isDark ? '#5f6b77' : '#8696a0',
+        bubbleMineBg: isDark ? '#1f5e52' : '#d9fdd3',
+        bubbleOtherBg: isDark ? '#232a33' : '#fff',
+        bubbleShadow: isDark ? '0 1px 2px rgba(0,0,0,0.35)' : '0 1px 2px rgba(11,20,26,.13)',
+        quoteMineBg: isDark ? 'rgba(0,0,0,0.18)' : 'rgba(0,0,0,0.06)',
+        quoteOtherBg: isDark ? '#2b3139' : '#f0f0f0',
+        actionBtnBg: isDark ? 'rgba(255,255,255,0.08)' : 'rgba(0,0,0,0.06)',
+        fileColor: isDark ? '#8fb7ff' : '#1A365D',
+    };
+    const chatBg = ui.chatBg;
     const showChat = mobileChat || isDesktopLayout;
 
     return (
@@ -829,10 +866,10 @@ export default function Discussions() {
             minWidth: 0,
             height: 'calc(100svh - var(--header-height, 56px) - env(safe-area-inset-top, 0px) - env(safe-area-inset-bottom, 0px) - 32px)',
             minHeight: 400,
-            border: '1px solid #dfe5e7',
+            border: `1px solid ${ui.pageBorder}`,
             borderRadius: 12,
             overflow: 'hidden',
-            boxShadow: '0 4px 20px rgba(0,0,0,0.08)',
+            boxShadow: ui.pageShadow,
             boxSizing: 'border-box',
         }}>
 
@@ -845,13 +882,13 @@ export default function Discussions() {
                     maxWidth: 340,
                     flexShrink: 0,
                     display: 'flex', flexDirection: 'column',
-                    borderRight: '1px solid #dfe5e7',
-                    background: '#fff',
+                    borderRight: `1px solid ${ui.pageBorder}`,
+                    background: ui.sidebarBg,
                 }}
             >
                 {/* Header sidebar */}
                 <div style={{
-                    background: '#1A365D', padding: '12px 16px',
+                    background: ui.sidebarHeaderBg, padding: '12px 16px',
                     display: 'flex', alignItems: 'center', justifyContent: 'space-between',
                 }}>
                     <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
@@ -877,19 +914,19 @@ export default function Discussions() {
                 </div>
 
                 {/* Recherche */}
-                <div style={{ padding: '8px 12px', background: '#f0f2f5', borderBottom: '1px solid #e9edef' }}>
+                <div style={{ padding: '8px 12px', background: ui.sidebarSearchBg, borderBottom: `1px solid ${ui.sidebarSearchBorder}` }}>
                     <Input
-                        prefix={<SearchOutlined style={{ color: '#8696a0' }} />}
+                        prefix={<SearchOutlined style={{ color: ui.textMuted }} />}
                         placeholder="Rechercher ou commencer..."
                         value={search}
                         onChange={(e) => setSearch(e.target.value)}
                         allowClear
-                        style={{ borderRadius: 8, background: '#fff', border: 'none' }}
+                        style={{ borderRadius: 8, background: ui.searchInputBg, border: 'none' }}
                     />
                 </div>
 
                 {isSuperAdmin(user?.role) && (
-                    <div style={{ padding: '8px 12px', borderBottom: '1px solid #e9edef', background: '#fff' }}>
+                    <div style={{ padding: '8px 12px', borderBottom: `1px solid ${ui.sidebarSearchBorder}`, background: ui.sidebarBg }}>
                         <Segmented
                             block
                             value={dmMode}
@@ -908,7 +945,7 @@ export default function Discussions() {
                         auditListLoading ? (
                             <div style={{ padding: 24, textAlign: 'center' }}><Spin /></div>
                         ) : auditConversations.length === 0 ? (
-                            <div style={{ padding: 24, textAlign: 'center', color: '#8696a0' }}>Aucune conversation</div>
+                            <div style={{ padding: 24, textAlign: 'center', color: ui.textMuted }}>Aucune conversation</div>
                         ) : (
                             auditConversations.map((row, idx) => {
                                 const sel = auditSelection;
@@ -925,15 +962,15 @@ export default function Discussions() {
                                             display: 'flex', alignItems: 'center', gap: 12,
                                             padding: '10px 16px',
                                             cursor: 'pointer',
-                                            background: selected ? '#f0f2f5' : 'transparent',
-                                            borderBottom: '1px solid #f5f5f5',
+                                            background: selected ? ui.rowSelectedBg : 'transparent',
+                                            borderBottom: `1px solid ${ui.rowBorder}`,
                                         }}
                                     >
                                         <div style={{ flex: 1, minWidth: 0 }}>
-                                            <div style={{ fontWeight: 600, fontSize: 13, color: '#111b21' }}>
+                                            <div style={{ fontWeight: 600, fontSize: 13, color: ui.textPrimary }}>
                                                 {row.userA?.name || '?'} ↔ {row.userB?.name || '?'}
                                             </div>
-                                            <div style={{ fontSize: 12, color: '#8696a0', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                                            <div style={{ fontSize: 12, color: ui.textMuted, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
                                                 {row.lastMessage || '—'}
                                             </div>
                                         </div>
@@ -944,7 +981,7 @@ export default function Discussions() {
                     ) : (
                         <>
                     {filteredUsers.length === 0 && (
-                        <div style={{ padding: 24, textAlign: 'center', color: '#8696a0' }}>Aucun membre</div>
+                        <div style={{ padding: 24, textAlign: 'center', color: ui.textMuted }}>Aucun membre</div>
                     )}
                     {filteredUsers.map((u) => {
                         const conv     = convMap.get(u.id);
@@ -959,11 +996,11 @@ export default function Discussions() {
                                     display: 'flex', alignItems: 'center', gap: 12,
                                     padding: '10px 16px',
                                     cursor: 'pointer',
-                                    background: selected ? '#f0f2f5' : 'transparent',
-                                    borderBottom: '1px solid #f5f5f5',
+                                    background: selected ? ui.rowSelectedBg : 'transparent',
+                                    borderBottom: `1px solid ${ui.rowBorder}`,
                                     transition: 'background 0.1s',
                                 }}
-                                onMouseEnter={(e) => { if (!selected) e.currentTarget.style.background = '#f9f9f9'; }}
+                                onMouseEnter={(e) => { if (!selected) e.currentTarget.style.background = ui.rowHoverBg; }}
                                 onMouseLeave={(e) => { if (!selected) e.currentTarget.style.background = 'transparent'; }}
                             >
                                 <div style={{ position: 'relative', flexShrink: 0 }}>
@@ -987,12 +1024,12 @@ export default function Discussions() {
                                 </div>
                                 <div style={{ flex: 1, minWidth: 0 }}>
                                     <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                                        <span style={{ fontWeight: 600, fontSize: 14, color: '#111b21' }}>{u.name}</span>
-                                        <span style={{ fontSize: 11, color: unread ? '#25d366' : '#8696a0', flexShrink: 0 }}>{lastTime}</span>
+                                        <span style={{ fontWeight: 600, fontSize: 14, color: ui.textPrimary }}>{u.name}</span>
+                                        <span style={{ fontSize: 11, color: unread ? '#25d366' : ui.textMuted, flexShrink: 0 }}>{lastTime}</span>
                                     </div>
                                     <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: 1 }}>
                                         <span style={{
-                                            fontSize: 13, color: '#8696a0',
+                                            fontSize: 13, color: ui.textMuted,
                                             overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
                                             maxWidth: 'calc(100% - 28px)',
                                         }}>
@@ -1029,17 +1066,17 @@ export default function Discussions() {
                     <div style={{
                         flex: 1, display: 'flex', flexDirection: 'column',
                         alignItems: 'center', justifyContent: 'center', gap: 12,
-                        color: '#8696a0',
+                        color: ui.textMuted,
                     }}>
                         <div style={{ fontSize: 48 }}>💬</div>
-                        <div style={{ fontSize: 18, fontWeight: 600, color: '#41525d' }}>Gestion Planning — Messagerie</div>
+                        <div style={{ fontSize: 18, fontWeight: 600, color: ui.textPrimary }}>Gestion Planning — Messagerie</div>
                         <div style={{ fontSize: 14 }}>Sélectionnez une conversation pour commencer</div>
                     </div>
                 ) : (
                     <>
                         {/* ── Header chat ── */}
                         <div style={{
-                            background: '#1A365D', padding: '10px 16px',
+                            background: ui.chatHeaderBg, padding: '10px 16px',
                             display: 'flex', alignItems: 'center', gap: 12,
                             flexShrink: 0, zIndex: 2,
                             boxShadow: '0 1px 3px rgba(0,0,0,0.2)',
@@ -1092,9 +1129,9 @@ export default function Discussions() {
                                         return (
                                             <div key={item.id} style={{ textAlign: 'center', margin: '8px 0' }}>
                                                 <span style={{
-                                                    background: 'rgba(255,255,255,0.85)',
+                                                    background: ui.separatorBg,
                                                     borderRadius: 8, padding: '3px 12px',
-                                                    fontSize: 12, color: '#54656f',
+                                                    fontSize: 12, color: ui.separatorColor,
                                                     boxShadow: '0 1px 1px rgba(0,0,0,0.1)',
                                                 }}>
                                                     {dateSeparatorLabel(item.date)}
@@ -1114,6 +1151,7 @@ export default function Discussions() {
                                             onRetry={retryMessage}
                                             canModerate={isPrivilegedAdmin(user?.role)}
                                             hideReply={Boolean(auditSelection)}
+                                            ui={ui}
                                         />
                                     );
                                 })
@@ -1125,7 +1163,7 @@ export default function Discussions() {
                         {/* ── Barre réponse ── */}
                         {(replyingTo || retryFileTarget) && (
                             <div style={{
-                                background: '#f0f2f5', borderTop: '1px solid #e9edef',
+                                background: ui.toolbarBg, borderTop: `1px solid ${ui.toolbarBorder}`,
                                 padding: '8px 16px',
                                 display: 'flex', alignItems: 'center', gap: 8,
                                 flexShrink: 0,
@@ -1134,7 +1172,7 @@ export default function Discussions() {
                                     flex: 1,
                                     borderLeft: '4px solid #128c7e',
                                     padding: '6px 10px 6px 12px',
-                                    background: '#fff',
+                                    background: ui.quotePanelBg,
                                     borderRadius: 6,
                                 }}>
                                     {replyingTo && (
@@ -1142,7 +1180,7 @@ export default function Discussions() {
                                             <div style={{ fontSize: 12, fontWeight: 700, color: '#128c7e' }}>
                                                 {replyingTo.sender?.name || 'Message'}
                                             </div>
-                                            <div style={{ fontSize: 13, color: '#555', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                                            <div style={{ fontSize: 13, color: ui.textSecondary, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
                                                 {replyingTo.body || replyingTo.fileName || 'Fichier'}
                                             </div>
                                         </>
@@ -1150,7 +1188,7 @@ export default function Discussions() {
                                     {retryFileTarget && (
                                         <>
                                             <div style={{ fontSize: 12, fontWeight: 700, color: '#d48806' }}>Renvoi de fichier</div>
-                                            <div style={{ fontSize: 13, color: '#555' }}>
+                                            <div style={{ fontSize: 13, color: ui.textSecondary }}>
                                                 {retryFileTarget.fileName || 'Fichier'} — cliquez sur 📎 pour sélectionner
                                             </div>
                                         </>
@@ -1165,8 +1203,8 @@ export default function Discussions() {
 
                         {/* ── Barre de saisie ── */}
                         <div style={{
-                            background: '#f0f2f5',
-                            borderTop: '1px solid #e9edef',
+                            background: ui.toolbarBg,
+                            borderTop: `1px solid ${ui.toolbarBorder}`,
                             padding: '10px 16px',
                             display: 'flex', alignItems: 'flex-end', gap: 8,
                             flexShrink: 0,
@@ -1175,7 +1213,15 @@ export default function Discussions() {
                             {/* Pièce jointe */}
                             <Upload
                                 showUploadList={false}
+                                multiple={!retryFileTarget}
                                 accept=".doc,.docx,.pdf,.png,application/msword,application/vnd.openxmlformats-officedocument.wordprocessingml.document,application/pdf,image/png"
+                                beforeUpload={(_, fileList) => {
+                                    if (!retryFileTarget && Array.isArray(fileList) && fileList.length > MAX_UPLOAD_BATCH) {
+                                        message.warning(`Vous pouvez envoyer au maximum ${MAX_UPLOAD_BATCH} éléments à la fois.`);
+                                        return Upload.LIST_IGNORE;
+                                    }
+                                    return true;
+                                }}
                                 customRequest={async ({ file, onSuccess, onError }) => {
                                     const effectiveTarget = retryFileTarget?.receiverId || selectedUserId;
                                     if (!effectiveTarget) { onError?.(new Error('no user')); return; }
@@ -1229,7 +1275,7 @@ export default function Discussions() {
                             >
                                 <button style={{
                                     background: 'none', border: 'none', cursor: uploading ? 'wait' : 'pointer',
-                                    color: uploading ? '#bbb' : '#8696a0', fontSize: 22,
+                                    color: uploading ? ui.attachColorDisabled : ui.attachColor, fontSize: 22,
                                     display: 'flex', alignItems: 'center', padding: 4,
                                 }}>
                                     <PaperClipOutlined />
@@ -1247,7 +1293,7 @@ export default function Discussions() {
                                 maxLength={3000}
                                 style={{
                                     flex: 1, borderRadius: 20,
-                                    resize: 'none', background: '#fff',
+                                    resize: 'none', background: ui.textInputBg,
                                     border: 'none', boxShadow: 'none',
                                     padding: '8px 14px', fontSize: 14,
                                 }}
@@ -1258,7 +1304,7 @@ export default function Discussions() {
                                 onClick={sendMessage}
                                 disabled={sending || !text.trim()}
                                 style={{
-                                    background: text.trim() ? '#128c7e' : '#8696a0',
+                                    background: text.trim() ? '#128c7e' : ui.sendDisabled,
                                     border: 'none', borderRadius: '50%',
                                     width: 42, height: 42, flexShrink: 0,
                                     cursor: text.trim() ? 'pointer' : 'default',

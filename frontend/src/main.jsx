@@ -1,15 +1,18 @@
 import { StrictMode } from 'react';
 import { createRoot } from 'react-dom/client';
-import { ConfigProvider, App as AntApp } from 'antd';
+import { ConfigProvider, App as AntApp, theme as antdTheme } from 'antd';
 import './index.css';
 import App from './App.jsx';
 import { AuthProvider } from './context/AuthContext.jsx';
+import { ThemeModeProvider, useThemeMode } from './context/ThemeModeContext.jsx';
 
-createRoot(document.getElementById('root')).render(
-    <StrictMode>
+function ThemedProviders() {
+    const { isDark } = useThemeMode();
+    return (
         <ConfigProvider
             getPopupContainer={() => document.getElementById('popup-root') || document.body}
             theme={{
+                algorithm: isDark ? antdTheme.darkAlgorithm : antdTheme.defaultAlgorithm,
                 token: {
                     colorPrimary: '#1A365D',
                     colorSuccess: '#48BB78',
@@ -20,7 +23,9 @@ createRoot(document.getElementById('root')).render(
                 },
                 components: {
                     Button: { colorPrimary: '#1A365D', algorithm: true },
-                    Menu:   { itemSelectedBg: '#e8f0fe', itemSelectedColor: '#1A365D' },
+                    Menu: isDark
+                        ? { itemSelectedBg: 'rgba(255,255,255,0.14)', itemSelectedColor: '#ffffff' }
+                        : { itemSelectedBg: '#e8f0fe', itemSelectedColor: '#1A365D' },
                 },
             }}
         >
@@ -30,5 +35,13 @@ createRoot(document.getElementById('root')).render(
                 </AuthProvider>
             </AntApp>
         </ConfigProvider>
+    );
+}
+
+createRoot(document.getElementById('root')).render(
+    <StrictMode>
+        <ThemeModeProvider>
+            <ThemedProviders />
+        </ThemeModeProvider>
     </StrictMode>
 );
