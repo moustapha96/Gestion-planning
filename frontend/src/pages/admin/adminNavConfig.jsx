@@ -36,5 +36,6 @@ export function getAdminNavForRole(isSuperAdmin) {
 
 export function getAdminPageTitle(pathname) {
     const found = ADMIN_NAV_ITEMS.find((i) => i.path === pathname);
+    if (!found && pathname.startsWith('/admin/directions/')) return 'Directions';
     return found?.label || 'Administration';
 }

@@ -1,8 +1,9 @@
 import { useEffect, useState, useCallback, useMemo } from 'react';
+import { useNavigate } from 'react-router-dom';
 import {
-    Table, Tag, Button, Typography, Space, Modal, Form, Input, Popconfirm, App, Tooltip, Row, Col, Spin, Switch, Alert,
+    Table, Tag, Button, Typography, Space, Modal, Form, Input, Popconfirm, App, Tooltip, Row, Col, Spin, Switch, Alert, Upload, List, Grid,
 } from 'antd';
-import { PlusOutlined, EditOutlined, DeleteOutlined, ApartmentOutlined, ProjectOutlined } from '@ant-design/icons';
+import { PlusOutlined, EditOutlined, DeleteOutlined, ApartmentOutlined, ProjectOutlined, UploadOutlined } from '@ant-design/icons';
 import { Link } from 'react-router-dom';
 import api from '../../api/client';
 
@@ -14,6 +15,9 @@ const { Text } = Typography;
  */
 export default function AdminTaxonomyPage({ variant }) {
     const { message } = App.useApp();
+    const navigate = useNavigate();
+    const screens = Grid.useBreakpoint();
+    const isMobile = !screens.md;
     const isDirections = variant === 'directions';
 
     const [loading, setLoading] = useState(true);
@@ -22,9 +26,39 @@ export default function AdminTaxonomyPage({ variant }) {
     const [createOpen, setCreateOpen] = useState(false);
     const [editState, setEditState] = useState({ open: false, item: null });
     const [saving, setSaving] = useState(false);
+    const [logoUploading, setLogoUploading] = useState(false);
     const [search, setSearch] = useState('');
     const [createForm] = Form.useForm();
     const [editForm] = Form.useForm();
+    const createLogoUrl = Form.useWatch('logoUrl', createForm);
+    const editLogoUrl = Form.useWatch('logoUrl', editForm);
+
+    const isValidLogoValue = (value) => {
+        const v = String(value || '').trim();
+        if (!v) return false;
+        return /^https?:\/\//i.test(v) || v.startsWith('/');
+    };
+
+    const logoRules = [
+        { required: true, message: 'Le logo est obligatoire' },
+        {
+            validator: (_, value) => {
+                if (isValidLogoValue(value)) return Promise.resolve();
+                return Promise.reject(new Error('Utilisez une URL (http/https) ou un chemin local commençant par /.'));
+            },
+        },
+    ];
+
+    const uploadLogoToServer = async (file, formInstance) => {
+        const fd = new FormData();
+        fd.append('logo', file);
+        const { data } = await api.post('/events/directions/logo', fd, {
+            headers: { 'Content-Type': 'multipart/form-data' },
+        });
+        const logoUrl = data?.logoUrl || '';
+        formInstance.setFieldsValue({ logoUrl });
+        message.success('Logo uploadé avec succès.');
+    };
 
     const load = useCallback(async () => {
         setLoading(true);
@@ -52,6 +86,17 @@ export default function AdminTaxonomyPage({ variant }) {
             (row.description || '').toLowerCase().includes(q));
     }, [rawItems, search]);
 
+    const PROJECT_STATUS_LABELS = {
+        ACTIVE: 'Actif',
+        PAUSED: 'En pause',
+        COMPLETED: 'Terminé',
+    };
+    const PROJECT_STATUS_COLORS = {
+        ACTIVE: 'green',
+        PAUSED: 'orange',
+        COMPLETED: 'default',
+    };
+
     const handleCreate = async () => {
         try {
             const values = await createForm.validateFields();
@@ -76,10 +121,15 @@ export default function AdminTaxonomyPage({ variant }) {
     };
 
     const openEdit = (item) => {
+        if (isDirections) {
+            navigate(`/admin/directions/${item.id}/edit`);
+            return;
+        }
         setEditState({ open: true, item });
         editForm.setFieldsValue({
             name: item?.name || '',
             code: item?.code || '',
+            logoUrl: item?.logoUrl || '',
             description: item?.description || '',
             isActive: Boolean(item?.isActive),
         });
@@ -160,12 +210,32 @@ export default function AdminTaxonomyPage({ variant }) {
             render: (v) => <Text strong>{v}</Text>,
         },
         {
+            title: isDirections ? 'Logo' : 'Code',
+            dataIndex: isDirections ? 'logoUrl' : 'code',
+            key: isDirections ? 'logoUrl' : 'code',
+            width: 180,
+            render: (v) => {
+                if (!isDirections) return v || '—';
+                if (!v) return '—';
+                return (
+                    <Tooltip title={v}>
+                        <img
+                            src={v}
+                            alt="Logo direction"
+                            style={{ width: 36, height: 36, objectFit: 'cover', borderRadius: 6, border: '1px solid #eee', background: '#fff' }}
+                            onError={(e) => { e.currentTarget.style.opacity = '0.4'; }}
+                        />
+                    </Tooltip>
+                );
+            },
+        },
+        ...(!isDirections ? [{
             title: 'Code',
             dataIndex: 'code',
             key: 'code',
             width: 150,
             render: (v) => v || '—',
-        },
+        }] : []),
         {
             title: 'Description',
             dataIndex: 'description',
@@ -178,22 +248,36 @@ export default function AdminTaxonomyPage({ variant }) {
             key: 'isActive',
             width: 140,
             render: (_, record) => (
-                <Space>
-                    <Switch
-                        checked={Boolean(record.isActive)}
-                        loading={saving}
-                        onChange={(checked) => toggleActive(record, checked)}
-                    />
-                    <Tag color={record.isActive ? 'green' : 'red'}>{record.isActive ? 'Actif' : 'Inactif'}</Tag>
-                </Space>
+                isDirections ? (
+                    <Space>
+                        <Switch
+                            checked={Boolean(record.isActive)}
+                            loading={saving}
+                            onChange={(checked) => toggleActive(record, checked)}
+                        />
+                        <Tag color={record.isActive ? 'green' : 'red'}>{record.isActive ? 'Actif' : 'Inactif'}</Tag>
+                    </Space>
+                ) : (
+                    <Space direction="vertical" size={4}>
+                        <Tag color={PROJECT_STATUS_COLORS[record.status] || 'default'}>
+                            {PROJECT_STATUS_LABELS[record.status] || record.status || '-'}
+                        </Tag>
+                        <Tag color={record.isActive ? 'green' : 'red'}>{record.isActive ? 'Actif' : 'Inactif'}</Tag>
+                    </Space>
+                )
             ),
         },
         {
             title: 'Actions',
             key: 'actions',
-            width: 150,
+            width: isDirections ? 260 : 150,
             render: (_, record) => (
                 <Space>
+                    {isDirections && (
+                        <Button size="small" onClick={() => navigate(`/admin/directions/${record.id}`)}>
+                            Détails
+                        </Button>
+                    )}
                     <Tooltip title="Modifier">
                         <Button size="small" icon={<EditOutlined />} onClick={() => openEdit(record)} />
                     </Tooltip>
@@ -257,6 +341,58 @@ export default function AdminTaxonomyPage({ variant }) {
 
             {loading ? (
                 <div style={{ textAlign: 'center', padding: 48 }}><Spin size="large" /></div>
+            ) : isMobile ? (
+                <List
+                    dataSource={items}
+                    rowKey="id"
+                    locale={{ emptyText: isDirections ? 'Aucune direction' : 'Aucun projet' }}
+                    renderItem={(record) => (
+                        <List.Item style={{ padding: 0, marginBottom: 10 }}>
+                            <Card size="small" style={{ width: '100%' }}>
+                                <Space direction="vertical" size={6} style={{ width: '100%' }}>
+                                    <Text strong>{record.name}</Text>
+                                    <Space wrap>
+                                        {!isDirections && (
+                                            <Tag color={PROJECT_STATUS_COLORS[record.status] || 'default'}>
+                                                {PROJECT_STATUS_LABELS[record.status] || record.status || '-'}
+                                            </Tag>
+                                        )}
+                                        <Tag color={record.isActive ? 'green' : 'red'}>{record.isActive ? 'Actif' : 'Inactif'}</Tag>
+                                        {!!record.code && <Tag>{record.code}</Tag>}
+                                    </Space>
+                                    <Text type="secondary">{record.description || '—'}</Text>
+                                    {isDirections && record.logoUrl && (
+                                        <img
+                                            src={record.logoUrl}
+                                            alt="Logo"
+                                            style={{ width: 44, height: 44, borderRadius: 8, objectFit: 'cover', border: '1px solid #f0f0f0' }}
+                                        />
+                                    )}
+                                    <Space wrap>
+                                        {isDirections && (
+                                            <Button size="small" onClick={() => navigate(`/admin/directions/${record.id}`)}>
+                                                Détails
+                                            </Button>
+                                        )}
+                                        <Button size="small" icon={<EditOutlined />} onClick={() => openEdit(record)}>
+                                            Modifier
+                                        </Button>
+                                        <Popconfirm
+                                            title={`Supprimer ${isDirections ? 'cette direction' : 'ce projet'} ?`}
+                                            description="Suppression possible seulement si non utilisé."
+                                            okText="Supprimer"
+                                            cancelText="Annuler"
+                                            okButtonProps={{ danger: true, loading: saving }}
+                                            onConfirm={() => handleDelete(record)}
+                                        >
+                                            <Button size="small" danger icon={<DeleteOutlined />}>Supprimer</Button>
+                                        </Popconfirm>
+                                    </Space>
+                                </Space>
+                            </Card>
+                        </List.Item>
+                    )}
+                />
             ) : (
                 <Table
                     rowKey="id"
@@ -284,6 +420,54 @@ export default function AdminTaxonomyPage({ variant }) {
                     <Form.Item name="code" label="Code">
                         <Input placeholder="Ex. DIR-RH" />
                     </Form.Item>
+                    {isDirections && (
+                        <Form.Item
+                            name="logoUrl"
+                            label="Logo (URL)"
+                            rules={logoRules}
+                            extra="Formats acceptés : https://... ou /uploads/... ou /logo.png"
+                        >
+                            <Input placeholder="https://exemple.com/logo.png ou /uploads/branding/logo.png" />
+                        </Form.Item>
+                    )}
+                    {isDirections && (
+                        <Form.Item label="Ou importer un logo (image)">
+                            <Upload
+                                showUploadList={false}
+                                accept="image/*"
+                                customRequest={async ({ file, onSuccess, onError }) => {
+                                    try {
+                                        setLogoUploading(true);
+                                        await uploadLogoToServer(file, createForm);
+                                        onSuccess?.('ok');
+                                    } catch (err) {
+                                        message.error(err?.response?.data?.error || "Erreur lors de l'upload du logo.");
+                                        onError?.(err);
+                                    } finally {
+                                        setLogoUploading(false);
+                                    }
+                                }}
+                            >
+                                <Button icon={<UploadOutlined />} loading={logoUploading}>
+                                    Déposer / sélectionner une image
+                                </Button>
+                            </Upload>
+                        </Form.Item>
+                    )}
+                    {isDirections && (
+                        <Form.Item label="Aperçu du logo">
+                            {isValidLogoValue(createLogoUrl) ? (
+                                <img
+                                    src={String(createLogoUrl).trim()}
+                                    alt="Aperçu logo direction"
+                                    style={{ width: 64, height: 64, borderRadius: 8, objectFit: 'cover', border: '1px solid #f0f0f0', background: '#fff' }}
+                                    onError={(e) => { e.currentTarget.style.opacity = '0.35'; }}
+                                />
+                            ) : (
+                                <Text type="secondary">Saisissez une URL ou un chemin local valide pour prévisualiser.</Text>
+                            )}
+                        </Form.Item>
+                    )}
                     <Form.Item name="description" label="Description">
                         <Input.TextArea rows={3} />
                     </Form.Item>
@@ -299,6 +483,7 @@ export default function AdminTaxonomyPage({ variant }) {
                 confirmLoading={saving}
                 destroyOnClose
             >
+                {!isDirections && (
                 <Form form={editForm} layout="vertical" style={{ marginTop: 16 }}>
                     <Form.Item name="name" label="Nom" rules={[{ required: true, message: 'Champ requis' }]}>
                         <Input />
@@ -306,6 +491,54 @@ export default function AdminTaxonomyPage({ variant }) {
                     <Form.Item name="code" label="Code">
                         <Input />
                     </Form.Item>
+                    {isDirections && (
+                        <Form.Item
+                            name="logoUrl"
+                            label="Logo (URL)"
+                            rules={logoRules}
+                            extra="Formats acceptés : https://... ou /uploads/... ou /logo.png"
+                        >
+                            <Input />
+                        </Form.Item>
+                    )}
+                    {isDirections && (
+                        <Form.Item label="Ou importer un logo (image)">
+                            <Upload
+                                showUploadList={false}
+                                accept="image/*"
+                                customRequest={async ({ file, onSuccess, onError }) => {
+                                    try {
+                                        setLogoUploading(true);
+                                        await uploadLogoToServer(file, editForm);
+                                        onSuccess?.('ok');
+                                    } catch (err) {
+                                        message.error(err?.response?.data?.error || "Erreur lors de l'upload du logo.");
+                                        onError?.(err);
+                                    } finally {
+                                        setLogoUploading(false);
+                                    }
+                                }}
+                            >
+                                <Button icon={<UploadOutlined />} loading={logoUploading}>
+                                    Déposer / sélectionner une image
+                                </Button>
+                            </Upload>
+                        </Form.Item>
+                    )}
+                    {isDirections && (
+                        <Form.Item label="Aperçu du logo">
+                            {isValidLogoValue(editLogoUrl) ? (
+                                <img
+                                    src={String(editLogoUrl).trim()}
+                                    alt="Aperçu logo direction"
+                                    style={{ width: 64, height: 64, borderRadius: 8, objectFit: 'cover', border: '1px solid #f0f0f0', background: '#fff' }}
+                                    onError={(e) => { e.currentTarget.style.opacity = '0.35'; }}
+                                />
+                            ) : (
+                                <Text type="secondary">Saisissez une URL ou un chemin local valide pour prévisualiser.</Text>
+                            )}
+                        </Form.Item>
+                    )}
                     <Form.Item name="description" label="Description">
                         <Input.TextArea rows={3} />
                     </Form.Item>
@@ -313,6 +546,7 @@ export default function AdminTaxonomyPage({ variant }) {
                         <Switch />
                     </Form.Item>
                 </Form>
+                )}
             </Modal>
         </div>
     );

@@ -1,7 +1,29 @@
 const express = require('express');
+const fs = require('fs');
+const path = require('path');
+const multer = require('multer');
 const { ROLES, isPrivilegedAdmin } = require('../config/roles');
+const { syncDirectionDiscussionMembers } = require('../services/directionDiscussion.service');
 
 const router = express.Router();
+const directionLogosDir = path.join(__dirname, '../../uploads/directions');
+const uploadDirectionLogo = multer({
+    storage: multer.diskStorage({
+        destination(_req, _file, cb) {
+            fs.mkdirSync(directionLogosDir, { recursive: true });
+            cb(null, directionLogosDir);
+        },
+        filename(_req, file, cb) {
+            const ext = (path.extname(file.originalname) || '').toLowerCase();
+            cb(null, `direction_logo_${Date.now()}${ext || '.png'}`);
+        },
+    }),
+    limits: { fileSize: 5 * 1024 * 1024 },
+});
+
+function canManageDirections(role) {
+    return isPrivilegedAdmin(role) || role === ROLES.DG;
+}
 
 function canViewAllPlannings(role) {
     return [ROLES.ADMIN, ROLES.SUPER_ADMIN, ROLES.CONSOLIDATEUR, ROLES.DG].includes(role);
@@ -257,17 +279,69 @@ router.get('/filters/meta', async (req, res) => {
 
 router.post('/directions', async (req, res) => {
     try {
-        if (!isPrivilegedAdmin(req.user?.role)) return res.status(403).json({ error: 'Acces reserve admin.' });
+        if (!canManageDirections(req.user?.role)) {
+            return res.status(403).json({ error: 'Acces reserve admin/DG.' });
+        }
         const name = String(req.body?.name || '').trim();
         const code = String(req.body?.code || '').trim() || null;
+        const logoUrl = String(req.body?.logoUrl || '').trim();
         const description = String(req.body?.description || '').trim() || null;
         if (!name) return res.status(400).json({ error: 'Le nom de la direction est requis.' });
+        if (!logoUrl) return res.status(400).json({ error: 'Le logo de la direction est requis.' });
         const created = await req.prisma.direction.create({
-            data: { name, code, description, isActive: true },
+            data: { name, code, logoUrl, description, isActive: true },
         });
         res.status(201).json(created);
     } catch (error) {
         res.status(400).json({ error: error.message });
+    }
+});
+
+router.post('/directions/logo', uploadDirectionLogo.single('logo'), async (req, res) => {
+    try {
+        if (!canManageDirections(req.user?.role)) {
+            return res.status(403).json({ error: 'Acces reserve admin/DG.' });
+        }
+        if (!req.file) {
+            return res.status(400).json({ error: 'Aucun logo reçu.' });
+        }
+        if (req.file.mimetype && !req.file.mimetype.startsWith('image/')) {
+            return res.status(400).json({ error: 'Le logo doit être une image.' });
+        }
+        const logoUrl = `/uploads/directions/${req.file.filename}`;
+        return res.status(201).json({ logoUrl });
+    } catch (error) {
+        return res.status(400).json({ error: error.message });
+    }
+});
+
+router.get('/directions/:id', async (req, res) => {
+    try {
+        if (!canManageDirections(req.user?.role)) {
+            return res.status(403).json({ error: 'Acces reserve admin/DG.' });
+        }
+        const direction = await req.prisma.direction.findUnique({
+            where: { id: req.params.id },
+            include: {
+                users: {
+                    where: { isDeleted: false },
+                    select: {
+                        id: true,
+                        name: true,
+                        email: true,
+                        role: true,
+                        isActive: true,
+                        avatarUrl: true,
+                        createdAt: true,
+                    },
+                    orderBy: { name: 'asc' },
+                },
+            },
+        });
+        if (!direction) return res.status(404).json({ error: 'Direction introuvable.' });
+        return res.json(direction);
+    } catch (error) {
+        return res.status(400).json({ error: error.message });
     }
 });
 
@@ -289,7 +363,7 @@ router.post('/projects', async (req, res) => {
 
 router.get('/taxonomy', async (req, res) => {
     try {
-        const includeInactive = isPrivilegedAdmin(req.user?.role) && String(req.query?.all || '') === '1';
+        const includeInactive = canManageDirections(req.user?.role) && String(req.query?.all || '') === '1';
         const [directions, projects] = await Promise.all([
             req.prisma.direction.findMany({
                 where: includeInactive ? {} : { isActive: true },
@@ -308,9 +382,12 @@ router.get('/taxonomy', async (req, res) => {
 
 router.put('/directions/:id', async (req, res) => {
     try {
-        if (!isPrivilegedAdmin(req.user?.role)) return res.status(403).json({ error: 'Acces reserve admin.' });
+        if (!canManageDirections(req.user?.role)) {
+            return res.status(403).json({ error: 'Acces reserve admin/DG.' });
+        }
         const name = req.body?.name !== undefined ? String(req.body.name || '').trim() : undefined;
         const code = req.body?.code !== undefined ? (String(req.body.code || '').trim() || null) : undefined;
+        const logoUrl = req.body?.logoUrl !== undefined ? String(req.body.logoUrl || '').trim() : undefined;
         const description = req.body?.description !== undefined ? (String(req.body.description || '').trim() || null) : undefined;
         const isActive = req.body?.isActive !== undefined ? Boolean(req.body.isActive) : undefined;
         const data = {};
@@ -319,9 +396,14 @@ router.put('/directions/:id', async (req, res) => {
             data.name = name;
         }
         if (code !== undefined) data.code = code;
+        if (logoUrl !== undefined) {
+            if (!logoUrl) return res.status(400).json({ error: 'Le logo de la direction est requis.' });
+            data.logoUrl = logoUrl;
+        }
         if (description !== undefined) data.description = description;
         if (isActive !== undefined) data.isActive = isActive;
         const updated = await req.prisma.direction.update({ where: { id: req.params.id }, data });
+        await syncDirectionDiscussionMembers(req.prisma, updated.id);
         res.json(updated);
     } catch (error) {
         res.status(400).json({ error: error.message });

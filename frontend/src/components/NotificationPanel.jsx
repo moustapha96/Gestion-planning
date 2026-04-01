@@ -16,6 +16,7 @@ const { Text } = Typography;
 
 // ── Métadonnées par type de notification ──────────────────────────
 const TYPE_META = {
+    DIRECT_MESSAGE:        { color: 'geekblue', label: 'Message',              dot: '#2f54eb' },
     PLANNING_SUBMITTED:    { color: 'blue',    label: 'Planning soumis',      dot: '#1677ff' },
     PLANNING_CONSOLIDATED: { color: 'purple',  label: 'Planning consolidé',   dot: '#722ed1' },
     PLANNING_VALIDATED:    { color: 'green',   label: 'Planning validé',      dot: '#52c41a' },
@@ -197,7 +198,7 @@ function NotifList({ items, loading, onRead, onDelete, onNavigate }) {
 export default function NotificationPanel({ onClose }) {
     const panelRef = useRef(null);
     const navigate = useNavigate();
-    const { notifications, unreadCount, loading, markAsRead, markAllAsRead, deleteNotification } =
+    const { notifications, messageNotifications, unreadCount, loading, markAsRead, markAllAsRead, deleteNotification } =
         useNotificationStore();
 
     useEffect(() => {
@@ -213,7 +214,9 @@ export default function NotificationPanel({ onClose }) {
         if (n.link) { navigate(n.link); onClose(); }
     }
 
-    const unread = notifications.filter((n) => !n.isRead);
+    const merged = [...(messageNotifications || []), ...(notifications || [])]
+        .sort((a, b) => new Date(b.createdAt || 0) - new Date(a.createdAt || 0));
+    const unread = merged.filter((n) => !n.isRead);
 
     return (
         <div
@@ -278,7 +281,7 @@ export default function NotificationPanel({ onClose }) {
                 <div style={{ display: 'flex', gap: 0 }}>
                     {[
                         { key: 'unread', label: 'Non lues', count: unread.length, accent: '#ff4d4f' },
-                        { key: 'all',    label: 'Toutes',   count: notifications.length, accent: null },
+                        { key: 'all',    label: 'Toutes',   count: merged.length, accent: null },
                     ].map(({ key, label, count, accent }) => (
                         <button
                             key={key}
@@ -332,7 +335,7 @@ export default function NotificationPanel({ onClose }) {
                 </div>
                 <div id="notif-list-all" style={{ display: 'none' }}>
                     <NotifList
-                        items={notifications}
+                        items={merged}
                         loading={loading}
                         onRead={markAsRead}
                         onDelete={deleteNotification}

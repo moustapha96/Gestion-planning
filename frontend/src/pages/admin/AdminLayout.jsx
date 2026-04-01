@@ -3,11 +3,12 @@ import { Outlet, useLocation, useNavigate, Link } from 'react-router-dom';
 import {
     Breadcrumb, Card, Col, Grid, Menu, Row, Space, Tag, Typography, Select,
 } from 'antd';
-import { HomeOutlined, SettingOutlined } from '@ant-design/icons';
+import { HomeOutlined, SettingOutlined, EyeInvisibleOutlined, EyeOutlined } from '@ant-design/icons';
 import { useAuth } from '../../context/AuthContext';
 import { isSuperAdmin } from '../../utils/roles';
 import { ROLE_COLORS, ROLE_LABELS } from './AdminSections';
 import { getAdminNavForRole, getAdminPageTitle } from './adminNavConfig';
+import { useState } from 'react';
 
 const { Title, Text } = Typography;
 const { useBreakpoint } = Grid;
@@ -18,6 +19,7 @@ export default function AdminLayout() {
     const navigate = useNavigate();
     const screens = useBreakpoint();
     const compact = !screens.md;
+    const [hideAdminMenu, setHideAdminMenu] = useState(false);
 
     const superAdmin = isSuperAdmin(user?.role);
     const navList = useMemo(() => getAdminNavForRole(superAdmin), [superAdmin]);
@@ -127,6 +129,16 @@ export default function AdminLayout() {
                                         Super admin
                                     </Tag>
                                 )}
+                                {!compact && (
+                                    <Tag
+                                        role="button"
+                                        onClick={() => setHideAdminMenu((v) => !v)}
+                                        style={{ cursor: 'pointer', margin: 0, padding: '4px 10px', fontSize: 13 }}
+                                        icon={hideAdminMenu ? <EyeOutlined /> : <EyeInvisibleOutlined />}
+                                    >
+                                        {hideAdminMenu ? 'Afficher menu' : 'Masquer menu'}
+                                    </Tag>
+                                )}
                             </Space>
                         </Col>
                     )}
@@ -138,7 +150,7 @@ export default function AdminLayout() {
                     <Col span={24}>
                         {mobileSelect}
                     </Col>
-                ) : (
+                ) : !hideAdminMenu ? (
                     <Col xs={24} md={8} lg={7} xl={6}>
                         <Card
                             size="small"
@@ -159,8 +171,8 @@ export default function AdminLayout() {
                             />
                         </Card>
                     </Col>
-                )}
-                <Col xs={24} md={compact ? 24 : 16} lg={compact ? 24 : 17} xl={compact ? 24 : 18}>
+                ) : null}
+                <Col xs={24} md={compact || hideAdminMenu ? 24 : 16} lg={compact || hideAdminMenu ? 24 : 17} xl={compact || hideAdminMenu ? 24 : 18}>
                     <Card
                         bordered={false}
                         style={{

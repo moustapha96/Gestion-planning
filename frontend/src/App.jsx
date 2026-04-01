@@ -23,6 +23,8 @@ import {
     AppConfigTab,
 } from './pages/admin/AdminSections';
 import AdminTaxonomyPage from './pages/admin/AdminTaxonomyPage';
+import DirectionDetailPage from './pages/admin/DirectionDetailPage';
+import DirectionEditPage from './pages/admin/DirectionEditPage';
 import AdminStatsTab from './pages/AdminStatsTab';
 import AdminPlanningsTab from './pages/AdminPlanningsTab';
 import AdminAuditTab from './pages/AdminAuditTab';
@@ -45,7 +47,7 @@ import NotFound from './pages/NotFound';
 import Home from './pages/Home';
 import PWAInstallPrompt from './components/PWAInstallPrompt';
 import MobileInit from './components/MobileInit';
-import { isPrivilegedAdmin } from './utils/roles';
+import { isPrivilegedAdmin, ROLES } from './utils/roles';
 
 function ProtectedRoute() {
     const { user } = useAuth();
@@ -60,6 +62,7 @@ function AdminRoute() {
 }
 
 export default function App() {
+    const { user } = useAuth();
     return (
         <BrowserRouter>
             <MobileInit />
@@ -92,6 +95,13 @@ export default function App() {
                         <Route path="/discussions" element={<Discussions />} />
                         <Route path="/events" element={<EventsUnified />} />
                         <Route path="/profile" element={<Profile />} />
+                        {user?.role === ROLES.DG && (
+                            <>
+                                <Route path="/admin/directions" element={<AdminTaxonomyPage variant="directions" />} />
+                                <Route path="/admin/directions/:id" element={<DirectionDetailPage />} />
+                                <Route path="/admin/directions/:id/edit" element={<DirectionEditPage />} />
+                            </>
+                        )}
                         <Route element={<AdminRoute />}>
                             <Route path="/admin" element={<AdminLayout />}>
                                 <Route index element={<Navigate to="stats" replace />} />
@@ -105,6 +115,8 @@ export default function App() {
                                 <Route path="security" element={<SecurityTab />} />
                                 <Route path="config" element={<AppConfigTab />} />
                                 <Route path="directions" element={<AdminTaxonomyPage variant="directions" />} />
+                                <Route path="directions/:id" element={<DirectionDetailPage />} />
+                                <Route path="directions/:id/edit" element={<DirectionEditPage />} />
                                 <Route path="projects" element={<AdminTaxonomyPage variant="projects" />} />
                                 <Route
                                     path="backups"

@@ -1,7 +1,7 @@
 import { useEffect, useState, useMemo } from 'react';
 import {
     Table, Tag, Button, Card, Typography, Space, Modal, Form, Input, Select,
-    Popconfirm, App, Tooltip, Row, Col, List, Spin, TimePicker, Switch, Upload,
+    Popconfirm, App, Tooltip, Row, Col, List, Spin, TimePicker, Switch, Upload, Grid,
 } from 'antd';
 import {
     PlusOutlined, StopOutlined, CheckOutlined, KeyOutlined, EditOutlined,
@@ -23,6 +23,8 @@ export const ROLE_LABELS = { RESPONSABLE: 'Responsable', CONSOLIDATEUR: 'Consoli
 export function UsersTab() {
     const { user: currentUser } = useAuth();
     const { message } = App.useApp();
+    const screens = Grid.useBreakpoint();
+    const isMobile = !screens.md;
     const [users, setUsers] = useState([]);
     const [loading, setLoading] = useState(true);
     const [search, setSearch] = useState('');
@@ -37,6 +39,7 @@ export function UsersTab() {
     const [editLoading, setEditLoading] = useState(false);
     const [resetLoading, setResetLoading] = useState(false);
     const [toggleLoadingId, setToggleLoadingId] = useState(null);
+    const [directions, setDirections] = useState([]);
     const [form] = Form.useForm();
     const [editForm] = Form.useForm();
     const [resetForm] = Form.useForm();
@@ -52,7 +55,19 @@ export function UsersTab() {
         }
     };
 
-    useEffect(() => { fetchUsers(); }, []);
+    const fetchDirections = async () => {
+        try {
+            const res = await api.get('/events/taxonomy');
+            setDirections(res.data?.directions || []);
+        } catch {
+            setDirections([]);
+        }
+    };
+
+    useEffect(() => {
+        fetchUsers();
+        fetchDirections();
+    }, []);
 
     const filtered = useMemo(() => {
         return users.filter((u) => {
@@ -109,7 +124,12 @@ export function UsersTab() {
 
     const openEdit = (record) => {
         setEditModal({ open: true, user: record });
-        editForm.setFieldsValue({ name: record.name, email: record.email, role: record.role });
+        editForm.setFieldsValue({
+            name: record.name,
+            email: record.email,
+            role: record.role,
+            directionId: record.directionId || null,
+        });
     };
 
     const handleEditSubmit = async () => {
@@ -117,7 +137,12 @@ export function UsersTab() {
         setEditLoading(true);
         try {
             const values = await editForm.validateFields();
-            await api.put(`/users/${editModal.user.id}`, { name: values.name, email: values.email, role: values.role });
+            await api.put(`/users/${editModal.user.id}`, {
+                name: values.name,
+                email: values.email,
+                role: values.role,
+                directionId: values.directionId || null,
+            });
             message.success('Utilisateur modifié');
             setEditModal({ open: false, user: null });
             editForm.resetFields();
@@ -176,6 +201,11 @@ export function UsersTab() {
             dataIndex: 'role',
             key: 'role',
             render: (role) => <Tag color={ROLE_COLORS[role]}>{ROLE_LABELS[role] || role}</Tag>,
+        },
+        {
+            title: 'Direction',
+            key: 'direction',
+            render: (_, r) => r.direction?.name || '-',
         },
         {
             title: 'Statut',
@@ -289,15 +319,99 @@ export function UsersTab() {
                 </Col>
             </Row>
 
-            <Table
-                columns={columns}
-                dataSource={filtered}
-                rowKey="id"
-                loading={loading}
-                pagination={{ pageSize: 10, showTotal: (t) => `${t} utilisateur(s)` }}
-                scroll={{ x: 'max-content' }}
-                size="small"
-            />
+            {isMobile ? (
+                <List
+                    loading={loading}
+                    dataSource={filtered}
+                    locale={{ emptyText: 'Aucun utilisateur' }}
+                    renderItem={(record) => (
+                        <List.Item style={{ padding: 0, marginBottom: 10 }}>
+                            <Card size="small" style={{ width: '100%' }}>
+                                <Space direction="vertical" size={6} style={{ width: '100%' }}>
+                                    <div>
+                                        <Text strong>{record.name}</Text>
+                                        <br />
+                                        <Text type="secondary" style={{ fontSize: 12 }}>{record.email}</Text>
+                                    </div>
+                                    <Space wrap>
+                                        <Tag color={ROLE_COLORS[record.role]}>{ROLE_LABELS[record.role] || record.role}</Tag>
+                                        <Tag color={record.isActive ? 'green' : 'red'}>{record.isActive ? 'Actif' : 'Inactif'}</Tag>
+                                        <Text type="secondary" style={{ fontSize: 11 }}>
+                                            Créé le {new Date(record.createdAt).toLocaleDateString('fr-FR')}
+                                        </Text>
+                                    </Space>
+                                    <Space wrap>
+                                        <Button size="small" icon={<EditOutlined />} onClick={() => openEdit(record)}>
+                                            Modifier
+                                        </Button>
+                                        <Button
+                                            size="small"
+                                            icon={<KeyOutlined />}
+                                            onClick={() => setResetModal({ open: true, userId: record.id, userName: record.name })}
+                                        >
+                                            Mot de passe
+                                        </Button>
+                                        <Popconfirm
+                                            title={`Envoyer un lien à ${record.name} ?`}
+                                            description="Lien valide 1h — l'utilisateur choisit son nouveau mot de passe."
+                                            onConfirm={() => handleSendResetLink(record.id, record.name)}
+                                            okText="Envoyer"
+                                            cancelText="Annuler"
+                                        >
+                                            <Button size="small" icon={<MailOutlined />} loading={sendingLink === record.id}>
+                                                Lien reset
+                                            </Button>
+                                        </Popconfirm>
+                                        {record.id !== currentUser?.id && (
+                                            <Popconfirm
+                                                title={record.isActive ? 'Désactiver cet utilisateur ?' : 'Réactiver cet utilisateur ?'}
+                                                onConfirm={() => handleToggleActive(record.id, record.isActive)}
+                                                okText="Confirmer"
+                                                cancelText="Annuler"
+                                                okButtonProps={{ loading: toggleLoadingId === record.id }}
+                                            >
+                                                <Button
+                                                    size="small"
+                                                    danger={record.isActive}
+                                                    type={record.isActive ? 'default' : 'primary'}
+                                                    icon={record.isActive ? <StopOutlined /> : <CheckOutlined />}
+                                                    loading={toggleLoadingId === record.id}
+                                                >
+                                                    {record.isActive ? 'Désactiver' : 'Réactiver'}
+                                                </Button>
+                                            </Popconfirm>
+                                        )}
+                                        {record.id !== currentUser?.id && (
+                                            <Popconfirm
+                                                title="Supprimer cet utilisateur ?"
+                                                description="Soft-delete : les données liées sont préservées (CDC §3.9.1)."
+                                                onConfirm={() => handleDelete(record.id, record.email)}
+                                                okText="Supprimer"
+                                                cancelText="Annuler"
+                                                okButtonProps={{ danger: true, loading: deleteId === record.id }}
+                                            >
+                                                <Button size="small" danger icon={<DeleteOutlined />} loading={deleteId === record.id}>
+                                                    Supprimer
+                                                </Button>
+                                            </Popconfirm>
+                                        )}
+                                    </Space>
+                                </Space>
+                            </Card>
+                        </List.Item>
+                    )}
+                />
+            ) : (
+                <Table
+                    columns={columns}
+                    dataSource={filtered}
+                    rowKey="id"
+                    loading={loading}
+                    pagination={{ pageSize: 10, showTotal: (t) => `${t} utilisateur(s)` }}
+                    scroll={{ x: 'max-content' }}
+                    size="small"
+                />
+            )}
 
             {/* Modal création */}
             <Modal
@@ -324,6 +438,16 @@ export function UsersTab() {
                     </Row>
                     <Form.Item name="email" label="Email" rules={[{ required: true, type: 'email' }]}>
                         <Input />
+                    </Form.Item>
+                    <Form.Item name="directionId" label="Direction">
+                        <Select
+                            allowClear
+                            placeholder="Aucune direction"
+                            options={directions.map((d) => ({
+                                value: d.id,
+                                label: d.code ? `${d.name} (${d.code})` : d.name,
+                            }))}
+                        />
                     </Form.Item>
                     <Form.Item
                         name="password"
@@ -360,6 +484,16 @@ export function UsersTab() {
                     </Form.Item>
                     <Form.Item name="role" label="Rôle" rules={[{ required: true }]}>
                         <Select options={Object.entries(ROLE_LABELS).map(([v, l]) => ({ value: v, label: l }))} />
+                    </Form.Item>
+                    <Form.Item name="directionId" label="Direction">
+                        <Select
+                            allowClear
+                            placeholder="Aucune direction"
+                            options={directions.map((d) => ({
+                                value: d.id,
+                                label: d.code ? `${d.name} (${d.code})` : d.name,
+                            }))}
+                        />
                     </Form.Item>
                 </Form>
             </Modal>

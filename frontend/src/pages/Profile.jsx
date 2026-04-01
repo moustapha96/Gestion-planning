@@ -70,6 +70,7 @@ function PasswordStrength({ value }) {
 export default function Profile() {
     const { user, updateUser, logout } = useAuth();
     const { message }                  = App.useApp();
+    const [directionLoading, setDirectionLoading] = useState(false);
 
     // ── État avatar ──────────────────────────────────────────────
     const [avatarLoading,  setAvatarLoading]  = useState(false);
@@ -223,6 +224,24 @@ export default function Profile() {
     useEffect(() => {
         loadTwoFAStatus();
     }, []);
+
+    useEffect(() => {
+        let active = true;
+        const loadMe = async () => {
+            setDirectionLoading(true);
+            try {
+                const { data } = await api.get('/auth/me');
+                if (!active || !data) return;
+                updateUser({ ...user, ...data });
+            } catch {
+                // noop: on garde les infos locales si l'appel échoue
+            } finally {
+                if (active) setDirectionLoading(false);
+            }
+        };
+        loadMe();
+        return () => { active = false; };
+    }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
     const start2FASetup = async () => {
         setTwoFALoading(true);
@@ -457,6 +476,31 @@ export default function Profile() {
                                     <Tag color={ROLE_COLORS[user?.role]}>
                                         {ROLE_LABELS[user?.role] || user?.role}
                                     </Tag>
+                                </div>
+                                <Divider style={{ margin: '4px 0' }} />
+                                <div>
+                                    <Text type="secondary" style={{ fontSize: 11, display: 'block', marginBottom: 2 }}>
+                                        Direction
+                                    </Text>
+                                    {directionLoading ? (
+                                        <Spin size="small" />
+                                    ) : user?.direction?.name ? (
+                                        <Space size={8} align="center">
+                                            {user?.direction?.logoUrl ? (
+                                                <img
+                                                    src={user.direction.logoUrl}
+                                                    alt={`Logo ${user.direction.name}`}
+                                                    style={{ width: 22, height: 22, borderRadius: 4, objectFit: 'cover', border: '1px solid #f0f0f0' }}
+                                                />
+                                            ) : null}
+                                            <Text>
+                                                {user.direction.name}
+                                                {user.direction.code ? ` (${user.direction.code})` : ''}
+                                            </Text>
+                                        </Space>
+                                    ) : (
+                                        <Text type="secondary">Aucune direction assignée</Text>
+                                    )}
                                 </div>
                                 {user?.createdAt && (
                                     <>

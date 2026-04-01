@@ -140,7 +140,14 @@ router.post('/login', async (req, res) => {
         res.json({
             accessToken,
             refreshToken,
-            user: { id: user.id, name: user.name, email: user.email, role: user.role, avatarUrl: user.avatarUrl },
+            user: {
+                id: user.id,
+                name: user.name,
+                email: user.email,
+                role: user.role,
+                avatarUrl: user.avatarUrl,
+                directionId: user.directionId || null,
+            },
         });
 
         req.prisma.auditLog.create({
@@ -216,7 +223,14 @@ router.post('/2fa-login', async (req, res) => {
         res.json({
             accessToken,
             refreshToken,
-            user: { id: user.id, name: user.name, email: user.email, role: user.role, avatarUrl: user.avatarUrl },
+            user: {
+                id: user.id,
+                name: user.name,
+                email: user.email,
+                role: user.role,
+                avatarUrl: user.avatarUrl,
+                directionId: user.directionId || null,
+            },
         });
     } catch (error) {
         logger.error('2FA_LOGIN', error.message);
@@ -374,7 +388,17 @@ router.get('/me', authMiddleware, async (req, res) => {
     try {
         const user = await req.prisma.user.findUnique({
             where: { id: req.user.id },
-            select: { id: true, name: true, email: true, role: true, isActive: true, avatarUrl: true, createdAt: true },
+            select: {
+                id: true,
+                name: true,
+                email: true,
+                role: true,
+                isActive: true,
+                avatarUrl: true,
+                createdAt: true,
+                directionId: true,
+                direction: { select: { id: true, name: true, code: true, logoUrl: true } },
+            },
         });
         if (!user) return res.status(404).json({ error: 'Utilisateur non trouvé' });
         res.json(user);

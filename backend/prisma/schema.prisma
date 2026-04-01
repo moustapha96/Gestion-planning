@@ -43,6 +43,12 @@ model User {
   backupsCreated     Backup[]       @relation("BackupCreatedBy")
   projectsCreated    Project[]      @relation("ProjectCreatedBy")
   projectFiles       ProjectFile[]
+  directionId        String?
+  direction          Direction? @relation("DirectionMembers", fields: [directionId], references: [id], onDelete: SetNull)
+  directionMessages  DirectionMessage[]
+  directionDiscussionMemberships DirectionDiscussionMember[]
+
+  @@index([directionId])
 }
 
 /// Sauvegardes PostgreSQL (pg_dump) — super admin
@@ -355,6 +361,7 @@ model Direction {
   id            String         @id @default(cuid())
   name          String
   code          String?        @unique
+  logoUrl       String         @default("/logo-gp.png")
   description   String?
   isActive      Boolean        @default(true)
   createdAt     DateTime       @default(now())
@@ -363,8 +370,56 @@ model Direction {
   meetings      Meeting[]
   missions      Mission[]
   planningEvents PlanningEvent[]
+  users         User[]           @relation("DirectionMembers")
+  messages      DirectionMessage[]
+  discussion    DirectionDiscussion?
 
   @@unique([name])
+}
+
+model DirectionMessage {
+  id          String    @id @default(cuid())
+  directionId String
+  senderId    String
+  parentId    String?
+  body        String?
+  fileName    String?
+  fileUrl     String?
+  mimeType    String?
+  size        Int?
+  createdAt   DateTime  @default(now())
+
+  direction   Direction @relation(fields: [directionId], references: [id], onDelete: Cascade)
+  sender      User      @relation(fields: [senderId], references: [id], onDelete: Cascade)
+  parent      DirectionMessage?  @relation("DirectionMessageReplies", fields: [parentId], references: [id], onDelete: SetNull)
+  replies     DirectionMessage[] @relation("DirectionMessageReplies")
+
+  @@index([directionId, createdAt])
+  @@index([senderId, createdAt])
+  @@index([parentId])
+}
+
+model DirectionDiscussion {
+  id          String   @id @default(cuid())
+  directionId String   @unique
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  direction   Direction @relation(fields: [directionId], references: [id], onDelete: Cascade)
+  members     DirectionDiscussionMember[]
+}
+
+model DirectionDiscussionMember {
+  id            String   @id @default(cuid())
+  discussionId  String
+  userId        String
+  joinedAt      DateTime @default(now())
+
+  discussion    DirectionDiscussion @relation(fields: [discussionId], references: [id], onDelete: Cascade)
+  user          User                @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([discussionId, userId])
+  @@index([userId, joinedAt])
 }
 
 model Project {

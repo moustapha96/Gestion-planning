@@ -1,9 +1,10 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
+import { useLocation } from 'react-router-dom';
 import { App, Badge, Button, Empty, Input, Popconfirm, Segmented, Spin, Tooltip, Upload } from 'antd';
 import {
     DeleteOutlined, PaperClipOutlined, SendOutlined, CloseOutlined,
     SearchOutlined, ArrowLeftOutlined, CheckOutlined, ClockCircleOutlined,
-    WarningOutlined, FileOutlined,
+    WarningOutlined, FileOutlined, ApartmentOutlined, EyeInvisibleOutlined, EyeOutlined,
 } from '@ant-design/icons';
 import dayjs from 'dayjs';
 import 'dayjs/locale/fr';
@@ -299,6 +300,7 @@ export default function Discussions() {
     const { user }    = useAuth();
     const { isDark } = useThemeMode();
     const { message, notification } = App.useApp();
+    const location = useLocation();
 
     const [enabled,         setEnabled]         = useState(true);
     const [loading,         setLoading]         = useState(true);
@@ -318,11 +320,16 @@ export default function Discussions() {
         () => typeof window !== 'undefined' && window.matchMedia('(min-width: 768px)').matches,
     );
     const [mobileChat,      setMobileChat]      = useState(false); // vue mobile
+    const [hideSidebar, setHideSidebar] = useState(false);
     /** Super admin : bascule liste personnelle / audit de toutes les conversations */
     const [dmMode, setDmMode] = useState('mine');
     const [auditConversations, setAuditConversations] = useState([]);
     const [auditSelection, setAuditSelection] = useState(null);
     const [auditListLoading, setAuditListLoading] = useState(false);
+    const [channelMode, setChannelMode] = useState('direct');
+    const [directionChannel, setDirectionChannel] = useState(null);
+    const [directionMessages, setDirectionMessages] = useState([]);
+    const [directionMembers, setDirectionMembers] = useState([]);
 
     const listRef                 = useRef(null);
     const inputRef                = useRef(null);
@@ -435,6 +442,8 @@ export default function Discussions() {
     }, [conversations]);
 
     const selectedUser   = useMemo(() => users.find((u) => u.id === selectedUserId) || null, [users, selectedUserId]);
+    const hasDirectionChannel = Boolean(directionChannel?.id);
+    const activeMessages = channelMode === 'direction' ? directionMessages : messages;
     const filteredUsers  = useMemo(() => {
         const q = search.trim().toLowerCase();
         return q ? users.filter((u) => (u.name || '').toLowerCase().includes(q) || (u.email || '').toLowerCase().includes(q)) : users;
@@ -487,15 +496,25 @@ export default function Discussions() {
         let active = true;
         (async () => {
             try {
-                const [{ data: pub }, { data: usrs }, { data: convs }] = await Promise.all([
+                const [{ data: pub }, { data: usrs }, { data: convs }, dirRes] = await Promise.all([
                     api.get('/admin/settings/public'),
                     api.get('/direct-messages/users'),
                     api.get('/direct-messages/conversations'),
+                    api.get('/direction-messages/my-channel').catch(() => null),
                 ]);
                 if (!active) return;
                 setEnabled(String(pub?.direct_messages_enabled ?? 'true') === 'true');
                 setUsers(usrs || []);
                 setConversations(convs || []);
+                if (dirRes?.data?.direction) {
+                    setDirectionChannel(dirRes.data.direction);
+                    setDirectionMessages(Array.isArray(dirRes.data.messages) ? dirRes.data.messages : []);
+                    setDirectionMembers(Array.isArray(dirRes.data.members) ? dirRes.data.members : []);
+                } else {
+                    setDirectionChannel(null);
+                    setDirectionMessages([]);
+                    setDirectionMembers([]);
+                }
                 if ((usrs || []).length > 0) {
                     const preferred = (convs || [])[0]?.user?.id || usrs[0].id;
                     setSelectedUserId(preferred);
@@ -507,6 +526,26 @@ export default function Discussions() {
         })();
         return () => { active = false; };
     }, []); // eslint-disable-line
+
+    useEffect(() => {
+        const params = new URLSearchParams(location.search || '');
+        const channel = String(params.get('channel') || '').toLowerCase();
+        const userParam = String(params.get('user') || '');
+        if (channel === 'direction' && hasDirectionChannel) {
+            setChannelMode('direction');
+            setMobileChat(true);
+            setSelectedUserId(null);
+            setAuditSelection(null);
+            return;
+        }
+        if (userParam) {
+            setChannelMode('direct');
+            setDmMode('mine');
+            setAuditSelection(null);
+            setSelectedUserId(userParam);
+            setMobileChat(true);
+        }
+    }, [location.search, hasDirectionChannel]);
 
     const fetchConv = async (uid) => {
         if (!enabled || !uid) return;
@@ -607,6 +646,24 @@ export default function Discussions() {
     }, [enabled, user?.id]); // écouteurs stables : selectedUserId via ref
 
     useEffect(() => {
+        if (!enabled || !user?.id || !hasDirectionChannel) return undefined;
+        const token = localStorage.getItem('accessToken');
+        const socket = getSocket(token);
+        const onDirectionMessage = (payload) => {
+            const msg = payload?.message;
+            const directionId = payload?.directionId;
+            if (!msg?.id || !directionId) return;
+            if (directionId !== directionChannel.id) return;
+            setDirectionMessages((prev) => {
+                if (prev.some((m) => m.id === msg.id)) return prev;
+                return [...prev, msg].sort((a, b) => new Date(a.createdAt) - new Date(b.createdAt));
+            });
+        };
+        socket?.on('direction:message:new', onDirectionMessage);
+        return () => socket?.off('direction:message:new', onDirectionMessage);
+    }, [enabled, user?.id, hasDirectionChannel, directionChannel?.id]);
+
+    useEffect(() => {
         if (!enabled) return;
         const outbox = readOutbox();
         if (outbox.length) {
@@ -636,7 +693,7 @@ export default function Discussions() {
     useEffect(() => {
         if (!listRef.current) return;
         listRef.current.scrollTop = listRef.current.scrollHeight;
-    }, [messages, selectedUserId]);
+    }, [messages, directionMessages, selectedUserId, channelMode]);
 
     // ── Envoi message (HTTP : indépendant du WebSocket ; destinataire hors ligne = OK côté serveur) ──
     const sendMessage = async () => {
@@ -687,6 +744,24 @@ export default function Discussions() {
         }
     };
 
+    const sendDirectionMessage = async () => {
+        const body = text.trim();
+        if (!body || !hasDirectionChannel) return;
+        const parentId = replyingTo?.id || null;
+        setSending(true);
+        try {
+            const { data: created } = await api.post('/direction-messages/my-channel', { body, parentId });
+            setDirectionMessages((prev) => [...prev, created].sort((a, b) => new Date(a.createdAt) - new Date(b.createdAt)));
+            setText('');
+            setReplyingTo(null);
+            inputRef.current?.focus();
+        } catch (err) {
+            message.error(err.response?.data?.error || 'Erreur envoi message');
+        } finally {
+            setSending(false);
+        }
+    };
+
     const retryMessage = async (m) => {
         if (!m?._retry) return;
         if (isFailedFileMsg(m)) { setRetryFileTarget(m); return; }
@@ -727,6 +802,11 @@ export default function Discussions() {
 
     const deleteMessage = async (id) => {
         try {
+            if (channelMode === 'direction') {
+                await api.delete(`/direction-messages/${id}`);
+                setDirectionMessages((prev) => prev.filter((m) => m.id !== id));
+                return;
+            }
             await api.delete(`/direct-messages/message/${id}`);
             if (auditSelection?.userA?.id && auditSelection?.userB?.id) {
                 const { data } = await api.get(
@@ -740,7 +820,11 @@ export default function Discussions() {
     };
 
     const handleKeyDown = (e) => {
-        if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); sendMessage(); }
+        if (e.key === 'Enter' && !e.shiftKey) {
+            e.preventDefault();
+            if (channelMode === 'direction') sendDirectionMessage();
+            else sendMessage();
+        }
     };
 
     const handleDmMode = (val) => {
@@ -799,17 +883,24 @@ export default function Discussions() {
         setRetryFileTarget(null);
     };
 
+    const openDirectFromDirection = (uid) => {
+        if (!uid) return;
+        setChannelMode('direct');
+        selectUser(uid);
+    };
+
     // ── Groupes de messages par date ──────────────────────────────
     const messageGroups = useMemo(() => {
         const groups = [];
         let lastDate = null;
-        for (const m of messages) {
+        const source = channelMode === 'direction' ? directionMessages : messages;
+        for (const m of source) {
             const d = dayjs(m.createdAt).format('YYYY-MM-DD');
             if (d !== lastDate) { groups.push({ type: 'separator', date: d, id: `sep-${d}` }); lastDate = d; }
             groups.push({ type: 'message', data: m, id: m.id });
         }
         return groups;
-    }, [messages]);
+    }, [messages, directionMessages, channelMode]);
 
     // ── Chargement ────────────────────────────────────────────────
     if (loading) return <div style={{ textAlign: 'center', padding: 60 }}><Spin size="large" /></div>;
@@ -856,7 +947,7 @@ export default function Discussions() {
         fileColor: isDark ? '#8fb7ff' : '#1A365D',
     };
     const chatBg = ui.chatBg;
-    const showChat = mobileChat || isDesktopLayout;
+    const isMobile = !isDesktopLayout;
 
     return (
         <div style={{
@@ -864,10 +955,12 @@ export default function Discussions() {
             width: '100%',
             maxWidth: '100%',
             minWidth: 0,
-            height: 'calc(100svh - var(--header-height, 56px) - env(safe-area-inset-top, 0px) - env(safe-area-inset-bottom, 0px) - 32px)',
-            minHeight: 400,
+            height: isMobile
+                ? 'calc(100svh - var(--header-height, 56px) - env(safe-area-inset-top, 0px) - env(safe-area-inset-bottom, 0px) - 12px)'
+                : 'calc(100svh - var(--header-height, 56px) - env(safe-area-inset-top, 0px) - env(safe-area-inset-bottom, 0px) - 32px)',
+            minHeight: isMobile ? 0 : 400,
             border: `1px solid ${ui.pageBorder}`,
-            borderRadius: 12,
+            borderRadius: isMobile ? 10 : 12,
             overflow: 'hidden',
             boxShadow: ui.pageShadow,
             boxSizing: 'border-box',
@@ -881,7 +974,8 @@ export default function Discussions() {
                     minWidth: 0,
                     maxWidth: 340,
                     flexShrink: 0,
-                    display: 'flex', flexDirection: 'column',
+                    display: (!isMobile && hideSidebar) ? 'none' : 'flex',
+                    flexDirection: 'column',
                     borderRight: `1px solid ${ui.pageBorder}`,
                     background: ui.sidebarBg,
                 }}
@@ -913,6 +1007,18 @@ export default function Discussions() {
                     </div>
                 </div>
 
+                <div style={{ padding: '8px 12px', borderBottom: `1px solid ${ui.sidebarSearchBorder}`, background: ui.sidebarBg }}>
+                    <Segmented
+                        block
+                        value={channelMode}
+                        onChange={(v) => setChannelMode(v)}
+                        options={[
+                            { label: 'Messages privés', value: 'direct' },
+                            ...(hasDirectionChannel ? [{ label: 'Direction', value: 'direction', icon: <ApartmentOutlined /> }] : []),
+                        ]}
+                    />
+                </div>
+
                 {/* Recherche */}
                 <div style={{ padding: '8px 12px', background: ui.sidebarSearchBg, borderBottom: `1px solid ${ui.sidebarSearchBorder}` }}>
                     <Input
@@ -941,7 +1047,89 @@ export default function Discussions() {
 
                 {/* Liste contacts */}
                 <div style={{ flex: 1, overflowY: 'auto' }}>
-                    {dmMode === 'audit' && isSuperAdmin(user?.role) ? (
+                    {channelMode === 'direction' ? (
+                        <>
+                            <div
+                                onClick={() => { setMobileChat(true); setSelectedUserId(null); setAuditSelection(null); }}
+                                style={{
+                                    display: 'flex',
+                                    alignItems: 'center',
+                                    gap: 12,
+                                    padding: '12px 16px',
+                                    cursor: hasDirectionChannel ? 'pointer' : 'default',
+                                    borderBottom: `1px solid ${ui.rowBorder}`,
+                                    background: hasDirectionChannel ? ui.rowSelectedBg : 'transparent',
+                                }}
+                            >
+                                <div style={{ width: 46, height: 46, borderRadius: '50%', background: ui.sidebarHeaderBg, display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#fff' }}>
+                                    <ApartmentOutlined />
+                                </div>
+                                <div style={{ minWidth: 0 }}>
+                                    <div style={{ fontWeight: 600, fontSize: 14, color: ui.textPrimary }}>
+                                        {directionChannel?.name || 'Aucune direction'}
+                                    </div>
+                                    <div style={{ fontSize: 12, color: ui.textMuted }}>
+                                        {hasDirectionChannel ? 'Canal de votre direction' : "Vous n'êtes affecté à aucune direction"}
+                                    </div>
+                                </div>
+                            </div>
+                            {hasDirectionChannel && (
+                                <div style={{ borderBottom: `1px solid ${ui.rowBorder}` }}>
+                                    <div style={{ padding: '8px 16px 6px', color: ui.textMuted, fontSize: 11, fontWeight: 600, textTransform: 'uppercase' }}>
+                                        Membres de la direction
+                                    </div>
+                                    {directionMembers.filter((m) => m?.id && m.id !== user?.id).length === 0 ? (
+                                        <div style={{ padding: '8px 16px 12px', color: ui.textMuted, fontSize: 12 }}>
+                                            Aucun autre membre.
+                                        </div>
+                                    ) : (
+                                        directionMembers
+                                            .filter((m) => m?.id && m.id !== user?.id)
+                                            .filter((m) => {
+                                                const q = search.trim().toLowerCase();
+                                                if (!q) return true;
+                                                return (m.name || '').toLowerCase().includes(q) || (m.email || '').toLowerCase().includes(q);
+                                            })
+                                            .map((m) => (
+                                                <div
+                                                    key={`dir-member-${m.id}`}
+                                                    onClick={() => openDirectFromDirection(m.id)}
+                                                    style={{
+                                                        display: 'flex',
+                                                        alignItems: isMobile ? 'flex-start' : 'center',
+                                                        gap: 10,
+                                                        padding: '8px 16px',
+                                                        cursor: 'pointer',
+                                                        borderTop: `1px solid ${ui.rowBorder}`,
+                                                        flexWrap: isMobile ? 'wrap' : 'nowrap',
+                                                    }}
+                                                >
+                                                    <UserAvatar user={m} size={34} />
+                                                    <div style={{ minWidth: 0, flex: 1 }}>
+                                                        <div style={{ color: ui.textPrimary, fontSize: 13, fontWeight: 600, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                                                            {m.name || 'Utilisateur'}
+                                                        </div>
+                                                        <div style={{ color: ui.textMuted, fontSize: 12, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                                                            {m.email || ''}
+                                                        </div>
+                                                    </div>
+                                                    <Button
+                                                        size="small"
+                                                        style={isMobile ? { marginLeft: 44 } : undefined}
+                                                        onClick={(e) => {
+                                                            e.stopPropagation();
+                                                            openDirectFromDirection(m.id);
+                                                        }}
+                                                    >
+                                                        Message privé
+                                                    </Button>
+                                                </div>
+                                            ))
+                                    )}
+                                </div>
+                            )}
+                        </>
+                    ) : dmMode === 'audit' && isSuperAdmin(user?.role) ? (
                         auditListLoading ? (
                             <div style={{ padding: 24, textAlign: 'center' }}><Spin /></div>
                         ) : auditConversations.length === 0 ? (
@@ -1004,7 +1192,7 @@ export default function Discussions() {
                                 onMouseLeave={(e) => { if (!selected) e.currentTarget.style.background = 'transparent'; }}
                             >
                                 <div style={{ position: 'relative', flexShrink: 0 }}>
-                                    <UserAvatar user={u} size={46} />
+                                    <UserAvatar user={u} size={isMobile ? 40 : 46} />
                                     {onlineUserIds.has(u.id) && (
                                         <span
                                             title="En ligne"
@@ -1061,7 +1249,7 @@ export default function Discussions() {
                 className={`wa-chat${!mobileChat ? ' wa-hidden-mobile' : ''}`}
                 style={{ flex: 1, display: 'flex', flexDirection: 'column', background: chatBg, minWidth: 0 }}
             >
-                {!selectedUser && !auditSelection ? (
+                {((channelMode === 'direct') && !selectedUser && !auditSelection) || (channelMode === 'direction' && !hasDirectionChannel) ? (
                     /* Placeholder vide */
                     <div style={{
                         flex: 1, display: 'flex', flexDirection: 'column',
@@ -1093,19 +1281,41 @@ export default function Discussions() {
                             >
                                 <ArrowLeftOutlined style={{ fontSize: 18 }} />
                             </button>
-                            <UserAvatar user={auditSelection ? auditSelection.userA : selectedUser} size={38} />
+                            {channelMode === 'direction' ? (
+                                <div style={{ width: 38, height: 38, borderRadius: '50%', background: 'rgba(255,255,255,0.2)', color: '#fff', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                                    <ApartmentOutlined />
+                                </div>
+                            ) : (
+                                <UserAvatar user={auditSelection ? auditSelection.userA : selectedUser} size={38} />
+                            )}
                             <div style={{ flex: 1 }}>
                                 <div style={{ color: '#fff', fontWeight: 700, fontSize: 15, lineHeight: 1.2 }}>
-                                    {auditSelection
+                                    {channelMode === 'direction'
+                                        ? (directionChannel?.name || 'Direction')
+                                        : auditSelection
                                         ? `${auditSelection.userA?.name || '?'} ↔ ${auditSelection.userB?.name || '?'}`
                                         : selectedUser.name}
                                 </div>
                                 <div style={{ color: 'rgba(255,255,255,0.65)', fontSize: 12 }}>
-                                    {auditSelection
+                                    {channelMode === 'direction'
+                                        ? 'Canal partagé avec tous les membres'
+                                        : auditSelection
                                         ? 'Audit — lecture et modération'
                                         : (onlineUserIds.has(selectedUser.id) ? 'En ligne' : 'Hors ligne')}
                                 </div>
                             </div>
+                            {!isMobile && (
+                                <Button
+                                    type="text"
+                                    size="small"
+                                    icon={hideSidebar ? <EyeOutlined /> : <EyeInvisibleOutlined />}
+                                    onClick={() => setHideSidebar((v) => !v)}
+                                    style={{ color: '#fff' }}
+                                    title={hideSidebar ? 'Afficher la barre des utilisateurs' : 'Masquer la barre des utilisateurs'}
+                                >
+                                    {hideSidebar ? 'Afficher users' : 'Masquer users'}
+                                </Button>
+                            )}
                         </div>
 
                         {/* ── Zone messages ── */}
@@ -1113,12 +1323,12 @@ export default function Discussions() {
                             ref={listRef}
                             style={{
                                 flex: 1, overflowY: 'auto',
-                                padding: '12px 16px',
+                                padding: isMobile ? '10px 10px' : '12px 16px',
                                 display: 'flex', flexDirection: 'column', gap: 1,
-                                backgroundImage: `url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='200' height='200'%3E%3Crect width='200' height='200' fill='%23efeae2'/%3E%3C/svg%3E")`,
+                                backgroundImage: `url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='200' height='200'%3E%3Crect width='200' height='200' fill='${encodeURIComponent(ui.chatBg)}'/%3E%3C/svg%3E")`,
                             }}
                         >
-                            {messages.length === 0 ? (
+                            {activeMessages.length === 0 ? (
                                 <div style={{ textAlign: 'center', margin: 'auto', color: '#8696a0' }}>
                                     <div style={{ fontSize: 32, marginBottom: 8 }}>👋</div>
                                     <div>Aucun message. Commencez la conversation !</div>
@@ -1205,7 +1415,7 @@ export default function Discussions() {
                         <div style={{
                             background: ui.toolbarBg,
                             borderTop: `1px solid ${ui.toolbarBorder}`,
-                            padding: '10px 16px',
+                            padding: isMobile ? '8px 10px' : '10px 16px',
                             display: 'flex', alignItems: 'flex-end', gap: 8,
                             flexShrink: 0,
                             paddingBottom: 'max(10px, env(safe-area-inset-bottom, 0px))',
@@ -1223,34 +1433,53 @@ export default function Discussions() {
                                     return true;
                                 }}
                                 customRequest={async ({ file, onSuccess, onError }) => {
+                                    const isDirection = channelMode === 'direction';
                                     const effectiveTarget = retryFileTarget?.receiverId || selectedUserId;
-                                    if (!effectiveTarget) { onError?.(new Error('no user')); return; }
+                                    if (!isDirection && !effectiveTarget) { onError?.(new Error('no user')); return; }
                                     setUploading(true);
                                     const targetUserId = effectiveTarget;
                                     const body     = retryFileTarget ? String(retryFileTarget?._retry?.body || '').trim() : text.trim();
                                     const parentId = retryFileTarget ? (retryFileTarget?._retry?.parentId || null) : (replyingTo?.id || null);
                                     const tempId   = `tmp-dm-file-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
                                     const tempMsg  = {
-                                        id: tempId, senderId: user?.id, receiverId: targetUserId,
+                                        id: tempId, senderId: user?.id, receiverId: isDirection ? null : targetUserId,
                                         body: body || null, fileName: file?.name || 'fichier', fileUrl: null,
                                         createdAt: new Date().toISOString(), isRead: false,
                                         sender: { id: user?.id, name: user?.name || 'Vous', email: user?.email || '', avatarUrl: user?.avatarUrl || null },
                                         receiver: selectedUser || null, parent: replyingTo || null,
                                         _optimistic: true, _queued: false, _failed: false, _retry: { body, parentId },
                                     };
-                                    upsertMessages([tempMsg]);
+                                    if (isDirection) {
+                                        setDirectionMessages((prev) => [...prev, tempMsg].sort((a, b) => new Date(a.createdAt) - new Date(b.createdAt)));
+                                    } else {
+                                        upsertMessages([tempMsg]);
+                                    }
                                     try {
                                         const fd = new FormData();
                                         fd.append('file', file);
                                         if (body)     fd.append('body', body);
                                         if (parentId) fd.append('parentId', parentId);
-                                        const { data: created } = await api.post(`/direct-messages/${targetUserId}/file`, fd, { headers: { 'Content-Type': 'multipart/form-data' } });
-                                        removeMessageById(tempId); upsertMessages([created]);
+                                        const { data: created } = isDirection
+                                            ? await api.post('/direction-messages/my-channel/file', fd, { headers: { 'Content-Type': 'multipart/form-data' } })
+                                            : await api.post(`/direct-messages/${targetUserId}/file`, fd, { headers: { 'Content-Type': 'multipart/form-data' } });
+                                        if (isDirection) {
+                                            setDirectionMessages((prev) => [...prev.filter((m) => m.id !== tempId), created].sort((a, b) => new Date(a.createdAt) - new Date(b.createdAt)));
+                                        } else {
+                                            removeMessageById(tempId);
+                                            upsertMessages([created]);
+                                        }
                                         setText(''); setReplyingTo(null); onSuccess?.('ok');
-                                        api.get('/direct-messages/conversations').then((r) => setConversations(r.data || [])).catch(() => {});
+                                        if (!isDirection) api.get('/direct-messages/conversations').then((r) => setConversations(r.data || [])).catch(() => {});
                                         if (retryFileTarget?.id) removeMessageById(retryFileTarget.id);
                                         setRetryFileTarget(null);
                                     } catch (err) {
+                                        if (isDirection) {
+                                            setDirectionMessages((prev) => prev.map((m) => (m.id === tempId ? { ...m, _failed: true, _optimistic: false } : m)));
+                                            message.error(err.response?.data?.error || 'Erreur envoi fichier');
+                                            onError?.(err);
+                                            setUploading(false);
+                                            return;
+                                        }
                                         if (!err?.response) {
                                             try {
                                                 await fileOutboxPut({ id: tempId, tempId, targetUserId, body, parentId, fileName: file?.name || 'fichier', mimeType: file?.type || 'application/octet-stream', blob: file, createdAt: tempMsg.createdAt });
@@ -1295,13 +1524,13 @@ export default function Discussions() {
                                     flex: 1, borderRadius: 20,
                                     resize: 'none', background: ui.textInputBg,
                                     border: 'none', boxShadow: 'none',
-                                    padding: '8px 14px', fontSize: 14,
+                                    padding: '8px 14px', fontSize: isMobile ? 16 : 14,
                                 }}
                             />
 
                             {/* Bouton envoi */}
                             <button
-                                onClick={sendMessage}
+                                onClick={channelMode === 'direction' ? sendDirectionMessage : sendMessage}
                                 disabled={sending || !text.trim()}
                                 style={{
                                     background: text.trim() ? '#128c7e' : ui.sendDisabled,
@@ -1318,6 +1547,7 @@ export default function Discussions() {
                         </div>
                         </>
                         )}
+                        
                     </>
                 )}
             </div>

@@ -8,7 +8,7 @@ import {
     MenuFoldOutlined, MenuUnfoldOutlined, DashboardOutlined, CalendarOutlined,
     TeamOutlined, HomeOutlined, SettingOutlined, UserOutlined, LogoutOutlined,
     BellOutlined, FlagOutlined, ScheduleOutlined, MessageOutlined,
-    UnorderedListOutlined, ProjectOutlined, SearchOutlined, MoonOutlined, SunOutlined,
+    UnorderedListOutlined, ProjectOutlined, SearchOutlined, MoonOutlined, SunOutlined, ApartmentOutlined,
 } from '@ant-design/icons';
 import { useAuth } from '../context/AuthContext';
 import NotificationBell from './NotificationBell';
@@ -79,6 +79,7 @@ export default function AppLayout() {
     const { startPolling, stopPolling } = useNotificationStore();
     const seenNotifIdsRef = useRef(new Set());
     const seenDmPopupIdsRef = useRef(new Set());
+    const seenDirectionPopupIdsRef = useRef(new Set());
 
     // ── Démarrer / arrêter le polling des notifications ──────────
     useEffect(() => {
@@ -254,6 +255,43 @@ export default function AppLayout() {
         };
     }, [user?.id, location.pathname, notification, navigate]);
 
+    // ── Popup instantané des messages de direction (hors page Discussions)
+    useEffect(() => {
+        if (!user?.id) return;
+        const token = localStorage.getItem('accessToken');
+        const socket = getSocket(token);
+        const onDirectionMessage = (payload) => {
+            const msg = payload?.message;
+            if (!msg?.id) return;
+            if (msg.senderId === user.id) return;
+            if (seenDirectionPopupIdsRef.current.has(msg.id)) return;
+            if (location.pathname.startsWith('/discussions')) return;
+
+            seenDirectionPopupIdsRef.current.add(msg.id);
+            if (seenDirectionPopupIdsRef.current.size > 400) {
+                seenDirectionPopupIdsRef.current.clear();
+                seenDirectionPopupIdsRef.current.add(msg.id);
+            }
+
+            const senderName = msg.sender?.name || 'Utilisateur';
+            const preview = (msg.body || msg.fileName || 'Nouveau message').slice(0, 180);
+            const directionName = payload?.directionName || 'votre direction';
+            notification.open({
+                key: `direction-popup-${msg.id}`,
+                message: `Nouveau message (${directionName})`,
+                description: `${senderName}: ${preview}`,
+                placement: 'topRight',
+                duration: 6,
+                onClick: () => navigate('/discussions?channel=direction'),
+            });
+        };
+
+        socket?.on('direction:message:new', onDirectionMessage);
+        return () => {
+            socket?.off('direction:message:new', onDirectionMessage);
+        };
+    }, [user?.id, location.pathname, notification, navigate]);
+
     // ── Fermer le drawer mobile à chaque changement de route ─────
     useEffect(() => {
         if (!isMobile) return undefined;
@@ -419,6 +457,11 @@ export default function AppLayout() {
             key: '/discussions',
             icon: <MessageOutlined />,
             label: 'Discussions',
+        }] : []),
+        ...(user?.role === 'DG' ? [{
+            key: '/admin/directions',
+            icon: <ApartmentOutlined />,
+            label: 'Directions',
         }] : []),
         // Section admin — sous-menu (routes /admin/*)
         ...(isPrivilegedAdmin(user?.role) ? [

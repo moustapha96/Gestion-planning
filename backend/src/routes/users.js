@@ -9,6 +9,7 @@ const {
     ROLES, isValidRole, ADMIN_ROUTE_ROLES, isPrivilegedAdmin, isSuperAdmin,
 } = require('../config/roles');
 const { ROLE_PERMISSIONS, ROLE_LABELS } = require('../config/rolePermissions');
+const { syncDirectionDiscussionMembers } = require('../services/directionDiscussion.service');
 
 const router = express.Router();
 
@@ -39,7 +40,18 @@ router.get('/', roleMiddleware(ADMIN_ROUTE_ROLES), async (req, res) => {
     try {
         const users = await req.prisma.user.findMany({
             where: { isDeleted: false }, // exclure les soft-deleted (CDC §3.9.1)
-            select: { id: true, name: true, email: true, role: true, isActive: true, isDeleted: true, avatarUrl: true, createdAt: true },
+            select: {
+                id: true,
+                name: true,
+                email: true,
+                role: true,
+                isActive: true,
+                isDeleted: true,
+                avatarUrl: true,
+                createdAt: true,
+                directionId: true,
+                direction: { select: { id: true, name: true, code: true } },
+            },
             orderBy: { createdAt: 'desc' },
         });
         res.json(users);
@@ -92,7 +104,7 @@ router.get('/participants', async (req, res) => {
  */
 router.post('/', roleMiddleware(ADMIN_ROUTE_ROLES), async (req, res) => {
     try {
-        const { name, email, role, password } = req.body;
+        const { name, email, role, password, directionId } = req.body;
 
         if (!isValidRole(role)) {
             return res.status(400).json({ error: 'Rôle invalide' });
@@ -121,9 +133,30 @@ router.post('/', roleMiddleware(ADMIN_ROUTE_ROLES), async (req, res) => {
 
         const hashedPassword = await bcrypt.hash(password, 12);
 
+        if (directionId) {
+            const direction = await req.prisma.direction.findUnique({
+                where: { id: directionId },
+                select: { id: true, isActive: true },
+            });
+            if (!direction || !direction.isActive) {
+                return res.status(400).json({ error: 'Direction invalide ou inactive.' });
+            }
+        }
+
         const user = await req.prisma.user.create({
-            data: { name, email, role: role || ROLES.RESPONSABLE, passwordHash: hashedPassword, isActive: false },
+            data: {
+                name,
+                email,
+                role: role || ROLES.RESPONSABLE,
+                passwordHash: hashedPassword,
+                isActive: false,
+                directionId: directionId || null,
+            },
         });
+
+        if (user.directionId) {
+            await syncDirectionDiscussionMembers(req.prisma, user.directionId);
+        }
 
         logger.info('USER_CREATED', `Utilisateur ${email} créé par admin ${req.user.id}`, {
             userId: user.id, adminId: req.user.id,
@@ -141,7 +174,14 @@ router.post('/', roleMiddleware(ADMIN_ROUTE_ROLES), async (req, res) => {
 
         await notificationService.sendEmail(email, 'ACCOUNT_ACTIVATION', [user, activationUrl, password]);
 
-        res.json({ id: user.id, name: user.name, email: user.email, role: user.role, isActive: user.isActive });
+        res.json({
+            id: user.id,
+            name: user.name,
+            email: user.email,
+            role: user.role,
+            isActive: user.isActive,
+            directionId: user.directionId || null,
+        });
     } catch (error) {
         logger.error('CREATE_USER', 'Erreur création utilisateur', { error: error.message });
         res.status(400).json({ error: error.message });
@@ -159,7 +199,7 @@ router.post('/', roleMiddleware(ADMIN_ROUTE_ROLES), async (req, res) => {
  */
 router.put('/:id', roleMiddleware(ADMIN_ROUTE_ROLES), async (req, res) => {
     try {
-        const { name, email, role } = req.body;
+        const { name, email, role, directionId } = req.body;
 
         if (role && !isValidRole(role)) {
             return res.status(400).json({ error: 'Rôle invalide' });
@@ -199,16 +239,45 @@ router.put('/:id', roleMiddleware(ADMIN_ROUTE_ROLES), async (req, res) => {
             }
         }
 
+        if (directionId !== undefined && directionId !== null && directionId !== '') {
+            const direction = await req.prisma.direction.findUnique({
+                where: { id: directionId },
+                select: { id: true, isActive: true },
+            });
+            if (!direction || !direction.isActive) {
+                return res.status(400).json({ error: 'Direction invalide ou inactive.' });
+            }
+        }
+
         const previousRole = targetUser.role;
+        const previousDirectionId = targetUser.directionId || null;
         const updated = await req.prisma.user.update({
             where: { id: req.params.id },
             data: {
                 name: name || undefined,
                 email: email || undefined,
                 role: role || undefined,
+                directionId: directionId === undefined ? undefined : (directionId || null),
             },
-            select: { id: true, name: true, email: true, role: true, isActive: true, avatarUrl: true },
+            select: {
+                id: true,
+                name: true,
+                email: true,
+                role: true,
+                isActive: true,
+                avatarUrl: true,
+                directionId: true,
+                direction: { select: { id: true, name: true, code: true } },
+            },
         });
+
+        const nextDirectionId = updated.directionId || null;
+        if (previousDirectionId && previousDirectionId !== nextDirectionId) {
+            await syncDirectionDiscussionMembers(req.prisma, previousDirectionId);
+        }
+        if (nextDirectionId) {
+            await syncDirectionDiscussionMembers(req.prisma, nextDirectionId);
+        }
 
         // Si le rôle a changé : email + notification in-app à l'utilisateur concerné
         if (role && previousRole !== role && updated.isActive) {
