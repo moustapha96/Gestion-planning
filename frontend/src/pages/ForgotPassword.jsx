@@ -3,7 +3,7 @@ import { Link } from 'react-router-dom';
 import { Form, Input, Button, Typography, Alert, Result, Divider } from 'antd';
 import { MailOutlined, ArrowLeftOutlined } from '@ant-design/icons';
 import api from '../api/client';
-import logo from '../assets/logo-gp.png';
+import logo from '../assets/logo-adm.png';
 
 const { Title, Text } = Typography;
 
@@ -12,8 +12,7 @@ const pageStyle = {
     display: 'flex',
     alignItems: 'center',
     justifyContent: 'center',
-    background: 'linear-gradient(160deg, #0B2F6E 0%, #1565C0 55%, #0A2550 100%)',
-    padding: '24px 16px',
+    background: 'linear-gradient(135deg, #3e7cbc 0%, #2a5fa0 100%)',
 };
 
 const cardStyle = {
@@ -47,19 +46,10 @@ export default function ForgotPassword() {
 
     return (
         <div className="auth-page" style={pageStyle}>
-            <div style={cardStyle}>
-
-                {/* Logo */}
-                <div style={{ textAlign: 'center', marginBottom: 8 }}>
-                    <img
-                        src={logo}
-                        alt="ADM – Agence de Développement Municipal"
-                        style={{ height: 110, objectFit: 'contain', marginBottom: 12 }}
-                    />
-                    <Title level={4} style={{ margin: 0, color: '#0D2F63', fontWeight: 700 }}>
-                        Gestion Planning
-                    </Title>
-                    <Text style={{ color: '#5A7BA8', fontSize: 13 }}>
+            <div style={{ width: '100%', maxWidth: 420, padding: '0 16px' }}>
+                <div style={{ textAlign: 'center', marginBottom: 24 }}>
+                    <img src={logo} alt="ADM GP logo" style={{ height: 200, marginBottom: 5 }} />
+                    <Text style={{ color: 'rgba(255,255,255,0.75)', display: 'block' }}>
                         {success ? 'Réinitialisation du mot de passe' : 'Mot de passe oublié'}
                     </Text>
                     {!success && (

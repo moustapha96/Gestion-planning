@@ -32,6 +32,7 @@ const { runMeetingAutoClose } = require('./src/jobs/meetingAutoClose');
 const swaggerSpec = require('./src/config/swagger');
 const authMiddleware = require('./src/middlewares/auth.middleware');
 const roleMiddleware = require('./src/middlewares/role.middleware');
+const swaggerAuth = require('./src/middlewares/swaggerAuth.middleware');
 
 const authRoutes = require('./src/routes/auth');
 const planningRoutes = require('./src/routes/plannings');
@@ -61,10 +62,34 @@ const app = express();
 const httpServer = http.createServer(app);
 const prisma = new PrismaClient();
 
-// Security
+// Security — headers globaux (HSTS, X-Frame-Options, X-Content-Type-Options, etc.)
+// CSP gérée séparément ci-dessous pour exclure /api/docs
 app.use(helmet({
-    contentSecurityPolicy: false, // Disable for Swagger UI
+    contentSecurityPolicy: false,
 }));
+
+// CSP activée sur toutes les routes SAUF /api/docs (Swagger UI nécessite des scripts/styles inline)
+app.use((req, res, next) => {
+    if (req.path.startsWith('/api/docs')) return next();
+
+    const isProd = process.env.NODE_ENV === 'production';
+    const frontendOrigin = process.env.FRONTEND_URL || 'http://localhost:5173';
+
+    const directives = {
+        defaultSrc:  ["'self'"],
+        scriptSrc:   ["'self'"],
+        styleSrc:    ["'self'", "'unsafe-inline'"],   // inline styles tolérés (emails, public.js)
+        imgSrc:      ["'self'", 'data:', 'https:'],   // avatars uploadés + icônes HTTPS
+        connectSrc:  ["'self'", frontendOrigin],      // appels API depuis le frontend
+        fontSrc:     ["'self'"],
+        objectSrc:   ["'none'"],
+        frameAncestors: ["'none'"],                   // anti-clickjacking
+        ...(isProd && { upgradeInsecureRequests: [] }),// force HTTPS en production uniquement
+    };
+
+    helmet.contentSecurityPolicy({ directives })(req, res, next);
+});
+
 app.use(cors({
     origin: process.env.FRONTEND_URL || 'http://localhost:5173',
     credentials: true,
@@ -78,6 +103,21 @@ const loginLimiter = rateLimit({
     max: parseInt(process.env.MAX_LOGIN_ATTEMPTS) || 5,
     keyGenerator: (req) => `${ipKeyGenerator(req)}-${(req.body?.email || '').toLowerCase()}`,
     message: { error: 'Trop de tentatives de connexion. Compte temporairement bloqué (15 min).' },
+    standardHeaders: true,
+    legacyHeaders: false,
+    skipSuccessfulRequests: true,
+});
+
+// Limite de 5 tentatives par tempToken sur la vérification 2FA (brute-force TOTP)
+const twoFaLimiter = rateLimit({
+    windowMs: 15 * 60 * 1000,
+    max: parseInt(process.env.MAX_2FA_ATTEMPTS) || 5,
+    keyGenerator: (req) => {
+        // Clé = tempToken (identifie la session 2FA) + IP en fallback
+        const token = (req.body?.tempToken || '').slice(-32); // derniers 32 chars suffisent comme clé
+        return token || ipKeyGenerator(req);
+    },
+    message: { error: 'Trop de tentatives 2FA. Ce code a été invalidé. Veuillez vous reconnecter.' },
     standardHeaders: true,
     legacyHeaders: false,
     skipSuccessfulRequests: true,
@@ -140,8 +180,8 @@ app.get('/health', (req, res) => {
     });
 });
 
-// Swagger documentation
-app.use('/api/docs', swaggerUi.serve, swaggerUi.setup(swaggerSpec, {
+// Swagger documentation (protégé par Basic Auth en production)
+app.use('/api/docs', swaggerAuth, swaggerUi.serve, swaggerUi.setup(swaggerSpec, {
     customSiteTitle: 'Gestion Planning API Docs',
     customCss: `
         .swagger-ui .topbar { background-color: #1F5C8B; }
@@ -154,7 +194,8 @@ app.use('/api/docs', swaggerUi.serve, swaggerUi.setup(swaggerSpec, {
 }));
 
 // Routes publiques
-app.use('/api/auth/login', loginLimiter); // brute-force protection (CDC §5.2)
+app.use('/api/auth/login', loginLimiter);      // brute-force protection (CDC §5.2)
+app.use('/api/auth/2fa-login', twoFaLimiter);  // brute-force TOTP protection
 app.use('/api/auth', authRoutes);
 app.use('/api/public', publicRoutes);
 const profileRoutes = require('./src/routes/profile');
@@ -182,6 +223,8 @@ app.use('/api/events', authMiddleware, eventsRoutes);
 app.use('/api/push',     authMiddleware, pushTokensRoutes);
 app.use('/api/projects', authMiddleware, projectsRoutes);
 app.use('/api/super-admin', authMiddleware, superAdminRoutes);
+const repertoireRoutes = require('./src/routes/repertoire');
+app.use('/api/repertoire', repertoireRoutes);
 
 // 404 pour les routes API non trouvées (après toutes les routes)
 app.use('/api', (req, res) => {

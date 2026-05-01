@@ -986,11 +986,11 @@ export function AppConfigTab() {
         try {
             const { data } = await api.get('/admin/settings');
             form.setFieldsValue({
-                app_name: data?.app_name || 'Gestion Planning',
+                app_name: data?.app_name || 'ADM GP',
                 app_contact_email: data?.app_contact_email || '',
                 app_contact_phone: data?.app_contact_phone || '',
                 app_contact_address: data?.app_contact_address || '',
-                app_footer_text: data?.app_footer_text || '© 2026 Gestion Planning - Tous droits réservés',
+                app_footer_text: data?.app_footer_text || '© 2026 ADM GP - Tous droits réservés',
                 app_logo_url: data?.app_logo_url || '',
             });
         } catch {
@@ -1023,7 +1023,7 @@ export function AppConfigTab() {
         <Card size="small" title={<><SettingOutlined /> Configuration globale</>}>
             <Form form={form} layout="vertical">
                 <Form.Item name="app_name" label="Nom de l'application" rules={[{ required: true, message: 'Champ requis' }]}>
-                    <Input placeholder="Gestion Planning" />
+                    <Input placeholder="ADM GP" />
                 </Form.Item>
                 <Row gutter={16}>
                     <Col xs={24} md={12}>

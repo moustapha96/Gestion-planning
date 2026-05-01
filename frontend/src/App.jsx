@@ -43,6 +43,7 @@ import Users from './pages/Users';
 import Logs from './pages/Logs';
 import Projects from './pages/Projects';
 import ProjectDetail from './pages/ProjectDetail';
+import Repertoire from './pages/Repertoire';
 import NotFound from './pages/NotFound';
 import Home from './pages/Home';
 import PWAInstallPrompt from './components/PWAInstallPrompt';
@@ -90,6 +91,7 @@ export default function App() {
                         <Route path="/rooms" element={<Rooms />} />
                         <Route path="/projects" element={<Projects />} />
                         <Route path="/projects/:id" element={<ProjectDetail />} />
+                        <Route path="/repertoire" element={<Repertoire />} />
                         <Route path="/calendar" element={<Calendar />} />
                         <Route path="/notifications" element={<Notifications />} />
                         <Route path="/discussions" element={<Discussions />} />

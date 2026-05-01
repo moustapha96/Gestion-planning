@@ -100,7 +100,7 @@ export default function PWAInstallPrompt() {
                     left: 0,
                     right: 0,
                     zIndex: 9999,
-                    background: 'linear-gradient(135deg, #1A365D 0%, #2B6CB0 100%)',
+                    background: 'linear-gradient(135deg, #3e7cbc 0%, #2d6aad 100%)',
                     color: 'white',
                     padding: '14px 20px',
                     display: 'flex',
@@ -115,7 +115,7 @@ export default function PWAInstallPrompt() {
 
                 <div style={{ flex: 1, minWidth: 0 }}>
                     <div style={{ fontWeight: 700, fontSize: 15, marginBottom: 2 }}>
-                        Installer Gestion Planning
+                        Installer ADM GP
                     </div>
                     <div style={{ fontSize: 12, opacity: 0.85, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
                         Accès rapide depuis votre écran d'accueil · Fonctionne hors ligne
@@ -152,14 +152,14 @@ export default function PWAInstallPrompt() {
                 onCancel={() => setShowModal(false)}
                 footer={
                     <Button type="primary" block onClick={() => setShowModal(false)}
-                        style={{ background: '#1A365D', borderColor: '#1A365D' }}>
+                        style={{ background: '#3e7cbc', borderColor: '#3e7cbc' }}>
                         J'ai compris
                     </Button>
                 }
                 title={
                     <Space>
                         <img src="/favicon.svg" alt="logo" style={{ width: 28, height: 28 }} />
-                        <span style={{ color: '#1A365D', fontWeight: 700 }}>
+                        <span style={{ color: '#3e7cbc', fontWeight: 700 }}>
                             Installer l'application
                         </span>
                     </Space>
@@ -188,7 +188,7 @@ function IOSInstructions() {
                 type="info"
                 showIcon
                 icon={<AppleOutlined />}
-                style={{ marginBottom: 16, borderColor: '#1A365D' }}
+                style={{ marginBottom: 16, borderColor: '#3e7cbc' }}
             />
             <Steps
                 direction="vertical"
@@ -197,7 +197,7 @@ function IOSInstructions() {
                     {
                         title: <Text strong>Ouvrir dans Safari</Text>,
                         description: 'Assurez-vous d\'utiliser le navigateur Safari (pas Chrome ni Firefox).',
-                        icon: <div style={{ background: '#1A365D', borderRadius: '50%', width: 24, height: 24, display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'white', fontSize: 12 }}>1</div>,
+                        icon: <div style={{ background: '#3e7cbc', borderRadius: '50%', width: 24, height: 24, display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'white', fontSize: 12 }}>1</div>,
                     },
                     {
                         title: <Text strong>Appuyer sur Partager</Text>,
@@ -206,14 +206,14 @@ function IOSInstructions() {
                                 <Text>Touchez le bouton <Text code><ShareAltOutlined /> Partager</Text> en bas de l'écran.</Text>
                             </Space>
                         ),
-                        icon: <div style={{ background: '#1A365D', borderRadius: '50%', width: 24, height: 24, display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'white', fontSize: 12 }}>2</div>,
+                        icon: <div style={{ background: '#3e7cbc', borderRadius: '50%', width: 24, height: 24, display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'white', fontSize: 12 }}>2</div>,
                     },
                     {
                         title: <Text strong>« Sur l'écran d'accueil »</Text>,
                         description: (
                             <Text>Faites défiler et appuyez sur <Text code><PlusSquareOutlined /> Sur l'écran d'accueil</Text>.</Text>
                         ),
-                        icon: <div style={{ background: '#1A365D', borderRadius: '50%', width: 24, height: 24, display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'white', fontSize: 12 }}>3</div>,
+                        icon: <div style={{ background: '#3e7cbc', borderRadius: '50%', width: 24, height: 24, display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'white', fontSize: 12 }}>3</div>,
                     },
                     {
                         title: <Text strong>Confirmer l'ajout</Text>,
@@ -234,7 +234,7 @@ function AndroidInstructions() {
                 type="info"
                 showIcon
                 icon={<AndroidOutlined />}
-                style={{ marginBottom: 16, borderColor: '#1A365D' }}
+                style={{ marginBottom: 16, borderColor: '#3e7cbc' }}
             />
             <Steps
                 direction="vertical"
@@ -243,14 +243,14 @@ function AndroidInstructions() {
                     {
                         title: <Text strong>Menu du navigateur</Text>,
                         description: 'Appuyez sur les 3 points ⋮ en haut à droite de Chrome.',
-                        icon: <div style={{ background: '#1A365D', borderRadius: '50%', width: 24, height: 24, display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'white', fontSize: 12 }}>1</div>,
+                        icon: <div style={{ background: '#3e7cbc', borderRadius: '50%', width: 24, height: 24, display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'white', fontSize: 12 }}>1</div>,
                     },
                     {
                         title: <Text strong>Ajouter à l'écran d'accueil</Text>,
                         description: (
                             <Text>Sélectionnez <Text code><HomeOutlined /> Ajouter à l'écran d'accueil</Text>.</Text>
                         ),
-                        icon: <div style={{ background: '#1A365D', borderRadius: '50%', width: 24, height: 24, display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'white', fontSize: 12 }}>2</div>,
+                        icon: <div style={{ background: '#3e7cbc', borderRadius: '50%', width: 24, height: 24, display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'white', fontSize: 12 }}>2</div>,
                     },
                     {
                         title: <Text strong>Confirmer</Text>,
@@ -271,7 +271,7 @@ function DesktopInstructions() {
                 type="info"
                 showIcon
                 icon={<DesktopOutlined />}
-                style={{ marginBottom: 16, borderColor: '#1A365D' }}
+                style={{ marginBottom: 16, borderColor: '#3e7cbc' }}
             />
             <Steps
                 direction="vertical"
@@ -280,12 +280,12 @@ function DesktopInstructions() {
                     {
                         title: <Text strong>Icône d'installation</Text>,
                         description: "Cherchez l'icône d'installation (⊕ ou écran avec flèche) dans la barre d'adresse à droite.",
-                        icon: <div style={{ background: '#1A365D', borderRadius: '50%', width: 24, height: 24, display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'white', fontSize: 12 }}>1</div>,
+                        icon: <div style={{ background: '#3e7cbc', borderRadius: '50%', width: 24, height: 24, display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'white', fontSize: 12 }}>1</div>,
                     },
                     {
                         title: <Text strong>Cliquer sur « Installer »</Text>,
                         description: 'Une fenêtre apparaît. Cliquez sur « Installer » pour ajouter l\'appli à votre bureau.',
-                        icon: <div style={{ background: '#1A365D', borderRadius: '50%', width: 24, height: 24, display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'white', fontSize: 12 }}>2</div>,
+                        icon: <div style={{ background: '#3e7cbc', borderRadius: '50%', width: 24, height: 24, display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'white', fontSize: 12 }}>2</div>,
                     },
                     {
                         title: <Text strong>Lancez depuis le bureau</Text>,

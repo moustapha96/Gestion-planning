@@ -224,7 +224,7 @@ export default function Planning() {
         const lines = [
             'BEGIN:VCALENDAR',
             'VERSION:2.0',
-            'PRODID:-//Gestion Planning//Planning//FR',
+            'PRODID:-//ADM GP//Planning//FR',
             'CALSCALE:GREGORIAN',
             'METHOD:PUBLISH',
             ...allEvents.flatMap((ev) => {

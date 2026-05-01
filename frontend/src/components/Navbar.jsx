@@ -68,7 +68,7 @@ export default function Navbar({ user }) {
     return (
         <nav
             className="sticky top-0 z-[100] text-white shadow-lg"
-            style={{ background: 'linear-gradient(135deg, #0B2F6E 0%, #1565C0 100%)' }}
+            style={{ background: 'linear-gradient(135deg, #3e7cbc 0%, #2d6aad 100%)' }}
         >
             <div className="max-w-7xl mx-auto px-3 sm:px-4 py-2 flex items-center gap-2 sm:gap-3 min-h-[52px]">
                 {/* Logo + titre */}
@@ -78,13 +78,13 @@ export default function Navbar({ user }) {
                     className="flex items-center gap-2 shrink-0 min-w-0 hover:opacity-90 transition-opacity rounded-md focus:outline-none focus-visible:ring-2 focus-visible:ring-white/60"
                     style={{ background: 'none', border: 'none', padding: '4px 0', cursor: 'pointer' }}
                 >
-                    <img src={logo} alt="Gestion Planning logo" className="h-10 shrink-0" />
+                    <img src={logo} alt="ADM GP logo" className="h-10 shrink-0" />
                     <div className="leading-tight text-left hidden sm:block min-w-0 max-w-[140px] md:max-w-none">
                         <div className="text-[15px] font-extrabold text-white leading-tight truncate">
-                            Gestion
+                            ADM
                         </div>
                         <div className="text-[15px] font-extrabold text-[#48BB78] leading-tight truncate">
-                            Planning
+                            GP
                         </div>
                     </div>
                 </button>
@@ -176,7 +176,7 @@ export default function Navbar({ user }) {
                         aria-label="Mon profil"
                     >
                         <div
-                            className="w-8 h-8 md:w-7 md:h-7 rounded-full flex items-center justify-center font-bold text-sm md:text-[13px] text-[#0D2F63] shrink-0"
+                            className="w-8 h-8 md:w-7 md:h-7 rounded-full flex items-center justify-center font-bold text-sm md:text-[13px] text-[#3e7cbc] shrink-0"
                             style={{ background: '#48BB78' }}
                         >
                             {user?.name?.[0]?.toUpperCase() || '?'}

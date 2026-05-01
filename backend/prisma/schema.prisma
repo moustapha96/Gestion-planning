@@ -471,3 +471,20 @@ model PasswordHistory {
 
   @@index([userId, createdAt])
 }
+
+model RepertoireContact {
+  id             String   @id @default(cuid())
+  numero         Int      @default(0)
+  prenomNom      String
+  fonction       String?
+  directionLabel String
+  poste          String?
+  directe        String?
+  portable       String?
+  ordre          Int      @default(0)
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  @@index([directionLabel])
+  @@index([ordre])
+}

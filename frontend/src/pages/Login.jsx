@@ -3,7 +3,8 @@ import { useNavigate, Link } from 'react-router-dom';
 import { Form, Input, Button, Typography, Alert, Divider, Space, Steps } from 'antd';
 import { MailOutlined, LockOutlined, HomeOutlined, SafetyOutlined, ArrowLeftOutlined } from '@ant-design/icons';
 import { useAuth } from '../context/AuthContext';
-import logo from '../assets/logo-gp.png';
+
+import logo from '../assets/logo-adm.png';
 
 const { Title, Text } = Typography;
 
@@ -12,17 +13,7 @@ const pageStyle = {
     display: 'flex',
     alignItems: 'center',
     justifyContent: 'center',
-    background: 'linear-gradient(160deg, #0B2F6E 0%, #1565C0 55%, #0A2550 100%)',
-    padding: '24px 16px',
-};
-
-const cardStyle = {
-    width: '100%',
-    maxWidth: 420,
-    background: '#ffffff',
-    borderRadius: 18,
-    padding: '36px 40px 28px',
-    boxShadow: '0 24px 64px rgba(0, 0, 0, 0.35)',
+    background: 'linear-gradient(135deg, #3e7cbc 0%, #2a5fa0 100%)',
 };
 
 const ADM_BLUE = '#1565C0';
@@ -70,17 +61,10 @@ export default function Login() {
         <div className="auth-page" style={pageStyle}>
             <div style={cardStyle}>
 
-                {/* Logo */}
-                <div style={{ textAlign: 'center', marginBottom: 8 }}>
-                    <img
-                        src={logo}
-                        alt="ADM – Agence de Développement Municipal"
-                        style={{ height: 110, objectFit: 'contain', marginBottom: 12 }}
-                    />
-                    <Title level={4} style={{ margin: 0, color: '#0D2F63', fontWeight: 700 }}>
-                        Gestion Planning
-                    </Title>
-                    <Text style={{ color: '#5A7BA8', fontSize: 13 }}>
+                {/* Header logo */}
+                <div style={{ textAlign: 'center' }}>
+                    <img src={logo} alt="ADM GP logo" style={{  height: 200, marginBottom: 5 }} />
+                    <Text style={{ color: 'rgba(255,255,255,0.75)' }}>
                         {step === 'credentials' ? 'Connectez-vous à votre compte' : 'Vérification en deux étapes'}
                     </Text>
                 </div>
@@ -123,25 +107,14 @@ export default function Login() {
                         <div style={{ textAlign: 'right', marginBottom: 16, marginTop: -8 }}>
                             <Link to="/forgot-password" style={{ color: ADM_BLUE, fontSize: 13 }}>Mot de passe oublié ?</Link>
                         </div>
-                        <Form.Item style={{ marginBottom: 8 }}>
-                            <Space direction="vertical" style={{ width: '100%' }} size="middle">
-                                <Button
-                                    type="primary"
-                                    htmlType="submit"
-                                    size="large"
-                                    loading={loading}
-                                    block
-                                    style={{ background: ADM_BLUE, borderColor: ADM_BLUE, fontWeight: 600, height: 44 }}
-                                >
+                        <Form.Item>
+                            <Space orientation="vertical" style={{ width: '100%' }} size="middle">
+                                <Button type="primary" htmlType="submit" size="large" loading={loading} block
+                                    style={{ background: '#3e7cbc', borderColor: '#48BB78', borderWidth: 1.5 }}>
                                     Se connecter
                                 </Button>
-                                <Button
-                                    size="large"
-                                    icon={<HomeOutlined />}
-                                    block
-                                    onClick={() => navigate('/')}
-                                    style={{ color: ADM_BLUE, borderColor: '#C5D8F0', fontWeight: 600, height: 44 }}
-                                >
+                                <Button size="large" icon={<HomeOutlined />} block onClick={() => navigate('/')}
+                                    style={{ background: 'white', color: '#3e7cbc', borderColor: 'white', fontWeight: 600 }}>
                                     Voir l&apos;accueil du planning
                                 </Button>
                             </Space>
@@ -218,9 +191,9 @@ export default function Login() {
                     </div>
                 )}
 
-                <Divider style={{ borderColor: '#E8EFF8', margin: '16px 0 8px' }} />
-                <div style={{ fontSize: 12, color: '#B0BEC5', textAlign: 'center' }}>
-                    Agence de Développement Municipal · Gestion Planning
+                <Divider style={{ borderColor: 'rgba(255,255,255,0.15)' }} />
+                <div style={{ fontSize: 12, color: 'rgba(255,255,255,0.5)', textAlign: 'center' }}>
+                    ADM GP · Optimisation et Organisation
                 </div>
             </div>
         </div>

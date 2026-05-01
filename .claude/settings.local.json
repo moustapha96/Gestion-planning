@@ -10,7 +10,31 @@
       "Bash(npx prisma:*)",
       "Read(//c/Users/alhus/AppData/Roaming/Claude/local-agent-mode-sessions/skills-plugin/d1add896-061a-445a-8aea-4088c667b0e3/c3e96315-a4c4-45ae-ae75-7bd60ecf8390/skills/docx/**)",
       "Bash(pandoc --track-changes=all \"D:/Gestion planning/cahier_des_charges_gestion_planning_v2.docx\" -o output.md)",
-      "mcp__Claude_Preview__preview_start"
+      "mcp__Claude_Preview__preview_start",
+      "Bash(curl -s http://localhost:3001/api/docs -o /dev/null -w \"%{http_code}\")",
+      "Bash(curl -s http://localhost:5173 -o /dev/null -w \" %{http_code}\")",
+      "Bash(curl -s http://localhost:3001/api/docs -o /dev/null -w \"Backend: %{http_code}\")",
+      "Bash(curl -s http://localhost:5173 -o /dev/null -w \" | Frontend: %{http_code}\")",
+      "Bash(python -c \"import playwright; print\\(''''ok''''\\)\")",
+      "Bash(pip install:*)",
+      "Bash(python -m playwright install chromium)",
+      "Bash(python -c \"from playwright.sync_api import sync_playwright; print\\(''playwright ok''\\)\")",
+      "Bash(node capture.mjs)",
+      "Bash(netstat -ano)",
+      "Bash(node doc_gp.mjs)",
+      "Bash(node create_gestion_planning.js)",
+      "Bash(python scripts/office/soffice.py --headless --convert-to pdf \"D:/Gestion planning/documents/Presentation_Gestion_Planning.pptx\")",
+      "Bash(python -m markitdown \"D:/Gestion planning/documents/Presentation_Gestion_Planning.pptx\")",
+      "Bash(python -c \"from markitdown import MarkItDown; md = MarkItDown\\(\\); r = md.convert\\(''D:/Gestion planning/documents/Presentation_Gestion_Planning.pptx''\\); print\\(r.text_content[:4000]\\)\")",
+      "Bash(python -c \"from markitdown import MarkItDown; md = MarkItDown\\(\\); r = md.convert\\(''''D:/Gestion planning/documents/Presentation_Gestion_Planning.pptx''''\\); print\\(r.text_content[:3000]\\)\")",
+      "Bash(python -c \":*)",
+      "Bash(python -c \"import sys,json; data=json.load\\(sys.stdin\\); print\\(data[0][''''text'''']\\)\")",
+      "Bash(node -e \"require\\(''docx''\\); console.log\\(''docx ok''\\)\")",
+      "Bash(node create_doc_technique.js)",
+      "Bash(python scripts/office/validate.py \"D:/Gestion planning/documents/Documentation_Technique_Gestion_Planning.docx\")",
+      "Bash(node -e \"require\\('./server.js'\\)\")",
+      "Bash(node --check server.js)",
+      "Bash(node --check src/middlewares/swaggerAuth.middleware.js)"
     ]
   }
 }
