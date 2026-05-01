@@ -63,7 +63,7 @@ function OccupancyBar({ bookings = [] }) {
                             <div style={{
                                 position: 'absolute',
                                 left: `${left}%`, width: `${width}%`, height: '100%',
-                                background: '#1677ff', opacity: 0.85,
+                                background: '#1565C0', opacity: 0.85,
                             }} />
                         </Tooltip>
                     );
@@ -173,14 +173,14 @@ function DayTimeline({ events }) {
                                 position: 'absolute',
                                 left: 8, right: 8,
                                 top: Math.max(0, top), height,
-                                background: isMission ? '#f9f0ff' : '#e6f4ff',
-                                borderLeft: `3px solid ${isMission ? '#722ed1' : '#1677ff'}`,
+                                background: isMission ? '#f9f0ff' : '#e3f0ff',
+                                borderLeft: `3px solid ${isMission ? '#722ed1' : '#1565C0'}`,
                                 borderRadius: 4, padding: '2px 8px',
                                 overflow: 'hidden', boxSizing: 'border-box',
                             }}>
                                 <Text style={{
                                     fontSize: 12, fontWeight: 600,
-                                    color: isMission ? '#531dab' : '#0958d9',
+                                    color: isMission ? '#531dab' : '#1565C0',
                                     display: 'block', whiteSpace: 'nowrap',
                                     overflow: 'hidden', textOverflow: 'ellipsis',
                                 }}>
@@ -288,7 +288,7 @@ export default function Home() {
     ];
 
     return (
-        <Layout style={{ minHeight: '100vh', background: 'linear-gradient(160deg, #1a3a5c 0%, #0d1f33 100%)' }}>
+        <Layout style={{ minHeight: '100vh', background: 'linear-gradient(160deg, #0B2F6E 0%, #1565C0 55%, #0A2550 100%)' }}>
             <Content style={{ padding: 'clamp(16px, 4vw, 32px) clamp(12px, 3vw, 24px)' }}>
                 <div style={{ maxWidth: 1100, margin: '0 auto' }}>
 
@@ -346,7 +346,7 @@ export default function Home() {
                                 value: rooms.length,
                                 sub:   `${occupiedRooms} occupée(s)`,
                                 icon:  <HomeOutlined />,
-                                color: '#1677ff',
+                                color: '#60AEFF',
                             },
                             {
                                 label: 'Réunions',
@@ -404,11 +404,11 @@ export default function Home() {
                                         padding: '12px 20px',
                                         border: 'none',
                                         borderBottom: activeTab === t.key
-                                            ? '3px solid #1677ff'
+                                            ? '3px solid #1565C0'
                                             : '3px solid transparent',
                                         background: 'transparent',
                                         cursor: 'pointer',
-                                        color: activeTab === t.key ? '#1677ff' : '#595959',
+                                        color: activeTab === t.key ? '#1565C0' : '#595959',
                                         fontWeight: activeTab === t.key ? 600 : 400,
                                         fontSize: 14,
                                         display: 'flex', alignItems: 'center', gap: 6,
@@ -460,7 +460,7 @@ export default function Home() {
                                                                 }}
                                                                 title={
                                                                     <Space>
-                                                                        <HomeOutlined style={{ color: '#1677ff' }} />
+                                                                        <HomeOutlined style={{ color: '#1565C0' }} />
                                                                         <Text strong>{room.name}</Text>
                                                                         {isCurrentlyBooked ? (
                                                                             <Badge status="warning" text={
@@ -583,7 +583,7 @@ export default function Home() {
                                     <>
                                         <div style={{ marginBottom: 12, display: 'flex', gap: 16, flexWrap: 'wrap' }}>
                                             <span style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
-                                                <span style={{ display: 'inline-block', width: 10, height: 10, borderRadius: 2, background: '#e6f4ff', border: '2px solid #1677ff' }} />
+                                                <span style={{ display: 'inline-block', width: 10, height: 10, borderRadius: 2, background: '#e3f0ff', border: '2px solid #1565C0' }} />
                                                 <Text type="secondary" style={{ fontSize: 11 }}>Réunion</Text>
                                             </span>
                                             <span style={{ display: 'flex', alignItems: 'center', gap: 4 }}>

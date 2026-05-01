@@ -1,19 +1,31 @@
 import { useState } from 'react';
 import { Link } from 'react-router-dom';
-import { Form, Input, Button, Typography, Alert, Result } from 'antd';
+import { Form, Input, Button, Typography, Alert, Result, Divider } from 'antd';
 import { MailOutlined, ArrowLeftOutlined } from '@ant-design/icons';
 import api from '../api/client';
 import logo from '../assets/logo-gp.png';
 
-const { Text } = Typography;
+const { Title, Text } = Typography;
 
 const pageStyle = {
     minHeight: '100vh',
     display: 'flex',
     alignItems: 'center',
     justifyContent: 'center',
-    background: 'linear-gradient(135deg, #1A365D 0%, #0d2a45 100%)',
+    background: 'linear-gradient(160deg, #0B2F6E 0%, #1565C0 55%, #0A2550 100%)',
+    padding: '24px 16px',
 };
+
+const cardStyle = {
+    width: '100%',
+    maxWidth: 420,
+    background: '#ffffff',
+    borderRadius: 18,
+    padding: '36px 40px 28px',
+    boxShadow: '0 24px 64px rgba(0, 0, 0, 0.35)',
+};
+
+const ADM_BLUE = '#1565C0';
 
 export default function ForgotPassword() {
     const [loading, setLoading] = useState(false);
@@ -35,51 +47,90 @@ export default function ForgotPassword() {
 
     return (
         <div className="auth-page" style={pageStyle}>
-            <div style={{ width: '100%', maxWidth: 420, padding: '0 16px' }}>
-                <div style={{ textAlign: 'center', marginBottom: 24 }}>
-                    <img src={logo} alt="Gestion Planning logo" style={{ height: 200, marginBottom: 5 }} />
-                    <Text style={{ color: 'rgba(255,255,255,0.75)', display: 'block' }}>
+            <div style={cardStyle}>
+
+                {/* Logo */}
+                <div style={{ textAlign: 'center', marginBottom: 8 }}>
+                    <img
+                        src={logo}
+                        alt="ADM – Agence de Développement Municipal"
+                        style={{ height: 110, objectFit: 'contain', marginBottom: 12 }}
+                    />
+                    <Title level={4} style={{ margin: 0, color: '#0D2F63', fontWeight: 700 }}>
+                        Gestion Planning
+                    </Title>
+                    <Text style={{ color: '#5A7BA8', fontSize: 13 }}>
                         {success ? 'Réinitialisation du mot de passe' : 'Mot de passe oublié'}
                     </Text>
                     {!success && (
-                        <Text style={{ color: 'rgba(255,255,255,0.6)', fontSize: 13, display: 'block', marginTop: 8 }}>
+                        <Text style={{ color: '#9CA3AF', fontSize: 12, display: 'block', marginTop: 6 }}>
                             Saisissez votre email pour recevoir un lien de réinitialisation.
                         </Text>
                     )}
                 </div>
 
+                <Divider style={{ borderColor: '#E8EFF8', margin: '16px 0' }} />
+
                 {success ? (
                     <Result
                         status="success"
-                        title="Email envoyé"
-                        style={{ color: 'rgba(255,255,255,0.6)', fontSize: 13, display: 'block', marginTop: 8 }}
-                        subTitle="Si cet email est enregistré, vous recevrez un lien de réinitialisation dans quelques instants."
+                        title={<span style={{ color: '#0D2F63' }}>Email envoyé</span>}
+                        subTitle={
+                            <span style={{ color: '#5A7BA8' }}>
+                                Si cet email est enregistré, vous recevrez un lien de réinitialisation dans quelques instants.
+                            </span>
+                        }
                         extra={
                             <Link to="/login">
-                                <Button type="primary">Retour à la connexion</Button>
+                                <Button type="primary" style={{ background: ADM_BLUE, borderColor: ADM_BLUE }}>
+                                    Retour à la connexion
+                                </Button>
                             </Link>
                         }
                     />
                 ) : (
                     <>
-                        <Link to="/login" style={{ display: 'flex', alignItems: 'center', gap: 6, color: 'rgba(255,255,255,0.9)', marginBottom: 24, width: 'fit-content' }}>
+                        <Link
+                            to="/login"
+                            style={{ display: 'inline-flex', alignItems: 'center', gap: 6, color: ADM_BLUE, marginBottom: 20, fontSize: 13 }}
+                        >
                             <ArrowLeftOutlined /> Retour à la connexion
                         </Link>
 
-                        {error && <Alert title={error} type="error" showIcon style={{ marginBottom: 16 }} />}
+                        {error && <Alert message={error} type="error" showIcon style={{ marginBottom: 16, borderRadius: 8 }} />}
 
                         <Form layout="vertical" onFinish={handleSubmit}>
-                            <Form.Item name="email" label={<span style={{ color: 'rgba(255,255,255,0.9)' }}>Email</span>} rules={[{ required: true, type: 'email', message: 'Email valide requis' }]}>
-                                <Input prefix={<MailOutlined />} size="large" placeholder="votre@email.com" />
+                            <Form.Item
+                                name="email"
+                                label={<span style={{ color: '#1A2B4A', fontWeight: 500 }}>Email</span>}
+                                rules={[{ required: true, type: 'email', message: 'Email valide requis' }]}
+                            >
+                                <Input
+                                    prefix={<MailOutlined style={{ color: '#90A8C8' }} />}
+                                    size="large"
+                                    placeholder="votre@email.com"
+                                />
                             </Form.Item>
-                            <Form.Item>
-                                <Button type="primary" htmlType="submit" size="large" loading={loading} block>
+                            <Form.Item style={{ marginBottom: 8 }}>
+                                <Button
+                                    type="primary"
+                                    htmlType="submit"
+                                    size="large"
+                                    loading={loading}
+                                    block
+                                    style={{ background: ADM_BLUE, borderColor: ADM_BLUE, fontWeight: 600, height: 44 }}
+                                >
                                     Envoyer le lien
                                 </Button>
                             </Form.Item>
                         </Form>
                     </>
                 )}
+
+                <Divider style={{ borderColor: '#E8EFF8', margin: '16px 0 8px' }} />
+                <div style={{ fontSize: 12, color: '#B0BEC5', textAlign: 'center' }}>
+                    Agence de Développement Municipal · Gestion Planning
+                </div>
             </div>
         </div>
     );

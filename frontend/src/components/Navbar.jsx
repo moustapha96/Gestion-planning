@@ -68,7 +68,7 @@ export default function Navbar({ user }) {
     return (
         <nav
             className="sticky top-0 z-[100] text-white shadow-lg"
-            style={{ background: 'linear-gradient(135deg, #1A365D 0%, #1e4d8c 100%)' }}
+            style={{ background: 'linear-gradient(135deg, #0B2F6E 0%, #1565C0 100%)' }}
         >
             <div className="max-w-7xl mx-auto px-3 sm:px-4 py-2 flex items-center gap-2 sm:gap-3 min-h-[52px]">
                 {/* Logo + titre */}
@@ -176,7 +176,7 @@ export default function Navbar({ user }) {
                         aria-label="Mon profil"
                     >
                         <div
-                            className="w-8 h-8 md:w-7 md:h-7 rounded-full flex items-center justify-center font-bold text-sm md:text-[13px] text-[#1A365D] shrink-0"
+                            className="w-8 h-8 md:w-7 md:h-7 rounded-full flex items-center justify-center font-bold text-sm md:text-[13px] text-[#0D2F63] shrink-0"
                             style={{ background: '#48BB78' }}
                         >
                             {user?.name?.[0]?.toUpperCase() || '?'}

@@ -3,10 +3,10 @@
   "configurations": [
     {
       "name": "frontend",
-      "runtimeExecutable": "cmd.exe",
-      "runtimeArgs": ["/c", "npm", "run", "dev"],
+      "runtimeExecutable": "npx",
+      "runtimeArgs": ["vite", "--port", "5173"],
       "port": 5173,
-      "cwd": "D:/Gestion planning/frontend"
+      "cwd": "frontend"
     }
   ]
 }

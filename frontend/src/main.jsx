@@ -14,18 +14,18 @@ function ThemedProviders() {
             theme={{
                 algorithm: isDark ? antdTheme.darkAlgorithm : antdTheme.defaultAlgorithm,
                 token: {
-                    colorPrimary: '#1A365D',
+                    colorPrimary: '#1565C0',
                     colorSuccess: '#48BB78',
-                    colorLink: '#1A365D',
+                    colorLink: '#1565C0',
                     borderRadius: 8,
                     fontFamily: "'Segoe UI', system-ui, sans-serif",
                     zIndexPopupBase: 1000,
                 },
                 components: {
-                    Button: { colorPrimary: '#1A365D', algorithm: true },
+                    Button: { colorPrimary: '#1565C0', algorithm: true },
                     Menu: isDark
                         ? { itemSelectedBg: 'rgba(255,255,255,0.14)', itemSelectedColor: '#ffffff' }
-                        : { itemSelectedBg: '#e8f0fe', itemSelectedColor: '#1A365D' },
+                        : { itemSelectedBg: '#e3f0ff', itemSelectedColor: '#1565C0' },
                 },
             }}
         >

@@ -3,23 +3,34 @@ import { useNavigate, Link } from 'react-router-dom';
 import { Form, Input, Button, Typography, Alert, Divider, Space, Steps } from 'antd';
 import { MailOutlined, LockOutlined, HomeOutlined, SafetyOutlined, ArrowLeftOutlined } from '@ant-design/icons';
 import { useAuth } from '../context/AuthContext';
-
 import logo from '../assets/logo-gp.png';
 
 const { Title, Text } = Typography;
 
-const cardStyle = {
+const pageStyle = {
     minHeight: '100vh',
     display: 'flex',
     alignItems: 'center',
     justifyContent: 'center',
-    background: 'linear-gradient(135deg, #1A365D 0%, #0d2a45 100%)',
+    background: 'linear-gradient(160deg, #0B2F6E 0%, #1565C0 55%, #0A2550 100%)',
+    padding: '24px 16px',
 };
+
+const cardStyle = {
+    width: '100%',
+    maxWidth: 420,
+    background: '#ffffff',
+    borderRadius: 18,
+    padding: '36px 40px 28px',
+    boxShadow: '0 24px 64px rgba(0, 0, 0, 0.35)',
+};
+
+const ADM_BLUE = '#1565C0';
 
 export default function Login() {
     const [loading, setLoading] = useState(false);
     const [error, setError] = useState('');
-    const [step, setStep] = useState('credentials'); // 'credentials' | 'totp'
+    const [step, setStep] = useState('credentials');
     const [tempToken, setTempToken] = useState(null);
     const { login, loginWith2FA } = useAuth();
     const navigate = useNavigate();
@@ -56,62 +67,81 @@ export default function Login() {
     };
 
     return (
-        <div className="auth-page" style={cardStyle}>
-            <div style={{ width: '100%', maxWidth: 420, padding: '0 16px' }}>
+        <div className="auth-page" style={pageStyle}>
+            <div style={cardStyle}>
 
-                {/* Header logo */}
-                <div style={{ textAlign: 'center' }}>
-                    <img src={logo} alt="Gestion Planning logo" style={{  height: 200, marginBottom: 5 }} />
-                    <Text style={{ color: 'rgba(255,255,255,0.75)' }}>
+                {/* Logo */}
+                <div style={{ textAlign: 'center', marginBottom: 8 }}>
+                    <img
+                        src={logo}
+                        alt="ADM – Agence de Développement Municipal"
+                        style={{ height: 110, objectFit: 'contain', marginBottom: 12 }}
+                    />
+                    <Title level={4} style={{ margin: 0, color: '#0D2F63', fontWeight: 700 }}>
+                        Gestion Planning
+                    </Title>
+                    <Text style={{ color: '#5A7BA8', fontSize: 13 }}>
                         {step === 'credentials' ? 'Connectez-vous à votre compte' : 'Vérification en deux étapes'}
                     </Text>
                 </div>
 
-                {/* Indicateur d'étape si 2FA */}
+                <Divider style={{ borderColor: '#E8EFF8', margin: '16px 0' }} />
+
+                {/* Indicateur 2FA */}
                 {step === 'totp' && (
-                    <div style={{ marginBottom: 24 }}>
+                    <div style={{ marginBottom: 20 }}>
                         <Steps
                             current={1}
                             size="small"
                             items={[
-                                { title: <span style={{ color: 'rgba(255,255,255,0.7)', fontSize: 12 }}>Identifiants</span> },
-                                { title: <span style={{ color: 'white', fontSize: 12 }}>Code 2FA</span> },
+                                { title: <span style={{ fontSize: 12, color: '#888' }}>Identifiants</span> },
+                                { title: <span style={{ fontSize: 12, color: ADM_BLUE }}>Code 2FA</span> },
                             ]}
-                            style={{ '--ant-steps-icon-bg-color': '#48BB78' }}
                         />
                     </div>
                 )}
 
-                {error && <Alert title={error} type="error" showIcon style={{ marginBottom: 16 }} />}
+                {error && <Alert message={error} type="error" showIcon style={{ marginBottom: 16, borderRadius: 8 }} />}
 
                 {/* Étape 1 : email + mot de passe */}
                 {step === 'credentials' && (
                     <Form layout="vertical" onFinish={handleCredentials}>
                         <Form.Item
                             name="email"
-                            label={<span style={{ color: 'rgba(255,255,255,0.9)' }}>Email</span>}
+                            label={<span style={{ color: '#1A2B4A', fontWeight: 500 }}>Email</span>}
                             rules={[{ required: true, type: 'email', message: 'Email valide requis' }]}
                         >
-                            <Input prefix={<MailOutlined />} size="large" placeholder="votre@email.com" />
+                            <Input prefix={<MailOutlined style={{ color: '#90A8C8' }} />} size="large" placeholder="votre@email.com" />
                         </Form.Item>
                         <Form.Item
                             name="password"
-                            label={<span style={{ color: 'rgba(255,255,255,0.9)' }}>Mot de passe</span>}
+                            label={<span style={{ color: '#1A2B4A', fontWeight: 500 }}>Mot de passe</span>}
                             rules={[{ required: true, message: 'Mot de passe requis' }]}
                         >
-                            <Input.Password prefix={<LockOutlined />} size="large" placeholder="••••••••" />
+                            <Input.Password prefix={<LockOutlined style={{ color: '#90A8C8' }} />} size="large" placeholder="••••••••" />
                         </Form.Item>
                         <div style={{ textAlign: 'right', marginBottom: 16, marginTop: -8 }}>
-                            <Link to="/forgot-password" style={{ color: 'rgba(255,255,255,0.9)' }}>Mot de passe oublié ?</Link>
+                            <Link to="/forgot-password" style={{ color: ADM_BLUE, fontSize: 13 }}>Mot de passe oublié ?</Link>
                         </div>
-                        <Form.Item>
-                            <Space orientation="vertical" style={{ width: '100%' }} size="middle">
-                                <Button type="primary" htmlType="submit" size="large" loading={loading} block
-                                    style={{ background: '#1A365D', borderColor: '#48BB78', borderWidth: 1.5 }}>
+                        <Form.Item style={{ marginBottom: 8 }}>
+                            <Space direction="vertical" style={{ width: '100%' }} size="middle">
+                                <Button
+                                    type="primary"
+                                    htmlType="submit"
+                                    size="large"
+                                    loading={loading}
+                                    block
+                                    style={{ background: ADM_BLUE, borderColor: ADM_BLUE, fontWeight: 600, height: 44 }}
+                                >
                                     Se connecter
                                 </Button>
-                                <Button size="large" icon={<HomeOutlined />} block onClick={() => navigate('/')}
-                                    style={{ background: 'white', color: '#1A365D', borderColor: 'white', fontWeight: 600 }}>
+                                <Button
+                                    size="large"
+                                    icon={<HomeOutlined />}
+                                    block
+                                    onClick={() => navigate('/')}
+                                    style={{ color: ADM_BLUE, borderColor: '#C5D8F0', fontWeight: 600, height: 44 }}
+                                >
                                     Voir l&apos;accueil du planning
                                 </Button>
                             </Space>
@@ -123,18 +153,18 @@ export default function Login() {
                 {step === 'totp' && (
                     <div>
                         <div style={{
-                            background: 'rgba(255,255,255,0.08)',
-                            borderRadius: 12,
-                            padding: 20,
+                            background: '#F0F6FF',
+                            borderRadius: 10,
+                            padding: 18,
                             marginBottom: 20,
-                            border: '1px solid rgba(72,187,120,0.3)',
+                            border: '1px solid #C5D8F0',
                             textAlign: 'center',
                         }}>
-                            <SafetyOutlined style={{ fontSize: 36, color: '#48BB78', marginBottom: 8 }} />
-                            <div style={{ color: 'white', fontWeight: 600, marginBottom: 4 }}>
+                            <SafetyOutlined style={{ fontSize: 32, color: '#48BB78', marginBottom: 8 }} />
+                            <div style={{ color: '#0D2F63', fontWeight: 600, marginBottom: 4 }}>
                                 Double authentification activée
                             </div>
-                            <div style={{ color: 'rgba(255,255,255,0.65)', fontSize: 13 }}>
+                            <div style={{ color: '#5A7BA8', fontSize: 13 }}>
                                 Ouvrez votre application d'authentification (Google Authenticator, Authy…)
                                 et entrez le code à 6 chiffres.
                             </div>
@@ -143,14 +173,14 @@ export default function Login() {
                         <Form layout="vertical" onFinish={handleTOTP}>
                             <Form.Item
                                 name="code"
-                                label={<span style={{ color: 'rgba(255,255,255,0.9)' }}>Code de vérification</span>}
+                                label={<span style={{ color: '#1A2B4A', fontWeight: 500 }}>Code de vérification</span>}
                                 rules={[
                                     { required: true, message: 'Code requis' },
                                     { pattern: /^\d{6}$/, message: 'Le code doit contenir 6 chiffres' },
                                 ]}
                             >
                                 <Input
-                                    prefix={<SafetyOutlined />}
+                                    prefix={<SafetyOutlined style={{ color: '#90A8C8' }} />}
                                     size="large"
                                     placeholder="000000"
                                     maxLength={6}
@@ -158,29 +188,39 @@ export default function Login() {
                                 />
                             </Form.Item>
                             <Form.Item>
-                                <Space orientation="vertical" style={{ width: '100%' }} size="middle">
-                                    <Button type="primary" htmlType="submit" size="large" loading={loading} block
-                                        style={{ background: '#48BB78', borderColor: '#48BB78', fontWeight: 600 }}>
+                                <Space direction="vertical" style={{ width: '100%' }} size="middle">
+                                    <Button
+                                        type="primary"
+                                        htmlType="submit"
+                                        size="large"
+                                        loading={loading}
+                                        block
+                                        style={{ background: '#48BB78', borderColor: '#48BB78', fontWeight: 600, height: 44 }}
+                                    >
                                         Vérifier le code
                                     </Button>
-                                    <Button size="large" icon={<ArrowLeftOutlined />} block
+                                    <Button
+                                        size="large"
+                                        icon={<ArrowLeftOutlined />}
+                                        block
                                         onClick={() => { setStep('credentials'); setTempToken(null); setError(''); }}
-                                        style={{ background: 'transparent', color: 'rgba(255,255,255,0.8)', borderColor: 'rgba(255,255,255,0.3)' }}>
+                                        style={{ color: ADM_BLUE, borderColor: '#C5D8F0', height: 44 }}
+                                    >
                                         Retour à la connexion
                                     </Button>
                                 </Space>
                             </Form.Item>
                         </Form>
 
-                        <div style={{ fontSize: 12, color: 'rgba(255,255,255,0.5)', textAlign: 'center' }}>
+                        <div style={{ fontSize: 12, color: '#9CA3AF', textAlign: 'center' }}>
                             Le code expire dans 30 secondes. Générez-en un nouveau si besoin.
                         </div>
                     </div>
                 )}
 
-                <Divider style={{ borderColor: 'rgba(255,255,255,0.15)' }} />
-                <div style={{ fontSize: 12, color: 'rgba(255,255,255,0.5)', textAlign: 'center' }}>
-                    Gestion Planning · Optimisation et Organisation
+                <Divider style={{ borderColor: '#E8EFF8', margin: '16px 0 8px' }} />
+                <div style={{ fontSize: 12, color: '#B0BEC5', textAlign: 'center' }}>
+                    Agence de Développement Municipal · Gestion Planning
                 </div>
             </div>
         </div>
