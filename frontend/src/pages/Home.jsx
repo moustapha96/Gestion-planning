@@ -300,7 +300,7 @@ export default function Home() {
                     }}>
                         <div>
                             <Title level={2} style={{ color: '#fff', margin: 0, fontWeight: 700 }}>
-                                📅 Gestion Planning
+                                📅 ADM GP
                             </Title>
                             {displayDate && (
                                 <Text style={{

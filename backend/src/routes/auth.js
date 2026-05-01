@@ -12,6 +12,25 @@ const { validatePasswordStrength } = require('../utils/passwordUtils');
 
 const router = express.Router();
 
+// Blacklist en mémoire des tempTokens déjà consommés (succès 2FA)
+// Nettoyage automatique : chaque token expire au bout de 5 min de toute façon
+const usedTempTokens = new Map(); // token → timestamp d'expiration
+
+function markTempTokenUsed(token) {
+    usedTempTokens.set(token, Date.now() + 5 * 60 * 1000);
+    // Purger les entrées expirées pour éviter une fuite mémoire
+    for (const [t, exp] of usedTempTokens) {
+        if (Date.now() > exp) usedTempTokens.delete(t);
+    }
+}
+
+function isTempTokenUsed(token) {
+    const exp = usedTempTokens.get(token);
+    if (!exp) return false;
+    if (Date.now() > exp) { usedTempTokens.delete(token); return false; }
+    return true;
+}
+
 const avatarsDir = path.join(__dirname, '../../uploads/avatars');
 const uploadAvatar = multer({
     storage: multer.diskStorage({
@@ -178,6 +197,11 @@ router.post('/2fa-login', async (req, res) => {
             return res.status(400).json({ error: 'tempToken et code requis.' });
         }
 
+        // Rejeter un tempToken déjà consommé (replay attack / réutilisation après succès)
+        if (isTempTokenUsed(tempToken)) {
+            return res.status(401).json({ error: 'Session 2FA déjà utilisée. Veuillez vous reconnecter.' });
+        }
+
         let payload;
         try {
             payload = jwt.verify(tempToken, process.env.JWT_SECRET);
@@ -199,10 +223,25 @@ router.post('/2fa-login', async (req, res) => {
             token: String(code).trim(),
             window: 1,
         });
+
         if (!valid) {
-            logger.warn('2FA_LOGIN_FAILED', `Code invalide pour ${user.email}`, { userId: user.id });
+            logger.warn('2FA_LOGIN_FAILED', `Code 2FA invalide pour ${user.email}`, { userId: user.id, ip: req.ip });
+            auditLogger.warn('2FA_FAILED', `Échec code 2FA pour ${user.email}`, { userId: user.id, ip: req.ip });
+            req.prisma.auditLog.create({
+                data: {
+                    userId: user.id,
+                    action: '2FA_FAILED',
+                    entity: 'User',
+                    entityId: user.id,
+                    ipAddress: req.ip,
+                    details: `Code 2FA invalide depuis ${req.ip}`,
+                },
+            }).catch(() => {});
             return res.status(401).json({ error: 'Code invalide. Vérifiez votre application d\'authentification.' });
         }
+
+        // Consommer le tempToken — ne peut plus être réutilisé
+        markTempTokenUsed(tempToken);
 
         const accessToken = jwt.sign(
             { id: user.id, email: user.email, role: user.role },
@@ -220,6 +259,18 @@ router.post('/2fa-login', async (req, res) => {
         });
 
         logger.logAuth('LOGIN_2FA', user.email, true);
+        auditLogger.info('LOGIN_2FA', `Connexion 2FA réussie pour ${user.email}`, { userId: user.id, ip: req.ip });
+        req.prisma.auditLog.create({
+            data: {
+                userId: user.id,
+                action: 'LOGIN_2FA',
+                entity: 'User',
+                entityId: user.id,
+                ipAddress: req.ip,
+                details: `Connexion 2FA réussie`,
+            },
+        }).catch(() => {});
+
         res.json({
             accessToken,
             refreshToken,

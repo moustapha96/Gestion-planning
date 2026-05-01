@@ -916,7 +916,7 @@ export default function Discussions() {
         pageBorder: isDark ? '#2b2f36' : '#dfe5e7',
         pageShadow: isDark ? '0 4px 20px rgba(0,0,0,0.35)' : '0 4px 20px rgba(0,0,0,0.08)',
         sidebarBg: isDark ? '#14171c' : '#fff',
-        sidebarHeaderBg: isDark ? '#0f2239' : '#1A365D',
+        sidebarHeaderBg: isDark ? '#1a3a5c' : '#3e7cbc',
         sidebarSearchBg: isDark ? '#1b2027' : '#f0f2f5',
         sidebarSearchBorder: isDark ? '#2b3139' : '#e9edef',
         searchInputBg: isDark ? '#232a33' : '#fff',
@@ -927,7 +927,7 @@ export default function Discussions() {
         textSecondary: isDark ? '#b9c0c8' : '#555',
         textMuted: isDark ? '#9aa4af' : '#8696a0',
         chatBg: isDark ? '#0f1115' : '#efeae2',
-        chatHeaderBg: isDark ? '#0f2239' : '#1A365D',
+        chatHeaderBg: isDark ? '#1a3a5c' : '#3e7cbc',
         separatorBg: isDark ? 'rgba(35,42,51,0.92)' : 'rgba(255,255,255,0.85)',
         separatorColor: isDark ? '#c5ccd4' : '#54656f',
         toolbarBg: isDark ? '#1b2027' : '#f0f2f5',
@@ -944,7 +944,7 @@ export default function Discussions() {
         quoteMineBg: isDark ? 'rgba(0,0,0,0.18)' : 'rgba(0,0,0,0.06)',
         quoteOtherBg: isDark ? '#2b3139' : '#f0f0f0',
         actionBtnBg: isDark ? 'rgba(255,255,255,0.08)' : 'rgba(0,0,0,0.06)',
-        fileColor: isDark ? '#8fb7ff' : '#1A365D',
+        fileColor: isDark ? '#8fb7ff' : '#3e7cbc',
     };
     const chatBg = ui.chatBg;
     const isMobile = !isDesktopLayout;
@@ -1257,7 +1257,7 @@ export default function Discussions() {
                         color: ui.textMuted,
                     }}>
                         <div style={{ fontSize: 48 }}>💬</div>
-                        <div style={{ fontSize: 18, fontWeight: 600, color: ui.textPrimary }}>Gestion Planning — Messagerie</div>
+                        <div style={{ fontSize: 18, fontWeight: 600, color: ui.textPrimary }}>ADM GP — Messagerie</div>
                         <div style={{ fontSize: 14 }}>Sélectionnez une conversation pour commencer</div>
                     </div>
                 ) : (

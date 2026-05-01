@@ -3,7 +3,7 @@ import { Link } from 'react-router-dom';
 import { Form, Input, Button, Typography, Alert, Result } from 'antd';
 import { MailOutlined, ArrowLeftOutlined } from '@ant-design/icons';
 import api from '../api/client';
-import logo from '../assets/logo-gp.png';
+import logo from '../assets/logo-adm.png';
 
 const { Text } = Typography;
 
@@ -12,7 +12,7 @@ const pageStyle = {
     display: 'flex',
     alignItems: 'center',
     justifyContent: 'center',
-    background: 'linear-gradient(135deg, #1A365D 0%, #0d2a45 100%)',
+    background: 'linear-gradient(135deg, #3e7cbc 0%, #2a5fa0 100%)',
 };
 
 export default function ForgotPassword() {
@@ -37,7 +37,7 @@ export default function ForgotPassword() {
         <div className="auth-page" style={pageStyle}>
             <div style={{ width: '100%', maxWidth: 420, padding: '0 16px' }}>
                 <div style={{ textAlign: 'center', marginBottom: 24 }}>
-                    <img src={logo} alt="Gestion Planning logo" style={{ height: 200, marginBottom: 5 }} />
+                    <img src={logo} alt="ADM GP logo" style={{ height: 200, marginBottom: 5 }} />
                     <Text style={{ color: 'rgba(255,255,255,0.75)', display: 'block' }}>
                         {success ? 'Réinitialisation du mot de passe' : 'Mot de passe oublié'}
                     </Text>

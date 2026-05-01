@@ -9,6 +9,7 @@ import {
     TeamOutlined, HomeOutlined, SettingOutlined, UserOutlined, LogoutOutlined,
     BellOutlined, FlagOutlined, ScheduleOutlined, MessageOutlined,
     UnorderedListOutlined, ProjectOutlined, SearchOutlined, MoonOutlined, SunOutlined, ApartmentOutlined,
+    ContactsOutlined,
 } from '@ant-design/icons';
 import { useAuth } from '../context/AuthContext';
 import NotificationBell from './NotificationBell';
@@ -56,8 +57,8 @@ export default function AppLayout() {
     const showInlineSearch = Boolean(screens.md);
     const [drawerOpen, setDrawerOpen] = useState(false);
     const [directMessagesEnabled, setDirectMessagesEnabled] = useState(true);
-    const [appName, setAppName] = useState('Gestion Planning');
-    const [footerText, setFooterText] = useState('© 2026 Gestion Planning - Tous droits réservés');
+    const [appName, setAppName] = useState('ADM GP');
+    const [footerText, setFooterText] = useState('© 2026 ADM GP - Tous droits réservés');
     const [contactEmail, setContactEmail] = useState('');
     const [contactPhone, setContactPhone] = useState('');
     const [contactAddress, setContactAddress] = useState('');
@@ -130,8 +131,8 @@ export default function AppLayout() {
                 const { data } = await api.get('/admin/settings/public');
                 if (!active) return;
                 setDirectMessagesEnabled(String(data?.direct_messages_enabled ?? 'true') === 'true');
-                setAppName(String(data?.app_name || 'Gestion Planning'));
-                setFooterText(String(data?.app_footer_text || '© 2026 Gestion Planning - Tous droits réservés'));
+                setAppName(String(data?.app_name || 'ADM GP'));
+                setFooterText(String(data?.app_footer_text || '© 2026 ADM GP - Tous droits réservés'));
                 setContactEmail(String(data?.app_contact_email || ''));
                 setContactPhone(String(data?.app_contact_phone || ''));
                 setContactAddress(String(data?.app_contact_address || ''));
@@ -139,8 +140,8 @@ export default function AppLayout() {
             } catch {
                 if (active) {
                     setDirectMessagesEnabled(true);
-                    setAppName('Gestion Planning');
-                    setFooterText('© 2026 Gestion Planning - Tous droits réservés');
+                    setAppName('ADM GP');
+                    setFooterText('© 2026 ADM GP - Tous droits réservés');
                     setContactEmail('');
                     setContactPhone('');
                     setContactAddress('');
@@ -449,6 +450,11 @@ export default function AppLayout() {
             label: 'Projets',
         },
         {
+            key: '/repertoire',
+            icon: <ContactsOutlined />,
+            label: 'Répertoire',
+        },
+        {
             key: '/notifications',
             icon: <BellOutlined />,
             label: 'Notifications',
@@ -585,22 +591,20 @@ export default function AppLayout() {
                         onClick={() => goTo('/dashboard')}
                         onKeyDown={(e) => e.key === 'Enter' && goTo('/dashboard')}
                     >
-                        {appLogoUrl ? (
-                            <img
-                                src={`${API_BASE}${appLogoUrl}`}
-                                alt={appName}
-                                style={{
-                                    width: 'auto',
-                                    height: 'auto',
-                                    maxWidth: isMobile ? 100 : 120,
-                                    maxHeight: 36,
-                                    objectFit: 'contain',
-                                    marginRight: 8,
-                                    flexShrink: 0,
-                                    display: 'block',
-                                }}
-                            />
-                        ) : 'GP'}
+                        <img
+                            src={appLogoUrl ? `${API_BASE}${appLogoUrl}` : '/adm_logo.png'}
+                            alt={appName}
+                            style={{
+                                width: 'auto',
+                                height: 'auto',
+                                maxWidth: isMobile ? 100 : 120,
+                                maxHeight: 36,
+                                objectFit: 'contain',
+                                marginRight: 8,
+                                flexShrink: 0,
+                                display: 'block',
+                            }}
+                        />
                         <span
                             style={{
                                 overflow: 'hidden',
@@ -621,13 +625,11 @@ export default function AppLayout() {
                         onClick={() => goTo('/dashboard')}
                         onKeyDown={(e) => e.key === 'Enter' && goTo('/dashboard')}
                     >
-                        {appLogoUrl ? (
-                            <img
-                                src={`${API_BASE}${appLogoUrl}`}
-                                alt={appName}
-                                style={{ width: 160, height: 160, objectFit: 'contain' }}
-                            />
-                        ) : '📅'}
+                        <img
+                            src={appLogoUrl ? `${API_BASE}${appLogoUrl}` : '/adm_logo.png'}
+                            alt={appName}
+                            style={{ width: 40, height: 40, objectFit: 'contain' }}
+                        />
                     </span>
                 )}
             </div>

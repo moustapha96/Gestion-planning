@@ -4,7 +4,7 @@ import { Form, Input, Button, Typography, Alert, Divider, Space, Steps } from 'a
 import { MailOutlined, LockOutlined, HomeOutlined, SafetyOutlined, ArrowLeftOutlined } from '@ant-design/icons';
 import { useAuth } from '../context/AuthContext';
 
-import logo from '../assets/logo-gp.png';
+import logo from '../assets/logo-adm.png';
 
 const { Title, Text } = Typography;
 
@@ -13,7 +13,7 @@ const cardStyle = {
     display: 'flex',
     alignItems: 'center',
     justifyContent: 'center',
-    background: 'linear-gradient(135deg, #1A365D 0%, #0d2a45 100%)',
+    background: 'linear-gradient(135deg, #3e7cbc 0%, #2a5fa0 100%)',
 };
 
 export default function Login() {
@@ -61,7 +61,7 @@ export default function Login() {
 
                 {/* Header logo */}
                 <div style={{ textAlign: 'center' }}>
-                    <img src={logo} alt="Gestion Planning logo" style={{  height: 200, marginBottom: 5 }} />
+                    <img src={logo} alt="ADM GP logo" style={{  height: 200, marginBottom: 5 }} />
                     <Text style={{ color: 'rgba(255,255,255,0.75)' }}>
                         {step === 'credentials' ? 'Connectez-vous à votre compte' : 'Vérification en deux étapes'}
                     </Text>
@@ -107,11 +107,11 @@ export default function Login() {
                         <Form.Item>
                             <Space orientation="vertical" style={{ width: '100%' }} size="middle">
                                 <Button type="primary" htmlType="submit" size="large" loading={loading} block
-                                    style={{ background: '#1A365D', borderColor: '#48BB78', borderWidth: 1.5 }}>
+                                    style={{ background: '#3e7cbc', borderColor: '#48BB78', borderWidth: 1.5 }}>
                                     Se connecter
                                 </Button>
                                 <Button size="large" icon={<HomeOutlined />} block onClick={() => navigate('/')}
-                                    style={{ background: 'white', color: '#1A365D', borderColor: 'white', fontWeight: 600 }}>
+                                    style={{ background: 'white', color: '#3e7cbc', borderColor: 'white', fontWeight: 600 }}>
                                     Voir l&apos;accueil du planning
                                 </Button>
                             </Space>
@@ -180,7 +180,7 @@ export default function Login() {
 
                 <Divider style={{ borderColor: 'rgba(255,255,255,0.15)' }} />
                 <div style={{ fontSize: 12, color: 'rgba(255,255,255,0.5)', textAlign: 'center' }}>
-                    Gestion Planning · Optimisation et Organisation
+                    ADM GP · Optimisation et Organisation
                 </div>
             </div>
         </div>

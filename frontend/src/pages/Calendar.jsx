@@ -268,7 +268,7 @@ function defaultEventEndICS(ev, dtStart) {
 function exportICS(events, label) {
     const lines = [
         'BEGIN:VCALENDAR', 'VERSION:2.0',
-        'PRODID:-//Gestion Planning//App//FR',
+        'PRODID:-//ADM GP//App//FR',
         `X-WR-CALNAME:${escapeICSField(label)}`,
         'CALSCALE:GREGORIAN', 'METHOD:PUBLISH',
     ];
@@ -344,10 +344,10 @@ function exportPrintPDF(events, label) {
 <title>Calendrier — ${escapeHtml(label)}</title>
 <style>
   body { font-family: Arial, sans-serif; font-size: 12px; margin: 24px; color: #1a1a1a; }
-  h1   { font-size: 18px; color: #1A365D; margin-bottom: 4px; }
+  h1   { font-size: 18px; color: #3e7cbc; margin-bottom: 4px; }
   p    { color: #666; margin-bottom: 16px; font-size: 11px; }
   table { width: 100%; border-collapse: collapse; }
-  thead tr { background: #1A365D; color: #fff; }
+  thead tr { background: #3e7cbc; color: #fff; }
   th   { padding: 8px 10px; text-align: left; font-size: 11px; }
   td   { padding: 6px 10px; border-bottom: 1px solid #eee; }
   tr:nth-child(even) td { background: #f8fafc; }

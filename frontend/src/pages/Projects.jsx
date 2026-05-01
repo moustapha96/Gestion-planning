@@ -185,7 +185,7 @@ export default function Projects() {
             dataIndex: 'name',
             sorter: (a, b) => a.name.localeCompare(b.name),
             render: (name, row) => (
-                <span style={{ fontWeight: 600, cursor: 'pointer', color: '#1A365D' }} onClick={() => openDetail(row)}>
+                <span style={{ fontWeight: 600, cursor: 'pointer', color: '#3e7cbc' }} onClick={() => openDetail(row)}>
                     {name}
                 </span>
             ),
@@ -294,7 +294,7 @@ export default function Projects() {
             {/* ── Stats ── */}
             <Row gutter={[16, 16]} style={{ marginBottom: 16 }}>
                 {[
-                    { title: 'Total projets',   value: total,    color: '#1A365D', icon: <ProjectOutlined /> },
+                    { title: 'Total projets',   value: total,    color: '#3e7cbc', icon: <ProjectOutlined /> },
                     { title: 'Projets actifs',  value: actifs,   color: '#52c41a', icon: <CheckCircleOutlined /> },
                     { title: 'Missions liées',  value: missions, color: '#722ed1', icon: <FlagOutlined /> },
                     { title: 'Réunions liées',  value: meetings, color: '#1677ff', icon: <TeamOutlined /> },

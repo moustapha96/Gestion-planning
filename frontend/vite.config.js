@@ -15,7 +15,7 @@ export default defineConfig({
                 name: 'Gestion Planning',
                 short_name: 'GP Planning',
                 description: 'Optimisation et Organisation — plannings, réunions, missions',
-                theme_color: '#1A365D',
+                theme_color: '#2596be',
                 background_color: '#ffffff',
                 display: 'standalone',
                 display_override: ['window-controls-overlay', 'standalone', 'browser'],
@@ -36,9 +36,9 @@ export default defineConfig({
                 ],
                 shortcuts: [
                     { name: 'Tableau de bord', url: '/dashboard', icons: [{ src: '/icons/icon-192.png', sizes: '192x192', type: 'image/png' }] },
-                    { name: 'Planning',         url: '/planning',  icons: [{ src: '/icons/icon-192.png', sizes: '192x192', type: 'image/png' }] },
-                    { name: 'Réunions',         url: '/meetings',  icons: [{ src: '/icons/icon-192.png', sizes: '192x192', type: 'image/png' }] },
-                    { name: 'Missions',         url: '/missions',  icons: [{ src: '/icons/icon-192.png', sizes: '192x192', type: 'image/png' }] },
+                    { name: 'Planning', url: '/planning', icons: [{ src: '/icons/icon-192.png', sizes: '192x192', type: 'image/png' }] },
+                    { name: 'Réunions', url: '/meetings', icons: [{ src: '/icons/icon-192.png', sizes: '192x192', type: 'image/png' }] },
+                    { name: 'Missions', url: '/missions', icons: [{ src: '/icons/icon-192.png', sizes: '192x192', type: 'image/png' }] },
                 ],
             },
             workbox: {
@@ -46,8 +46,7 @@ export default defineConfig({
                 globPatterns: ['**/*.{js,css,html,svg,png,ico,woff2}'],
                 navigateFallback: '/index.html',
                 navigateFallbackDenylist: [/^\/api/, /^\/uploads/],
-                runtimeCaching: [
-                    {
+                runtimeCaching: [{
                         urlPattern: /^https?:\/\/.*\/api\//,
                         handler: 'NetworkFirst',
                         options: { cacheName: 'api-cache', networkTimeoutSeconds: 10 },

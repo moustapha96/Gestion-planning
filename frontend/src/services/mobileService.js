@@ -95,7 +95,7 @@ class MobileService {
         try {
             await StatusBar.setStyle({ style: Style.Dark });
             if (IS_ANDROID) {
-                await StatusBar.setBackgroundColor({ color: '#1A365D' });
+                await StatusBar.setBackgroundColor({ color: '#3e7cbc' });
                 await StatusBar.setOverlaysWebView({ overlay: false });
             }
         } catch (e) {
@@ -249,7 +249,7 @@ class MobileService {
         // Notification reçue en foreground → afficher comme Local Notification
         PushNotifications.addListener('pushNotificationReceived', async (notification) => {
             await this.showLocalNotification({
-                title:     notification.title || 'Gestion Planning',
+                title:     notification.title || 'ADM GP',
                 body:      notification.body  || '',
                 data:      notification.data  || {},
                 channelId: notification.data?.channelId || 'default',
@@ -283,7 +283,7 @@ class MobileService {
                 visibility:  1, // PUBLIC
                 vibration:   true,
                 lights:      true,
-                lightColor:  '#1A365D',
+                lightColor:  '#3e7cbc',
                 sound:       'default',
             });
 
@@ -375,7 +375,7 @@ class MobileService {
                     actionTypeId: actions,
                     autoCancel:   true,
                     smallIcon:    IS_ANDROID ? 'ic_stat_notification' : undefined,
-                    iconColor:    '#1A365D',
+                    iconColor:    '#3e7cbc',
                     sound:        'default',
                 }],
             });
