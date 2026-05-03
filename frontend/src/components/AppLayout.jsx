@@ -718,6 +718,7 @@ export default function AppLayout() {
                         zIndex: 100,
                         display: 'flex',
                         flexDirection: 'column',
+                        background: 'linear-gradient(180deg, #1565C0 0%, #0D47A1 100%)',
                     }}
                 >
                     {menuContent}
@@ -731,7 +732,7 @@ export default function AppLayout() {
                     placement="left"
                     onClose={() => setDrawerOpen(false)}
                     open={drawerOpen}
-                    styles={{ body: { padding: 0, background: '#001529', display: 'flex', flexDirection: 'column', height: '100%' } }}
+                    styles={{ body: { padding: 0, background: 'linear-gradient(180deg, #1565C0 0%, #0D47A1 100%)', display: 'flex', flexDirection: 'column', height: '100%' } }}
                     width={300}
                     className="app-sidebar-drawer"
                 >
@@ -757,8 +758,8 @@ export default function AppLayout() {
                         padding: isMobile
                             ? '0 max(8px, env(safe-area-inset-right)) 0 max(4px, env(safe-area-inset-left))'
                             : '0 max(16px, env(safe-area-inset-right)) 0 max(8px, env(safe-area-inset-left))',
-                        background: isDark ? '#14171c' : '#fff',
-                        borderBottom: isDark ? '1px solid #2b2f36' : '1px solid #f0f0f0',
+                        background: isDark ? '#14171c' : 'linear-gradient(90deg, #1565C0 0%, #0D47A1 100%)',
+                        borderBottom: isDark ? '1px solid #2b2f36' : 'none',
                         height: 56,
                         minHeight: 56,
                         gap: isXs ? 4 : 8,
@@ -778,7 +779,7 @@ export default function AppLayout() {
                         }
                         onClick={toggleSidebar}
                         className="touch-target"
-                        style={{ fontSize: 18, width: 44, height: 44, flexShrink: 0 }}
+                        style={{ fontSize: 18, width: 44, height: 44, flexShrink: 0, color: isDark ? undefined : 'white' }}
                         title={collapsed || !drawerOpen ? 'Ouvrir le menu' : 'Fermer le menu'}
                     />
 
@@ -794,6 +795,7 @@ export default function AppLayout() {
                                 whiteSpace: 'nowrap',
                                 minWidth: 0,
                                 paddingRight: 4,
+                                color: isDark ? undefined : 'white',
                             }}
                             title={resolveMenuLabel(location.pathname)}
                         >
@@ -842,7 +844,7 @@ export default function AppLayout() {
                                 icon={<SearchOutlined />}
                                 className="touch-target"
                                 aria-label="Recherche globale"
-                                style={{ flexShrink: 0 }}
+                                style={{ flexShrink: 0, color: isDark ? undefined : 'white' }}
                             />
                         </Popover>
                     )}
@@ -854,6 +856,7 @@ export default function AppLayout() {
                             onClick={toggleMode}
                             className="touch-target"
                             title={isDark ? 'Activer le mode clair' : 'Activer le mode sombre'}
+                            style={{ color: isDark ? undefined : 'white' }}
                         />
                         {showInlineSearch && (
                             <Tooltip title={getSocketStatusDetail(rtSocket)}>
@@ -893,7 +896,7 @@ export default function AppLayout() {
                                 />
                             </Tooltip>
                         )}
-                        <NotificationBell />
+                        <NotificationBell tone={isDark ? undefined : 'onDark'} />
 
                         <Dropdown
                             menu={{ items: userMenuItems }}
@@ -915,7 +918,7 @@ export default function AppLayout() {
                                 <UserAvatar user={user} size={isXs ? 26 : 28} />
                                 {showHeaderUserDetails && (
                                     <div style={{ display: 'flex', flexDirection: 'column', gap: 0, lineHeight: 1.2, minWidth: 0, overflow: 'hidden' }}>
-                                        <Text style={{ fontSize: 13, fontWeight: 500 }} ellipsis>
+                                        <Text style={{ fontSize: 13, fontWeight: 500, color: isDark ? undefined : 'white' }} ellipsis>
                                             {user?.name}
                                         </Text>
                                         <Tag

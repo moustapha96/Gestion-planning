@@ -7,9 +7,9 @@ import { isPrivilegedAdmin } from '../utils/roles';
 import logo from '../assets/logo-gp.png';
 
 const NAV_BTN =
-    'shrink-0 px-3 py-2 rounded-md text-sm font-medium transition-all duration-150 hover:bg-white/15 whitespace-nowrap';
-const NAV_ACTIVE = 'bg-white/25 text-white shadow-sm';
-const NAV_IDLE = 'text-blue-100';
+    'shrink-0 px-3 py-2 rounded-md text-sm font-medium transition-all duration-150 whitespace-nowrap';
+const NAV_ACTIVE = 'text-white font-semibold shadow-sm';
+const NAV_IDLE = 'text-blue-100 hover:text-white hover:bg-white/10';
 
 function buildLinks(user) {
     const items = [{ path: '/dashboard', label: 'Tableau de bord' }];
@@ -65,10 +65,15 @@ export default function Navbar({ user }) {
     const linkClass = (path) =>
         `${NAV_BTN} ${isActive(path) ? NAV_ACTIVE : NAV_IDLE}`;
 
+    const linkStyle = (path) =>
+        isActive(path)
+            ? { background: 'rgba(255,255,255,0.18)', borderBottom: '2px solid rgba(255,255,255,0.8)' }
+            : {};
+
     return (
         <nav
             className="sticky top-0 z-[100] text-white shadow-lg"
-            style={{ background: 'linear-gradient(135deg, #3e7cbc 0%, #2d6aad 100%)' }}
+            style={{ background: 'linear-gradient(135deg, #1565C0 0%, #0D47A1 100%)' }}
         >
             <div className="max-w-7xl mx-auto px-3 sm:px-4 py-2 flex items-center gap-2 sm:gap-3 min-h-[52px]">
                 {/* Logo + titre */}
@@ -105,6 +110,7 @@ export default function Navbar({ user }) {
                                 type="button"
                                 onClick={() => go(path)}
                                 className={linkClass(path)}
+                                style={linkStyle(path)}
                             >
                                 {label}
                             </button>
@@ -113,14 +119,20 @@ export default function Navbar({ user }) {
                 </div>
 
                 <Drawer
-                    title={<span className="text-gray-900 font-semibold">Navigation</span>}
+                    title={
+                        <div className="flex items-center gap-2">
+                            <img src={logo} alt="ADM" style={{ height: 32 }} />
+                            <span style={{ color: '#0D47A1', fontWeight: 700, fontSize: 15 }}>ADM · Gestion Planning</span>
+                        </div>
+                    }
                     placement="left"
                     onClose={() => setDrawerOpen(false)}
                     open={drawerOpen}
-                    width={320}
+                    width={300}
                     rootClassName="navbar-drawer-root"
                     styles={{
-                        body: { padding: 0, display: 'flex', flexDirection: 'column' },
+                        header: { borderBottom: '2px solid #E3F2FD', background: '#F8FBFF' },
+                        body: { padding: 0, display: 'flex', flexDirection: 'column', background: '#F8FBFF' },
                     }}
                     className="navbar-mobile-drawer"
                 >
@@ -130,11 +142,27 @@ export default function Navbar({ user }) {
                                 key={path}
                                 type="button"
                                 onClick={() => go(path)}
-                                className={`text-left px-4 py-3.5 text-base border-b border-gray-100 transition-colors ${
-                                    isActive(path)
-                                        ? 'bg-blue-50 text-blue-800 font-semibold border-l-4 border-l-blue-600'
-                                        : 'text-gray-800 hover:bg-gray-50'
-                                }`}
+                                style={isActive(path) ? {
+                                    background: '#E3F2FD',
+                                    color: '#0D47A1',
+                                    fontWeight: 700,
+                                    borderLeft: '4px solid #1565C0',
+                                    textAlign: 'left',
+                                    padding: '14px 16px 14px 12px',
+                                    borderBottom: '1px solid #BBDEFB',
+                                    fontSize: 15,
+                                    cursor: 'pointer',
+                                    width: '100%',
+                                } : {
+                                    textAlign: 'left',
+                                    padding: '14px 16px',
+                                    borderBottom: '1px solid #E3F2FD',
+                                    color: '#1A2B4A',
+                                    fontSize: 15,
+                                    cursor: 'pointer',
+                                    width: '100%',
+                                    background: 'transparent',
+                                }}
                             >
                                 {label}
                             </button>
@@ -142,14 +170,32 @@ export default function Navbar({ user }) {
                         <button
                             type="button"
                             onClick={() => go('/profile')}
-                            className="text-left px-4 py-3.5 text-base border-b border-gray-100 text-gray-800 hover:bg-gray-50"
+                            style={{
+                                textAlign: 'left',
+                                padding: '14px 16px',
+                                borderBottom: '1px solid #E3F2FD',
+                                color: '#1A2B4A',
+                                fontSize: 15,
+                                cursor: 'pointer',
+                                width: '100%',
+                                background: 'transparent',
+                            }}
                         >
                             Mon profil
                         </button>
                         <button
                             type="button"
                             onClick={handleLogout}
-                            className="text-left px-4 py-3.5 text-base text-red-600 font-medium hover:bg-red-50"
+                            style={{
+                                textAlign: 'left',
+                                padding: '14px 16px',
+                                color: '#D32F2F',
+                                fontWeight: 600,
+                                fontSize: 15,
+                                cursor: 'pointer',
+                                width: '100%',
+                                background: 'transparent',
+                            }}
                         >
                             Déconnexion
                         </button>
@@ -176,8 +222,8 @@ export default function Navbar({ user }) {
                         aria-label="Mon profil"
                     >
                         <div
-                            className="w-8 h-8 md:w-7 md:h-7 rounded-full flex items-center justify-center font-bold text-sm md:text-[13px] text-[#3e7cbc] shrink-0"
-                            style={{ background: '#48BB78' }}
+                            className="w-8 h-8 md:w-7 md:h-7 rounded-full flex items-center justify-center font-bold text-sm md:text-[13px] shrink-0"
+                            style={{ background: 'rgba(255,255,255,0.22)', color: '#fff', border: '1.5px solid rgba(255,255,255,0.45)' }}
                         >
                             {user?.name?.[0]?.toUpperCase() || '?'}
                         </div>
@@ -191,9 +237,9 @@ export default function Navbar({ user }) {
                         onClick={handleLogout}
                         className="hidden md:inline-flex text-xs font-medium px-2.5 sm:px-3 py-2 rounded-md transition-all shrink-0 hover:bg-white/20 items-center"
                         style={{
-                            background: 'rgba(255,255,255,0.14)',
-                            border: '1px solid rgba(255,255,255,0.25)',
-                            color: 'white',
+                            background: 'rgba(255,255,255,0.12)',
+                            border: '1px solid rgba(255,255,255,0.30)',
+                            color: '#BBDEFB',
                             cursor: 'pointer',
                         }}
                     >

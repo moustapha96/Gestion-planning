@@ -1,11 +1,11 @@
 import { useState } from 'react';
-import { useNavigate, useSearchParams } from 'react-router-dom';
-import { Form, Input, Button, Typography, Alert, Result, Divider } from 'antd';
-import { LockOutlined } from '@ant-design/icons';
+import { useNavigate, useSearchParams, Link } from 'react-router-dom';
+import { Form, Input, Button, Typography, Alert, Result, Divider, Space } from 'antd';
+import { LockOutlined, ArrowLeftOutlined } from '@ant-design/icons';
 import api from '../api/client';
 import logo from '../assets/logo-adm.png';
 
-const { Title, Text } = Typography;
+const { Text } = Typography;
 
 const pageStyle = {
     minHeight: '100vh',
@@ -16,12 +16,12 @@ const pageStyle = {
 };
 
 const cardStyle = {
+    background: 'rgba(255,255,255,0.95)',
+    borderRadius: 16,
+    padding: '32px 40px',
     width: '100%',
-    maxWidth: 420,
-    background: '#ffffff',
-    borderRadius: 18,
-    padding: '36px 40px 28px',
-    boxShadow: '0 24px 64px rgba(0, 0, 0, 0.35)',
+    maxWidth: 440,
+    boxShadow: '0 8px 32px rgba(0,0,0,0.18)',
 };
 
 const ADM_BLUE = '#1565C0';
@@ -53,14 +53,16 @@ export default function ResetPassword() {
 
     return (
         <div className="auth-page" style={pageStyle}>
-            <div style={{ width: '100%', maxWidth: 420, padding: '0 16px' }}>
-                <div style={{ textAlign: 'center', marginBottom: 24 }}>
-                    <img src={logo} alt="ADM GP logo" style={{ height: 200, marginBottom: 5 }} />
-                    <Text style={{ color: 'rgba(255,255,255,0.75)', display: 'block' }}>
+            <div style={cardStyle}>
+
+                {/* Header logo */}
+                <div style={{ textAlign: 'center' }}>
+                    <img src={logo} alt="ADM GP logo" style={{ height: 200, display: 'block', margin: '0 auto 5px' }} />
+                    <Text style={{ color: '#5A7BA8', display: 'block', marginTop: 6 }}>
                         {success ? 'Réinitialisation du mot de passe' : 'Nouveau mot de passe'}
                     </Text>
                     {!success && (
-                        <Text style={{ color: '#9CA3AF', fontSize: 12, display: 'block', marginTop: 6 }}>
+                        <Text style={{ color: '#9CA3AF', fontSize: 12, display: 'block', marginTop: 4 }}>
                             Choisissez un mot de passe sécurisé (minimum 8 caractères).
                         </Text>
                     )}
@@ -81,7 +83,7 @@ export default function ResetPassword() {
                             <Button
                                 type="primary"
                                 onClick={() => navigate('/login')}
-                                style={{ background: ADM_BLUE, borderColor: ADM_BLUE }}
+                                style={{ background: '#3e7cbc', borderColor: '#3e7cbc' }}
                             >
                                 Se connecter
                             </Button>
@@ -89,6 +91,13 @@ export default function ResetPassword() {
                     />
                 ) : (
                     <>
+                        <Link
+                            to="/login"
+                            style={{ display: 'inline-flex', alignItems: 'center', gap: 6, color: ADM_BLUE, marginBottom: 20, fontSize: 13 }}
+                        >
+                            <ArrowLeftOutlined /> Retour à la connexion
+                        </Link>
+
                         {error && <Alert message={error} type="error" showIcon style={{ marginBottom: 16, borderRadius: 8 }} />}
 
                         <Form layout="vertical" onFinish={handleSubmit}>
@@ -123,17 +132,19 @@ export default function ResetPassword() {
                                     placeholder="••••••••"
                                 />
                             </Form.Item>
-                            <Form.Item style={{ marginBottom: 8 }}>
-                                <Button
-                                    type="primary"
-                                    htmlType="submit"
-                                    size="large"
-                                    loading={loading}
-                                    block
-                                    style={{ background: ADM_BLUE, borderColor: ADM_BLUE, fontWeight: 600, height: 44 }}
-                                >
-                                    Réinitialiser le mot de passe
-                                </Button>
+                            <Form.Item>
+                                <Space direction="vertical" style={{ width: '100%' }} size="middle">
+                                    <Button
+                                        type="primary"
+                                        htmlType="submit"
+                                        size="large"
+                                        loading={loading}
+                                        block
+                                        style={{ background: '#3e7cbc', borderColor: '#48BB78', borderWidth: 1.5 }}
+                                    >
+                                        Réinitialiser le mot de passe
+                                    </Button>
+                                </Space>
                             </Form.Item>
                         </Form>
                     </>
@@ -141,7 +152,7 @@ export default function ResetPassword() {
 
                 <Divider style={{ borderColor: '#E8EFF8', margin: '16px 0 8px' }} />
                 <div style={{ fontSize: 12, color: '#B0BEC5', textAlign: 'center' }}>
-                    Agence de Développement Municipal · Gestion Planning
+                    ADM GP · Optimisation et Organisation
                 </div>
             </div>
         </div>

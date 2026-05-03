@@ -122,11 +122,7 @@ export default function App() {
                                 <Route path="projects" element={<AdminTaxonomyPage variant="projects" />} />
                                 <Route
                                     path="backups"
-                                    element={(
-                                        <AdminRequireSuper>
-                                            <AdminSuperBackupsTab />
-                                        </AdminRequireSuper>
-                                    )}
+                                    element={<AdminSuperBackupsTab />}
                                 />
                                 <Route
                                     path="documents"

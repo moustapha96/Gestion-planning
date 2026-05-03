@@ -1,11 +1,11 @@
 import { useState } from 'react';
 import { Link } from 'react-router-dom';
-import { Form, Input, Button, Typography, Alert, Result, Divider } from 'antd';
+import { Form, Input, Button, Typography, Alert, Result, Divider, Space } from 'antd';
 import { MailOutlined, ArrowLeftOutlined } from '@ant-design/icons';
 import api from '../api/client';
 import logo from '../assets/logo-adm.png';
 
-const { Title, Text } = Typography;
+const { Text } = Typography;
 
 const pageStyle = {
     minHeight: '100vh',
@@ -16,12 +16,12 @@ const pageStyle = {
 };
 
 const cardStyle = {
+    background: 'rgba(255,255,255,0.95)',
+    borderRadius: 16,
+    padding: '32px 40px',
     width: '100%',
-    maxWidth: 420,
-    background: '#ffffff',
-    borderRadius: 18,
-    padding: '36px 40px 28px',
-    boxShadow: '0 24px 64px rgba(0, 0, 0, 0.35)',
+    maxWidth: 440,
+    boxShadow: '0 8px 32px rgba(0,0,0,0.18)',
 };
 
 const ADM_BLUE = '#1565C0';
@@ -46,14 +46,16 @@ export default function ForgotPassword() {
 
     return (
         <div className="auth-page" style={pageStyle}>
-            <div style={{ width: '100%', maxWidth: 420, padding: '0 16px' }}>
-                <div style={{ textAlign: 'center', marginBottom: 24 }}>
-                    <img src={logo} alt="ADM GP logo" style={{ height: 200, marginBottom: 5 }} />
-                    <Text style={{ color: 'rgba(255,255,255,0.75)', display: 'block' }}>
+            <div style={cardStyle}>
+
+                {/* Header logo */}
+                <div style={{ textAlign: 'center' }}>
+                    <img src={logo} alt="ADM GP logo" style={{ height: 200, marginBottom: 5, display: 'block', margin: '0 auto 5px' }} />
+                    <Text style={{ color: '#5A7BA8', display: 'block', marginTop: 6 }}>
                         {success ? 'Réinitialisation du mot de passe' : 'Mot de passe oublié'}
                     </Text>
                     {!success && (
-                        <Text style={{ color: '#9CA3AF', fontSize: 12, display: 'block', marginTop: 6 }}>
+                        <Text style={{ color: '#9CA3AF', fontSize: 12, display: 'block', marginTop: 4 }}>
                             Saisissez votre email pour recevoir un lien de réinitialisation.
                         </Text>
                     )}
@@ -72,7 +74,7 @@ export default function ForgotPassword() {
                         }
                         extra={
                             <Link to="/login">
-                                <Button type="primary" style={{ background: ADM_BLUE, borderColor: ADM_BLUE }}>
+                                <Button type="primary" style={{ background: '#3e7cbc', borderColor: '#3e7cbc' }}>
                                     Retour à la connexion
                                 </Button>
                             </Link>
@@ -101,17 +103,19 @@ export default function ForgotPassword() {
                                     placeholder="votre@email.com"
                                 />
                             </Form.Item>
-                            <Form.Item style={{ marginBottom: 8 }}>
-                                <Button
-                                    type="primary"
-                                    htmlType="submit"
-                                    size="large"
-                                    loading={loading}
-                                    block
-                                    style={{ background: ADM_BLUE, borderColor: ADM_BLUE, fontWeight: 600, height: 44 }}
-                                >
-                                    Envoyer le lien
-                                </Button>
+                            <Form.Item>
+                                <Space direction="vertical" style={{ width: '100%' }} size="middle">
+                                    <Button
+                                        type="primary"
+                                        htmlType="submit"
+                                        size="large"
+                                        loading={loading}
+                                        block
+                                        style={{ background: '#3e7cbc', borderColor: '#48BB78', borderWidth: 1.5 }}
+                                    >
+                                        Envoyer le lien
+                                    </Button>
+                                </Space>
                             </Form.Item>
                         </Form>
                     </>
@@ -119,7 +123,7 @@ export default function ForgotPassword() {
 
                 <Divider style={{ borderColor: '#E8EFF8', margin: '16px 0 8px' }} />
                 <div style={{ fontSize: 12, color: '#B0BEC5', textAlign: 'center' }}>
-                    Agence de Développement Municipal · Gestion Planning
+                    ADM GP · Optimisation et Organisation
                 </div>
             </div>
         </div>

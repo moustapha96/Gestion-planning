@@ -2,6 +2,7 @@ const path = require('path');
 const fs = require('fs');
 const roleMiddleware = require('../middlewares/role.middleware');
 const { ROLES } = require('../config/roles');
+const { isPrivilegedAdmin } = require('../config/roles');
 const { logger } = require('../utils/logger');
 const { createAuditLog } = require('../utils/audit');
 const {
@@ -10,15 +11,22 @@ const {
     runPsqlFromFile,
     getBackupNotifyEmail,
 } = require('../services/backup.service');
+const { purgeBusinessData } = require('../services/dataPurge.service');
 
 const router = require('express').Router();
 
-router.use(roleMiddleware([ROLES.SUPER_ADMIN]));
+const privilegedAdminMiddleware = (req, res, next) => {
+    if (!req.user) return res.status(401).json({ error: 'Not authenticated' });
+    if (!isPrivilegedAdmin(req.user.role)) {
+        return res.status(403).json({ error: 'Accès réservé aux administrateurs.' });
+    }
+    next();
+};
 
 /**
  * GET /api/super-admin/backups — liste des sauvegardes
  */
-router.get('/backups', async (req, res) => {
+router.get('/backups', privilegedAdminMiddleware, async (req, res) => {
     try {
         const rows = await req.prisma.backup.findMany({
             orderBy: { startedAt: 'desc' },
@@ -37,7 +45,7 @@ router.get('/backups', async (req, res) => {
 /**
  * POST /api/super-admin/backups — lancer une sauvegarde manuelle
  */
-router.post('/backups', async (req, res) => {
+router.post('/backups', privilegedAdminMiddleware, async (req, res) => {
     try {
         ensureBackupsDir();
         const backup = await createDatabaseBackup(req.prisma, {
@@ -55,7 +63,7 @@ router.post('/backups', async (req, res) => {
 /**
  * GET /api/super-admin/backups/:id/download
  */
-router.get('/backups/:id/download', async (req, res) => {
+router.get('/backups/:id/download', privilegedAdminMiddleware, async (req, res) => {
     try {
         const row = await req.prisma.backup.findUnique({ where: { id: req.params.id } });
         if (!row || row.status !== 'SUCCESS') {
@@ -76,7 +84,7 @@ router.get('/backups/:id/download', async (req, res) => {
 /**
  * DELETE /api/super-admin/backups/:id — supprimer une sauvegarde
  */
-router.delete('/backups/:id', async (req, res) => {
+router.delete('/backups/:id', privilegedAdminMiddleware, async (req, res) => {
     try {
         const row = await req.prisma.backup.findUnique({ where: { id: req.params.id } });
         if (!row) return res.status(404).json({ error: 'Introuvable' });
@@ -98,7 +106,7 @@ router.delete('/backups/:id', async (req, res) => {
  * POST /api/super-admin/backups/:id/restore
  * body: { confirm: true } — opération destructive / sensible
  */
-router.post('/backups/:id/restore', async (req, res) => {
+router.post('/backups/:id/restore', privilegedAdminMiddleware, async (req, res) => {
     try {
         if (!req.body?.confirm) {
             return res.status(400).json({ error: 'Confirmation requise (confirm: true).' });
@@ -122,9 +130,53 @@ router.post('/backups/:id/restore', async (req, res) => {
 });
 
 /**
+ * POST /api/super-admin/purge-data
+ * body: { confirm: "PURGE_ALL_DATA", createBackup?: boolean }
+ */
+router.post('/purge-data', privilegedAdminMiddleware, async (req, res) => {
+    try {
+        const confirmValue = String(req.body?.confirm || '').trim();
+        if (confirmValue !== 'PURGE_ALL_DATA') {
+            return res.status(400).json({
+                error: 'Confirmation requise avec la valeur exacte "PURGE_ALL_DATA".',
+            });
+        }
+
+        let backup = null;
+        if (req.body?.createBackup !== false) {
+            ensureBackupsDir();
+            backup = await createDatabaseBackup(req.prisma, {
+                userId: req.user.id,
+                kind: 'MANUAL',
+            });
+        }
+
+        const purgeCounts = await purgeBusinessData(req.prisma);
+
+        await createAuditLog(
+            req,
+            'DATA_PURGED',
+            'System',
+            'global',
+            `Purge globale exécutée${backup ? ` après backup ${backup.fileName}` : ''}`,
+        );
+
+        res.json({
+            success: true,
+            backupId: backup?.id || null,
+            backupFileName: backup?.fileName || null,
+            purged: purgeCounts,
+        });
+    } catch (e) {
+        logger.error('SUPER_ADMIN_PURGE_DATA', e.message);
+        res.status(500).json({ error: e.message || 'Échec de la purge des données' });
+    }
+});
+
+/**
  * GET /api/super-admin/documents — fichiers joints (missions, réunions, messages)
  */
-router.get('/documents', async (req, res) => {
+router.get('/documents', roleMiddleware([ROLES.SUPER_ADMIN]), async (req, res) => {
     try {
         const q = String(req.query.q || '').trim().toLowerCase();
         const limit = Math.min(500, Math.max(1, parseInt(req.query.limit, 10) || 300));

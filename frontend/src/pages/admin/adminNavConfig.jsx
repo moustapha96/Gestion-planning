@@ -26,7 +26,7 @@ export const ADMIN_NAV_ITEMS = [
     { path: '/admin/config', label: 'Configuration globale', icon: SettingOutlined, superOnly: false },
     { path: '/admin/directions', label: 'Directions', icon: ApartmentOutlined, superOnly: false },
     { path: '/admin/projects', label: 'Projets (taxonomie)', icon: ProjectOutlined, superOnly: false },
-    { path: '/admin/backups', label: 'Sauvegardes', icon: DatabaseOutlined, superOnly: true },
+    { path: '/admin/backups', label: 'Sauvegardes', icon: DatabaseOutlined, superOnly: false },
     { path: '/admin/documents', label: 'Documents (fichiers)', icon: FolderOpenOutlined, superOnly: true },
 ];
 

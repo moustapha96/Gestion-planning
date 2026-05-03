@@ -285,24 +285,32 @@ httpServer.listen(PORT, () => {
             logger.error('CRON_MEETING_AUTO_CLOSE', err.message, { stack: err.stack });
         });
     });
-    // Cron : sauvegarde PostgreSQL chaque dimanche à 00h00 (fuseau : BACKUP_CRON_TIMEZONE, sinon horloge du serveur)
+    // Cron : sauvegarde PostgreSQL périodique (cron configurable, fuseau optionnel)
     if (process.env.DISABLE_BACKUP_CRON !== 'true') {
-        const runScheduledBackup = () => {
-            createDatabaseBackup(prisma, { kind: 'SCHEDULED' }).catch((err) => {
-                logger.error('CRON_BACKUP_SCHEDULED', err.message, { stack: err.stack });
-            });
-        };
-        if (process.env.BACKUP_CRON_TIMEZONE) {
-            cron.schedule('0 0 * * 0', runScheduledBackup, {
-                timezone: process.env.BACKUP_CRON_TIMEZONE,
-            });
+        const backupCronExpression = process.env.BACKUP_CRON_EXPRESSION || '0 0 * * 0';
+        if (!cron.validate(backupCronExpression)) {
+            logger.error(
+                'CRON_BACKUP_INVALID_EXPRESSION',
+                `Expression BACKUP_CRON_EXPRESSION invalide: ${backupCronExpression}`,
+            );
         } else {
-            cron.schedule('0 0 * * 0', runScheduledBackup);
+            const runScheduledBackup = () => {
+                createDatabaseBackup(prisma, { kind: 'SCHEDULED' }).catch((err) => {
+                    logger.error('CRON_BACKUP_SCHEDULED', err.message, { stack: err.stack });
+                });
+            };
+            if (process.env.BACKUP_CRON_TIMEZONE) {
+                cron.schedule(backupCronExpression, runScheduledBackup, {
+                    timezone: process.env.BACKUP_CRON_TIMEZONE,
+                });
+            } else {
+                cron.schedule(backupCronExpression, runScheduledBackup);
+            }
         }
     }
     logger.info(
         'CRON_REGISTERED',
-        'Crons: rapport hebdo + rappels réunions + digest + auto-fermeture réunions + sauvegarde dimanche 00h (si activée)',
+        'Crons: rapport hebdo + rappels réunions + digest + auto-fermeture réunions + sauvegarde périodique (si activée)',
     );
 });
 

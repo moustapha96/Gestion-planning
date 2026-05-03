@@ -1,10 +1,10 @@
 import { useEffect, useState, useCallback } from 'react';
 import {
-    Table, Button, Tag, Space, Typography, Alert, Modal, Input, App, Popconfirm,
+    Table, Button, Tag, Space, Typography, Alert, Modal, Input, App, Popconfirm, Switch,
 } from 'antd';
 import {
     PlusOutlined, DownloadOutlined, DeleteOutlined, CloudSyncOutlined,
-    ExclamationCircleOutlined,
+    ExclamationCircleOutlined, ClearOutlined,
 } from '@ant-design/icons';
 import api from '../api/client';
 
@@ -31,7 +31,11 @@ export default function AdminSuperBackupsTab() {
     const [notifyEmail, setNotifyEmail] = useState('');
     const [loading, setLoading] = useState(true);
     const [creating, setCreating] = useState(false);
+    const [purging, setPurging] = useState(false);
     const [restoreOpen, setRestoreOpen] = useState({ open: false, row: null });
+    const [purgeOpen, setPurgeOpen] = useState(false);
+    const [purgeConfirmText, setPurgeConfirmText] = useState('');
+    const [purgeCreateBackup, setPurgeCreateBackup] = useState(true);
     const [confirmText, setConfirmText] = useState('');
 
     const load = useCallback(async () => {
@@ -109,6 +113,37 @@ export default function AdminSuperBackupsTab() {
         } catch (err) {
             message.error(err.response?.data?.error || 'Échec de la restauration');
             return Promise.reject(err);
+        }
+    };
+
+    const openPurge = () => {
+        setPurgeConfirmText('');
+        setPurgeCreateBackup(true);
+        setPurgeOpen(true);
+    };
+
+    const doPurge = async () => {
+        if (purgeConfirmText !== 'PURGE_ALL_DATA') {
+            message.warning('Tapez PURGE_ALL_DATA pour confirmer');
+            return Promise.reject();
+        }
+        setPurging(true);
+        try {
+            const { data } = await api.post('/super-admin/purge-data', {
+                confirm: 'PURGE_ALL_DATA',
+                createBackup: purgeCreateBackup,
+            });
+            message.success('Purge exécutée avec succès');
+            setPurgeOpen(false);
+            setPurgeConfirmText('');
+            setPurgeCreateBackup(true);
+            await load();
+            return data;
+        } catch (err) {
+            message.error(err.response?.data?.error || 'Échec de la purge');
+            return Promise.reject(err);
+        } finally {
+            setPurging(false);
         }
     };
 
@@ -212,6 +247,23 @@ export default function AdminSuperBackupsTab() {
                     </>
                 )}
             />
+            <Alert
+                type="warning"
+                showIcon
+                style={{ marginBottom: 16 }}
+                message="Purge globale des données"
+                description={(
+                    <>
+                        Supprime toutes les données métier en conservant la configuration, les comptes admin/super admin,
+                        les directions et le répertoire. Cette action est irréversible.
+                    </>
+                )}
+                action={(
+                    <Button danger icon={<ClearOutlined />} onClick={openPurge}>
+                        Purger les données
+                    </Button>
+                )}
+            />
             <Space style={{ marginBottom: 16 }}>
                 <Button type="primary" icon={<PlusOutlined />} loading={creating} onClick={handleCreate}>
                     Nouvelle sauvegarde
@@ -254,6 +306,44 @@ export default function AdminSuperBackupsTab() {
                     placeholder="RESTAURER"
                     value={confirmText}
                     onChange={(e) => setConfirmText(e.target.value)}
+                    autoComplete="off"
+                />
+            </Modal>
+
+            <Modal
+                title={(
+                    <span>
+                        <ExclamationCircleOutlined style={{ color: '#ff4d4f', marginRight: 8 }} />
+                        Confirmer la purge globale ?
+                    </span>
+                )}
+                open={purgeOpen}
+                onCancel={() => setPurgeOpen(false)}
+                onOk={doPurge}
+                okText="Purger maintenant"
+                okButtonProps={{ danger: true, loading: purging }}
+                destroyOnClose
+            >
+                <p>
+                    Cette opération est destructive. Les données métier seront supprimées définitivement.
+                </p>
+                <p style={{ marginBottom: 8 }}>
+                    Créer une sauvegarde avant purge :
+                </p>
+                <Switch
+                    checked={purgeCreateBackup}
+                    onChange={setPurgeCreateBackup}
+                    checkedChildren="Oui"
+                    unCheckedChildren="Non"
+                    style={{ marginBottom: 16 }}
+                />
+                <p>
+                    Pour confirmer, tapez <Text strong>PURGE_ALL_DATA</Text> ci-dessous :
+                </p>
+                <Input
+                    placeholder="PURGE_ALL_DATA"
+                    value={purgeConfirmText}
+                    onChange={(e) => setPurgeConfirmText(e.target.value)}
                     autoComplete="off"
                 />
             </Modal>

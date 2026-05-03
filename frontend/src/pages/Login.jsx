@@ -16,6 +16,15 @@ const pageStyle = {
     background: 'linear-gradient(135deg, #3e7cbc 0%, #2a5fa0 100%)',
 };
 
+const cardStyle = {
+    background: 'rgba(255,255,255,0.95)',
+    borderRadius: 16,
+    padding: '32px 40px',
+    width: '100%',
+    maxWidth: 440,
+    boxShadow: '0 8px 32px rgba(0,0,0,0.18)',
+};
+
 const ADM_BLUE = '#1565C0';
 
 export default function Login() {
@@ -63,7 +72,7 @@ export default function Login() {
 
                 {/* Header logo */}
                 <div style={{ textAlign: 'center' }}>
-                    <img src={logo} alt="ADM GP logo" style={{  height: 200, marginBottom: 5 }} />
+                    <img src={logo} alt="ADM GP logo" style={{ height: 200, display: 'block', margin: '0 auto 5px' }} />
                     <Text style={{ color: 'rgba(255,255,255,0.75)' }}>
                         {step === 'credentials' ? 'Connectez-vous à votre compte' : 'Vérification en deux étapes'}
                     </Text>
