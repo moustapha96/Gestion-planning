@@ -1,0 +1,24 @@
+Directions :
+
+Comptes :
+  ↻ Mis à jour  : [RESPONSABLE         ] Amadou Diallo <resp.test@adm.sn>
+  ↻ Mis à jour  : [CONSOLIDATEUR       ] Fatou Seck <consol.test@adm.sn>
+  ↻ Mis à jour  : [COORDINATEUR_PROJET ] Moussa Ndiaye <cp.test@adm.sn>
+  ↻ Mis à jour  : [SECRETAIRE_GENERAL  ] Aïssatou Diop <sg.test@adm.sn>
+  ↻ Mis à jour  : [DG                  ] Ibrahima Fall <dg.test@adm.sn>
+  ↻ Mis à jour  : [ADMIN               ] Cheikh Mbaye <admin.test@adm.sn>
+  ↻ Mis à jour  : [SUPER_ADMIN         ] Admin Système <superadmin@adm.sn>
+
+╔══════════════════════════════════════════════════════╗
+║                   Récapitulatif                      ║
+╠══════════════════════════════════════════════════════╣
+║  Mot de passe commun : Test@2026 !                 ║
+╠══════════════════════════════════════════════════════╣
+║  resp.test@adm.sn (RESPONSABLE)                     ║
+║  consol.test@adm.sn (CONSOLIDATEUR)                 ║
+║  cp.test@adm.sn (COORDINATEUR_PROJET)               ║
+║  sg.test@adm.sn (SECRETAIRE_GENERAL)                ║
+║  dg.test@adm.sn (DG)                                ║
+║  admin.test@adm.sn (ADMIN)                          ║
+║  superadmin@adm.sn (SUPER_ADMIN)                    ║
+╚══════════════════════════════════════════════════════╝

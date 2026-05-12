@@ -14,7 +14,7 @@ import { API_BASE } from '../api/client';
 
 // Palette de 10 couleurs vives pour les initiales
 const PALETTE = [
-    '#1677ff', // bleu
+    '#1565C0', // bleu
     '#52c41a', // vert
     '#722ed1', // violet
     '#fa8c16', // orange
@@ -28,7 +28,7 @@ const PALETTE = [
 
 /** Dérive une couleur de la palette à partir du nom (déterministe). */
 function hashColor(name) {
-    if (!name) return '#1677ff';
+    if (!name) return '#1565C0';
     let h = 0;
     for (let i = 0; i < name.length; i++) {
         h = (h << 5) - h + name.charCodeAt(i);

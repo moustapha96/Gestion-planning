@@ -4,7 +4,7 @@ import { App, Badge, Button, Empty, Input, Popconfirm, Segmented, Spin, Tooltip,
 import {
     DeleteOutlined, PaperClipOutlined, SendOutlined, CloseOutlined,
     SearchOutlined, ArrowLeftOutlined, CheckOutlined, ClockCircleOutlined,
-    WarningOutlined, FileOutlined, ApartmentOutlined, EyeInvisibleOutlined, EyeOutlined,
+    WarningOutlined, FileOutlined, ApartmentOutlined, ProjectOutlined, EyeInvisibleOutlined, EyeOutlined,
 } from '@ant-design/icons';
 import dayjs from 'dayjs';
 import 'dayjs/locale/fr';
@@ -18,6 +18,7 @@ import { isPrivilegedAdmin, isSuperAdmin } from '../utils/roles';
 import {
     getSocket, getSocketStatusSnapshot, subscribeSocketStatus, getSocketStatusLabel, getSocketStatusDetail,
 } from '../realtime/socket';
+import { resolveImageSrc } from '../utils/mediaUrl';
 
 dayjs.extend(isToday);
 dayjs.extend(isYesterday);
@@ -330,6 +331,9 @@ export default function Discussions() {
     const [directionChannel, setDirectionChannel] = useState(null);
     const [directionMessages, setDirectionMessages] = useState([]);
     const [directionMembers, setDirectionMembers] = useState([]);
+    const [projectChannel, setProjectChannel] = useState(null);
+    const [projectMessages, setProjectMessages] = useState([]);
+    const [projectMembers, setProjectMembers] = useState([]);
 
     const listRef                 = useRef(null);
     const inputRef                = useRef(null);
@@ -443,7 +447,12 @@ export default function Discussions() {
 
     const selectedUser   = useMemo(() => users.find((u) => u.id === selectedUserId) || null, [users, selectedUserId]);
     const hasDirectionChannel = Boolean(directionChannel?.id);
-    const activeMessages = channelMode === 'direction' ? directionMessages : messages;
+    const hasProjectChannel = Boolean(projectChannel?.id);
+    const activeMessages = channelMode === 'direction'
+        ? directionMessages
+        : channelMode === 'project'
+            ? projectMessages
+            : messages;
     const filteredUsers  = useMemo(() => {
         const q = search.trim().toLowerCase();
         return q ? users.filter((u) => (u.name || '').toLowerCase().includes(q) || (u.email || '').toLowerCase().includes(q)) : users;
@@ -496,11 +505,12 @@ export default function Discussions() {
         let active = true;
         (async () => {
             try {
-                const [{ data: pub }, { data: usrs }, { data: convs }, dirRes] = await Promise.all([
+                const [{ data: pub }, { data: usrs }, { data: convs }, dirRes, prjRes] = await Promise.all([
                     api.get('/admin/settings/public'),
                     api.get('/direct-messages/users'),
                     api.get('/direct-messages/conversations'),
                     api.get('/direction-messages/my-channel').catch(() => null),
+                    api.get('/project-messages/my-channel').catch(() => null),
                 ]);
                 if (!active) return;
                 setEnabled(String(pub?.direct_messages_enabled ?? 'true') === 'true');
@@ -514,6 +524,15 @@ export default function Discussions() {
                     setDirectionChannel(null);
                     setDirectionMessages([]);
                     setDirectionMembers([]);
+                }
+                if (prjRes?.data?.project) {
+                    setProjectChannel(prjRes.data.project);
+                    setProjectMessages(Array.isArray(prjRes.data.messages) ? prjRes.data.messages : []);
+                    setProjectMembers(Array.isArray(prjRes.data.members) ? prjRes.data.members : []);
+                } else {
+                    setProjectChannel(null);
+                    setProjectMessages([]);
+                    setProjectMembers([]);
                 }
                 if ((usrs || []).length > 0) {
                     const preferred = (convs || [])[0]?.user?.id || usrs[0].id;
@@ -538,6 +557,13 @@ export default function Discussions() {
             setAuditSelection(null);
             return;
         }
+        if (channel === 'project' && hasProjectChannel) {
+            setChannelMode('project');
+            setMobileChat(true);
+            setSelectedUserId(null);
+            setAuditSelection(null);
+            return;
+        }
         if (userParam) {
             setChannelMode('direct');
             setDmMode('mine');
@@ -545,7 +571,7 @@ export default function Discussions() {
             setSelectedUserId(userParam);
             setMobileChat(true);
         }
-    }, [location.search, hasDirectionChannel]);
+    }, [location.search, hasDirectionChannel, hasProjectChannel]);
 
     const fetchConv = async (uid) => {
         if (!enabled || !uid) return;
@@ -664,6 +690,24 @@ export default function Discussions() {
     }, [enabled, user?.id, hasDirectionChannel, directionChannel?.id]);
 
     useEffect(() => {
+        if (!enabled || !user?.id || !hasProjectChannel) return undefined;
+        const token = localStorage.getItem('accessToken');
+        const socket = getSocket(token);
+        const onProjectMessage = (payload) => {
+            const msg = payload?.message;
+            const projectId = payload?.projectId;
+            if (!msg?.id || !projectId) return;
+            if (projectId !== projectChannel.id) return;
+            setProjectMessages((prev) => {
+                if (prev.some((m) => m.id === msg.id)) return prev;
+                return [...prev, msg].sort((a, b) => new Date(a.createdAt) - new Date(b.createdAt));
+            });
+        };
+        socket?.on('project:message:new', onProjectMessage);
+        return () => socket?.off('project:message:new', onProjectMessage);
+    }, [enabled, user?.id, hasProjectChannel, projectChannel?.id]);
+
+    useEffect(() => {
         if (!enabled) return;
         const outbox = readOutbox();
         if (outbox.length) {
@@ -693,7 +737,7 @@ export default function Discussions() {
     useEffect(() => {
         if (!listRef.current) return;
         listRef.current.scrollTop = listRef.current.scrollHeight;
-    }, [messages, directionMessages, selectedUserId, channelMode]);
+    }, [messages, directionMessages, projectMessages, selectedUserId, channelMode]);
 
     // ── Envoi message (HTTP : indépendant du WebSocket ; destinataire hors ligne = OK côté serveur) ──
     const sendMessage = async () => {
@@ -762,6 +806,24 @@ export default function Discussions() {
         }
     };
 
+    const sendProjectMessage = async () => {
+        const body = text.trim();
+        if (!body || !hasProjectChannel) return;
+        const parentId = replyingTo?.id || null;
+        setSending(true);
+        try {
+            const { data: created } = await api.post('/project-messages/my-channel', { body, parentId });
+            setProjectMessages((prev) => [...prev, created].sort((a, b) => new Date(a.createdAt) - new Date(b.createdAt)));
+            setText('');
+            setReplyingTo(null);
+            inputRef.current?.focus();
+        } catch (err) {
+            message.error(err.response?.data?.error || 'Erreur envoi message');
+        } finally {
+            setSending(false);
+        }
+    };
+
     const retryMessage = async (m) => {
         if (!m?._retry) return;
         if (isFailedFileMsg(m)) { setRetryFileTarget(m); return; }
@@ -807,6 +869,11 @@ export default function Discussions() {
                 setDirectionMessages((prev) => prev.filter((m) => m.id !== id));
                 return;
             }
+            if (channelMode === 'project') {
+                await api.delete(`/project-messages/${id}`);
+                setProjectMessages((prev) => prev.filter((m) => m.id !== id));
+                return;
+            }
             await api.delete(`/direct-messages/message/${id}`);
             if (auditSelection?.userA?.id && auditSelection?.userB?.id) {
                 const { data } = await api.get(
@@ -823,6 +890,7 @@ export default function Discussions() {
         if (e.key === 'Enter' && !e.shiftKey) {
             e.preventDefault();
             if (channelMode === 'direction') sendDirectionMessage();
+            else if (channelMode === 'project') sendProjectMessage();
             else sendMessage();
         }
     };
@@ -893,14 +961,18 @@ export default function Discussions() {
     const messageGroups = useMemo(() => {
         const groups = [];
         let lastDate = null;
-        const source = channelMode === 'direction' ? directionMessages : messages;
+        const source = channelMode === 'direction'
+            ? directionMessages
+            : channelMode === 'project'
+                ? projectMessages
+                : messages;
         for (const m of source) {
             const d = dayjs(m.createdAt).format('YYYY-MM-DD');
             if (d !== lastDate) { groups.push({ type: 'separator', date: d, id: `sep-${d}` }); lastDate = d; }
             groups.push({ type: 'message', data: m, id: m.id });
         }
         return groups;
-    }, [messages, directionMessages, channelMode]);
+    }, [messages, directionMessages, projectMessages, channelMode]);
 
     // ── Chargement ────────────────────────────────────────────────
     if (loading) return <div style={{ textAlign: 'center', padding: 60 }}><Spin size="large" /></div>;
@@ -916,7 +988,7 @@ export default function Discussions() {
         pageBorder: isDark ? '#2b2f36' : '#dfe5e7',
         pageShadow: isDark ? '0 4px 20px rgba(0,0,0,0.35)' : '0 4px 20px rgba(0,0,0,0.08)',
         sidebarBg: isDark ? '#14171c' : '#fff',
-        sidebarHeaderBg: isDark ? '#1a3a5c' : '#3e7cbc',
+        sidebarHeaderBg: isDark ? '#1a3a5c' : '#1565C0',
         sidebarSearchBg: isDark ? '#1b2027' : '#f0f2f5',
         sidebarSearchBorder: isDark ? '#2b3139' : '#e9edef',
         searchInputBg: isDark ? '#232a33' : '#fff',
@@ -927,7 +999,7 @@ export default function Discussions() {
         textSecondary: isDark ? '#b9c0c8' : '#555',
         textMuted: isDark ? '#9aa4af' : '#8696a0',
         chatBg: isDark ? '#0f1115' : '#efeae2',
-        chatHeaderBg: isDark ? '#1a3a5c' : '#3e7cbc',
+        chatHeaderBg: isDark ? '#1a3a5c' : '#1565C0',
         separatorBg: isDark ? 'rgba(35,42,51,0.92)' : 'rgba(255,255,255,0.85)',
         separatorColor: isDark ? '#c5ccd4' : '#54656f',
         toolbarBg: isDark ? '#1b2027' : '#f0f2f5',
@@ -944,7 +1016,7 @@ export default function Discussions() {
         quoteMineBg: isDark ? 'rgba(0,0,0,0.18)' : 'rgba(0,0,0,0.06)',
         quoteOtherBg: isDark ? '#2b3139' : '#f0f0f0',
         actionBtnBg: isDark ? 'rgba(255,255,255,0.08)' : 'rgba(0,0,0,0.06)',
-        fileColor: isDark ? '#8fb7ff' : '#3e7cbc',
+        fileColor: isDark ? '#8fb7ff' : '#1565C0',
     };
     const chatBg = ui.chatBg;
     const isMobile = !isDesktopLayout;
@@ -1015,6 +1087,7 @@ export default function Discussions() {
                         options={[
                             { label: 'Messages privés', value: 'direct' },
                             ...(hasDirectionChannel ? [{ label: 'Direction', value: 'direction', icon: <ApartmentOutlined /> }] : []),
+                            ...(hasProjectChannel ? [{ label: 'Projet', value: 'project', icon: <ProjectOutlined /> }] : []),
                         ]}
                     />
                 </div>
@@ -1093,6 +1166,96 @@ export default function Discussions() {
                                             .map((m) => (
                                                 <div
                                                     key={`dir-member-${m.id}`}
+                                                    onClick={() => openDirectFromDirection(m.id)}
+                                                    style={{
+                                                        display: 'flex',
+                                                        alignItems: isMobile ? 'flex-start' : 'center',
+                                                        gap: 10,
+                                                        padding: '8px 16px',
+                                                        cursor: 'pointer',
+                                                        borderTop: `1px solid ${ui.rowBorder}`,
+                                                        flexWrap: isMobile ? 'wrap' : 'nowrap',
+                                                    }}
+                                                >
+                                                    <UserAvatar user={m} size={34} />
+                                                    <div style={{ minWidth: 0, flex: 1 }}>
+                                                        <div style={{ color: ui.textPrimary, fontSize: 13, fontWeight: 600, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                                                            {m.name || 'Utilisateur'}
+                                                        </div>
+                                                        <div style={{ color: ui.textMuted, fontSize: 12, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                                                            {m.email || ''}
+                                                        </div>
+                                                    </div>
+                                                    <Button
+                                                        size="small"
+                                                        style={isMobile ? { marginLeft: 44 } : undefined}
+                                                        onClick={(e) => {
+                                                            e.stopPropagation();
+                                                            openDirectFromDirection(m.id);
+                                                        }}
+                                                    >
+                                                        Message privé
+                                                    </Button>
+                                                </div>
+                                            ))
+                                    )}
+                                </div>
+                            )}
+                        </>
+                    ) : channelMode === 'project' ? (
+                        <>
+                            <div
+                                onClick={() => { setMobileChat(true); setSelectedUserId(null); setAuditSelection(null); }}
+                                style={{
+                                    display: 'flex',
+                                    alignItems: 'center',
+                                    gap: 12,
+                                    padding: '12px 16px',
+                                    cursor: hasProjectChannel ? 'pointer' : 'default',
+                                    borderBottom: `1px solid ${ui.rowBorder}`,
+                                    background: hasProjectChannel ? ui.rowSelectedBg : 'transparent',
+                                }}
+                            >
+                                <div style={{ width: 46, height: 46, borderRadius: '50%', background: ui.sidebarHeaderBg, display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#fff', overflow: 'hidden', flexShrink: 0 }}>
+                                    {hasProjectChannel && resolveImageSrc(projectChannel?.logoUrl) ? (
+                                        <img
+                                            src={resolveImageSrc(projectChannel.logoUrl) || ''}
+                                            alt=""
+                                            style={{ width: '100%', height: '100%', objectFit: 'cover' }}
+                                        />
+                                    ) : (
+                                        <ProjectOutlined />
+                                    )}
+                                </div>
+                                <div style={{ minWidth: 0 }}>
+                                    <div style={{ fontWeight: 600, fontSize: 14, color: ui.textPrimary }}>
+                                        {projectChannel?.name || 'Aucun projet'}
+                                    </div>
+                                    <div style={{ fontSize: 12, color: ui.textMuted }}>
+                                        {hasProjectChannel ? 'Canal de votre projet' : "Vous n'êtes affecté à aucun projet actif"}
+                                    </div>
+                                </div>
+                            </div>
+                            {hasProjectChannel && (
+                                <div style={{ borderBottom: `1px solid ${ui.rowBorder}` }}>
+                                    <div style={{ padding: '8px 16px 6px', color: ui.textMuted, fontSize: 11, fontWeight: 600, textTransform: 'uppercase' }}>
+                                        Membres du projet
+                                    </div>
+                                    {projectMembers.filter((m) => m?.id && m.id !== user?.id).length === 0 ? (
+                                        <div style={{ padding: '8px 16px 12px', color: ui.textMuted, fontSize: 12 }}>
+                                            Aucun autre membre.
+                                        </div>
+                                    ) : (
+                                        projectMembers
+                                            .filter((m) => m?.id && m.id !== user?.id)
+                                            .filter((m) => {
+                                                const q = search.trim().toLowerCase();
+                                                if (!q) return true;
+                                                return (m.name || '').toLowerCase().includes(q) || (m.email || '').toLowerCase().includes(q);
+                                            })
+                                            .map((m) => (
+                                                <div
+                                                    key={`prj-member-${m.id}`}
                                                     onClick={() => openDirectFromDirection(m.id)}
                                                     style={{
                                                         display: 'flex',
@@ -1249,7 +1412,9 @@ export default function Discussions() {
                 className={`wa-chat${!mobileChat ? ' wa-hidden-mobile' : ''}`}
                 style={{ flex: 1, display: 'flex', flexDirection: 'column', background: chatBg, minWidth: 0 }}
             >
-                {((channelMode === 'direct') && !selectedUser && !auditSelection) || (channelMode === 'direction' && !hasDirectionChannel) ? (
+                {((channelMode === 'direct') && !selectedUser && !auditSelection)
+                    || (channelMode === 'direction' && !hasDirectionChannel)
+                    || (channelMode === 'project' && !hasProjectChannel) ? (
                     /* Placeholder vide */
                     <div style={{
                         flex: 1, display: 'flex', flexDirection: 'column',
@@ -1258,7 +1423,7 @@ export default function Discussions() {
                     }}>
                         <div style={{ fontSize: 48 }}>💬</div>
                         <div style={{ fontSize: 18, fontWeight: 600, color: ui.textPrimary }}>ADM GP — Messagerie</div>
-                        <div style={{ fontSize: 14 }}>Sélectionnez une conversation pour commencer</div>
+                        <div style={{ fontSize: 14 }}>Sélectionnez une conversation ou un canal direction / projet</div>
                     </div>
                 ) : (
                     <>
@@ -1285,6 +1450,18 @@ export default function Discussions() {
                                 <div style={{ width: 38, height: 38, borderRadius: '50%', background: 'rgba(255,255,255,0.2)', color: '#fff', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
                                     <ApartmentOutlined />
                                 </div>
+                            ) : channelMode === 'project' ? (
+                                <div style={{ width: 38, height: 38, borderRadius: '50%', background: 'rgba(255,255,255,0.2)', color: '#fff', display: 'flex', alignItems: 'center', justifyContent: 'center', overflow: 'hidden', flexShrink: 0 }}>
+                                    {hasProjectChannel && resolveImageSrc(projectChannel?.logoUrl) ? (
+                                        <img
+                                            src={resolveImageSrc(projectChannel.logoUrl) || ''}
+                                            alt=""
+                                            style={{ width: '100%', height: '100%', objectFit: 'cover' }}
+                                        />
+                                    ) : (
+                                        <ProjectOutlined />
+                                    )}
+                                </div>
                             ) : (
                                 <UserAvatar user={auditSelection ? auditSelection.userA : selectedUser} size={38} />
                             )}
@@ -1292,16 +1469,20 @@ export default function Discussions() {
                                 <div style={{ color: '#fff', fontWeight: 700, fontSize: 15, lineHeight: 1.2 }}>
                                     {channelMode === 'direction'
                                         ? (directionChannel?.name || 'Direction')
-                                        : auditSelection
-                                        ? `${auditSelection.userA?.name || '?'} ↔ ${auditSelection.userB?.name || '?'}`
-                                        : selectedUser.name}
+                                        : channelMode === 'project'
+                                            ? (projectChannel?.name || 'Projet')
+                                            : auditSelection
+                                                ? `${auditSelection.userA?.name || '?'} ↔ ${auditSelection.userB?.name || '?'}`
+                                                : selectedUser.name}
                                 </div>
                                 <div style={{ color: 'rgba(255,255,255,0.65)', fontSize: 12 }}>
                                     {channelMode === 'direction'
-                                        ? 'Canal partagé avec tous les membres'
-                                        : auditSelection
-                                        ? 'Audit — lecture et modération'
-                                        : (onlineUserIds.has(selectedUser.id) ? 'En ligne' : 'Hors ligne')}
+                                        ? 'Canal partagé — direction'
+                                        : channelMode === 'project'
+                                            ? 'Canal partagé — projet'
+                                            : auditSelection
+                                                ? 'Audit — lecture et modération'
+                                                : (onlineUserIds.has(selectedUser.id) ? 'En ligne' : 'Hors ligne')}
                                 </div>
                             </div>
                             {!isMobile && (
@@ -1433,48 +1614,69 @@ export default function Discussions() {
                                     return true;
                                 }}
                                 customRequest={async ({ file, onSuccess, onError }) => {
-                                    const isDirection = channelMode === 'direction';
+                                    const isDirectionTeam = channelMode === 'direction';
+                                    const isProjectTeam = channelMode === 'project';
+                                    const isTeamChannel = isDirectionTeam || isProjectTeam;
                                     const effectiveTarget = retryFileTarget?.receiverId || selectedUserId;
-                                    if (!isDirection && !effectiveTarget) { onError?.(new Error('no user')); return; }
+                                    if (!isTeamChannel && !effectiveTarget) { onError?.(new Error('no user')); return; }
                                     setUploading(true);
                                     const targetUserId = effectiveTarget;
                                     const body     = retryFileTarget ? String(retryFileTarget?._retry?.body || '').trim() : text.trim();
                                     const parentId = retryFileTarget ? (retryFileTarget?._retry?.parentId || null) : (replyingTo?.id || null);
                                     const tempId   = `tmp-dm-file-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
                                     const tempMsg  = {
-                                        id: tempId, senderId: user?.id, receiverId: isDirection ? null : targetUserId,
+                                        id: tempId, senderId: user?.id, receiverId: isTeamChannel ? null : targetUserId,
                                         body: body || null, fileName: file?.name || 'fichier', fileUrl: null,
                                         createdAt: new Date().toISOString(), isRead: false,
                                         sender: { id: user?.id, name: user?.name || 'Vous', email: user?.email || '', avatarUrl: user?.avatarUrl || null },
                                         receiver: selectedUser || null, parent: replyingTo || null,
                                         _optimistic: true, _queued: false, _failed: false, _retry: { body, parentId },
                                     };
-                                    if (isDirection) {
-                                        setDirectionMessages((prev) => [...prev, tempMsg].sort((a, b) => new Date(a.createdAt) - new Date(b.createdAt)));
-                                    } else {
-                                        upsertMessages([tempMsg]);
-                                    }
+                                    const pushTeamTemp = () => {
+                                        if (isDirectionTeam) {
+                                            setDirectionMessages((prev) => [...prev, tempMsg].sort((a, b) => new Date(a.createdAt) - new Date(b.createdAt)));
+                                        } else if (isProjectTeam) {
+                                            setProjectMessages((prev) => [...prev, tempMsg].sort((a, b) => new Date(a.createdAt) - new Date(b.createdAt)));
+                                        } else {
+                                            upsertMessages([tempMsg]);
+                                        }
+                                    };
+                                    pushTeamTemp();
                                     try {
                                         const fd = new FormData();
                                         fd.append('file', file);
                                         if (body)     fd.append('body', body);
                                         if (parentId) fd.append('parentId', parentId);
-                                        const { data: created } = isDirection
-                                            ? await api.post('/direction-messages/my-channel/file', fd, { headers: { 'Content-Type': 'multipart/form-data' } })
-                                            : await api.post(`/direct-messages/${targetUserId}/file`, fd, { headers: { 'Content-Type': 'multipart/form-data' } });
-                                        if (isDirection) {
+                                        let created;
+                                        if (isDirectionTeam) {
+                                            ({ data: created } = await api.post('/direction-messages/my-channel/file', fd, { headers: { 'Content-Type': 'multipart/form-data' } }));
+                                        } else if (isProjectTeam) {
+                                            ({ data: created } = await api.post('/project-messages/my-channel/file', fd, { headers: { 'Content-Type': 'multipart/form-data' } }));
+                                        } else {
+                                            ({ data: created } = await api.post(`/direct-messages/${targetUserId}/file`, fd, { headers: { 'Content-Type': 'multipart/form-data' } }));
+                                        }
+                                        if (isDirectionTeam) {
                                             setDirectionMessages((prev) => [...prev.filter((m) => m.id !== tempId), created].sort((a, b) => new Date(a.createdAt) - new Date(b.createdAt)));
+                                        } else if (isProjectTeam) {
+                                            setProjectMessages((prev) => [...prev.filter((m) => m.id !== tempId), created].sort((a, b) => new Date(a.createdAt) - new Date(b.createdAt)));
                                         } else {
                                             removeMessageById(tempId);
                                             upsertMessages([created]);
                                         }
                                         setText(''); setReplyingTo(null); onSuccess?.('ok');
-                                        if (!isDirection) api.get('/direct-messages/conversations').then((r) => setConversations(r.data || [])).catch(() => {});
+                                        if (!isTeamChannel) api.get('/direct-messages/conversations').then((r) => setConversations(r.data || [])).catch(() => {});
                                         if (retryFileTarget?.id) removeMessageById(retryFileTarget.id);
                                         setRetryFileTarget(null);
                                     } catch (err) {
-                                        if (isDirection) {
+                                        if (isDirectionTeam) {
                                             setDirectionMessages((prev) => prev.map((m) => (m.id === tempId ? { ...m, _failed: true, _optimistic: false } : m)));
+                                            message.error(err.response?.data?.error || 'Erreur envoi fichier');
+                                            onError?.(err);
+                                            setUploading(false);
+                                            return;
+                                        }
+                                        if (isProjectTeam) {
+                                            setProjectMessages((prev) => prev.map((m) => (m.id === tempId ? { ...m, _failed: true, _optimistic: false } : m)));
                                             message.error(err.response?.data?.error || 'Erreur envoi fichier');
                                             onError?.(err);
                                             setUploading(false);
@@ -1530,7 +1732,13 @@ export default function Discussions() {
 
                             {/* Bouton envoi */}
                             <button
-                                onClick={channelMode === 'direction' ? sendDirectionMessage : sendMessage}
+                                onClick={
+                                    channelMode === 'direction'
+                                        ? sendDirectionMessage
+                                        : channelMode === 'project'
+                                            ? sendProjectMessage
+                                            : sendMessage
+                                }
                                 disabled={sending || !text.trim()}
                                 style={{
                                     background: text.trim() ? '#128c7e' : ui.sendDisabled,

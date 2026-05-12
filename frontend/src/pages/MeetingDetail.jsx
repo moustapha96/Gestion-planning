@@ -34,7 +34,7 @@ import {
     EditOutlined,
     PaperClipOutlined,
     DeleteOutlined,
-    FileImageOutlined,
+    FilePdfOutlined,
     FileTextOutlined,
     MessageOutlined,
     VideoCameraOutlined,
@@ -44,6 +44,7 @@ import api, { API_BASE } from '../api/client';
 import { useAuth } from '../context/AuthContext';
 import { enqueueRealtimeTask } from '../realtime/socket';
 import { isPrivilegedAdmin } from '../utils/roles';
+import { PDF_ACCEPT, isAcceptedPdfFile } from '../utils/pdfAttachment';
 
 const { Title, Text } = Typography;
 
@@ -60,6 +61,7 @@ export default function MeetingDetail() {
     const [loading, setLoading] = useState(true);
     const [editVisible, setEditVisible] = useState(false);
     const [rooms, setRooms] = useState([]);
+    const [eventTypes, setEventTypes] = useState([]);
     const [form] = Form.useForm();
     const [addVisible, setAddVisible] = useState(false);
     const [allUsers, setAllUsers] = useState([]);
@@ -219,11 +221,15 @@ export default function MeetingDetail() {
     useEffect(() => {
         if (editVisible) {
             api.get('/rooms').then((r) => setRooms(r.data || [])).catch(() => setRooms([]));
+            api.get('/events/taxonomy')
+                .then((r) => setEventTypes(r.data?.eventTypes || []))
+                .catch(() => setEventTypes([]));
             if (meeting) {
                 form.setFieldsValue({
                     title: meeting.title,
                     agenda: meeting.agenda,
                     roomId: meeting.roomId || undefined,
+                    eventTypeId: meeting.eventTypeId || meeting.eventType?.id || undefined,
                     meetingLink: meeting.meetingLink || '',
                     startTime: meeting.startTime ? dayjs(meeting.startTime) : null,
                     endTime: meeting.endTime ? dayjs(meeting.endTime) : null,
@@ -263,6 +269,7 @@ export default function MeetingDetail() {
                 title: v.title,
                 agenda: v.agenda,
                 roomId: v.roomId || null,
+                eventTypeId: v.eventTypeId || null,
                 meetingLink: link || null,
                 startTime: v.startTime?.toISOString?.() ?? v.startTime,
                 endTime: v.endTime?.toISOString?.() ?? v.endTime,
@@ -297,9 +304,9 @@ export default function MeetingDetail() {
             onError?.(new Error('too large'));
             return;
         }
-        if (kind === 'IMAGE' && file.type && !file.type.startsWith('image/')) {
-            message.error('Veuillez choisir une image (jpg, png, webp, etc.)');
-            onError?.(new Error('not image'));
+        if (!isAcceptedPdfFile(file)) {
+            message.error('Seuls les fichiers PDF (.pdf) sont acceptés.');
+            onError?.(new Error('not pdf'));
             return;
         }
         setAttachmentLoading(true);
@@ -310,7 +317,7 @@ export default function MeetingDetail() {
             await api.post(`/meetings/${id}/files`, formData, {
                 headers: { 'Content-Type': 'multipart/form-data' },
             });
-            message.success('Fichier ajouté');
+            message.success('PDF ajouté');
             onSuccess?.('ok');
             fetchMeeting();
         } catch (err) {
@@ -723,6 +730,15 @@ export default function MeetingDetail() {
                     <Form.Item name="agenda" label="Ordre du jour">
                         <Input.TextArea rows={3} />
                     </Form.Item>
+                    <Form.Item name="eventTypeId" label="Type d'événement">
+                        <Select
+                            allowClear
+                            placeholder="Optionnel"
+                            options={(eventTypes || [])
+                                .filter((t) => t.isActive !== false)
+                                .map((t) => ({ value: t.id, label: t.name }))}
+                        />
+                    </Form.Item>
                     <Form.Item name="roomId" label="Salle">
                         <Select allowClear placeholder="Choisir une salle" options={rooms.map((r) => ({ value: r.id, label: `${r.name} (${r.location})` }))} />
                     </Form.Item>
@@ -755,6 +771,11 @@ export default function MeetingDetail() {
                             {meeting.title}
                         </Title>
                         <Space size={6} wrap>
+                            {meeting.eventType?.name && (
+                                <Tag style={{ borderColor: meeting.eventType.color, color: meeting.eventType.color }}>
+                                    {meeting.eventType.name}
+                                </Tag>
+                            )}
                             {meeting.direction?.name && <Tag color="purple">Direction: {meeting.direction.name}</Tag>}
                             {meeting.project?.name && <Tag color="blue">Projet: {meeting.project.name}</Tag>}
                         </Space>
@@ -763,6 +784,13 @@ export default function MeetingDetail() {
                 </Space>
 
                 <Descriptions column={1} bordered size="small">
+                    <Descriptions.Item label="Type d'événement">
+                        {meeting.eventType?.name ? (
+                            <Tag style={{ borderColor: meeting.eventType.color, color: meeting.eventType.color }}>
+                                {meeting.eventType.name}
+                            </Tag>
+                        ) : '—'}
+                    </Descriptions.Item>
                     <Descriptions.Item label={<><CalendarOutlined /> Période</>}>
                         {new Date(meeting.startTime).toLocaleString('fr-FR', {
                             dateStyle: 'full',
@@ -823,37 +851,29 @@ export default function MeetingDetail() {
                     return (
                         <Card
                             type="inner"
-                            title={<Space><PaperClipOutlined /> Fichiers & Images</Space>}
+                            title={<Space><PaperClipOutlined /> Pièces jointes (PDF)</Space>}
                             style={{ marginTop: 24 }}
                             extra={
                                 canUpload && (
-                                    <Space>
+                                    <Space wrap>
                                         <Upload
                                             showUploadList={false}
-                                            accept="image/*"
-                                            customRequest={makeUploadRequest('IMAGE')}
-                                            disabled={attachmentLoading}
-                                        >
-                                            <Button size="small" icon={<FileImageOutlined />} loading={attachmentLoading}>
-                                                Image
-                                            </Button>
-                                        </Upload>
-                                        <Upload
-                                            showUploadList={false}
+                                            accept={PDF_ACCEPT}
                                             customRequest={makeUploadRequest('DOCUMENT')}
                                             disabled={attachmentLoading}
                                         >
-                                            <Button size="small" icon={<FileTextOutlined />} loading={attachmentLoading}>
-                                                Document
+                                            <Button size="small" icon={<FilePdfOutlined />} loading={attachmentLoading}>
+                                                Document PDF
                                             </Button>
                                         </Upload>
                                         <Upload
                                             showUploadList={false}
+                                            accept={PDF_ACCEPT}
                                             customRequest={makeUploadRequest('REPORT')}
                                             disabled={attachmentLoading}
                                         >
                                             <Button size="small" icon={<PaperClipOutlined />} loading={attachmentLoading}>
-                                                Compte rendu
+                                                Compte rendu (PDF)
                                             </Button>
                                         </Upload>
                                     </Space>
@@ -907,7 +927,7 @@ export default function MeetingDetail() {
                             {documents.length > 0 && (
                                 <div>
                                     <Text strong style={{ display: 'block', marginBottom: 8 }}>
-                                        Documents ({documents.length})
+                                        Fichiers PDF ({documents.length})
                                     </Text>
                                     <List
                                         size="small"
@@ -930,7 +950,7 @@ export default function MeetingDetail() {
                                                 ].filter(Boolean)}
                                             >
                                                 <List.Item.Meta
-                                                    avatar={<FileTextOutlined style={{ fontSize: 20, color: '#1677ff' }} />}
+                                                    avatar={<FileTextOutlined style={{ fontSize: 20, color: '#1565C0' }} />}
                                                     title={
                                                         <a href={`${API_BASE}${f.fileUrl}`} target="_blank" rel="noopener noreferrer">
                                                             {f.fileName}
@@ -939,7 +959,7 @@ export default function MeetingDetail() {
                                                     description={
                                                         <Space size={4}>
                                                             <Tag color={f.kind === 'REPORT' ? 'purple' : 'blue'}>
-                                                                {f.kind === 'REPORT' ? 'Compte rendu' : 'Fichier réunion'}
+                                                                {f.kind === 'REPORT' ? 'Compte rendu (PDF)' : 'Document (PDF)'}
                                                             </Tag>
                                                             <Text type="secondary" style={{ fontSize: 12 }}>
                                                                 {f.uploadedBy?.name} · {dayjs(f.createdAt).format('D MMM YYYY HH:mm')}
@@ -959,7 +979,7 @@ export default function MeetingDetail() {
                             )}
 
                             {images.length === 0 && documents.length === 0 && (
-                                <Text type="secondary">Aucun fichier ajouté.</Text>
+                                <Text type="secondary">Aucune pièce jointe. Les nouveaux fichiers doivent être au format PDF.</Text>
                             )}
                         </Card>
                     );
@@ -1007,7 +1027,7 @@ export default function MeetingDetail() {
                                                 width: 'fit-content',
                                                 maxWidth: 'min(88%, 100%)',
                                                 minWidth: 'min(220px, 100%)',
-                                                background: mine ? '#e6f4ff' : '#f5f5f5',
+                                                background: mine ? '#EFF6FF' : '#f5f5f5',
                                                 border: `1px solid ${mine ? '#91caff' : '#e5e5e5'}`,
                                                 borderRadius: 10,
                                                 padding: '8px 10px',

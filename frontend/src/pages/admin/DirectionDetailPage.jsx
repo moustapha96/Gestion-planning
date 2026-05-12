@@ -9,6 +9,8 @@ const { Title, Text } = Typography;
 const ROLE_LABELS = {
     RESPONSABLE: 'Responsable',
     CONSOLIDATEUR: 'Consolidateur',
+    COORDINATEUR_PROJET: 'Coord. projet',
+    SECRETAIRE_GENERAL: 'Secr. général',
     DG: 'Dir. Général',
     ADMIN: 'Administrateur',
     SUPER_ADMIN: 'Super administrateur',
@@ -16,6 +18,8 @@ const ROLE_LABELS = {
 const ROLE_COLORS = {
     RESPONSABLE: 'blue',
     CONSOLIDATEUR: 'purple',
+    COORDINATEUR_PROJET: 'geekblue',
+    SECRETAIRE_GENERAL: 'cyan',
     DG: 'gold',
     ADMIN: 'red',
     SUPER_ADMIN: 'magenta',
@@ -56,7 +60,7 @@ export default function DirectionDetailPage() {
                     Modifier
                 </Button>
                 <Button icon={<MessageOutlined />} onClick={() => navigate('/discussions?channel=direction')}>
-                    Voir discussions de la direction
+                    Messagerie de la direction
                 </Button>
             </Space>
 

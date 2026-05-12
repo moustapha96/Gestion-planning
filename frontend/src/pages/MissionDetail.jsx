@@ -22,15 +22,15 @@ import {
     DeleteOutlined,
     FlagOutlined,
     UserOutlined,
-    FileImageOutlined,
+    FilePdfOutlined,
     FileTextOutlined,
-    UploadOutlined,
     PaperClipOutlined,
 } from '@ant-design/icons';
 import dayjs from 'dayjs';
 import api, { API_BASE } from '../api/client';
 import { useAuth } from '../context/AuthContext';
 import { isPrivilegedAdmin } from '../utils/roles';
+import { PDF_ACCEPT, isAcceptedPdfFile } from '../utils/pdfAttachment';
 
 const { Text } = Typography;
 const MAX_FILE_SIZE = 15 * 1024 * 1024;
@@ -83,26 +83,26 @@ export default function MissionDetail() {
         }
     };
 
-    const handleUpload = (kind) => async ({ file, onSuccess, onError }) => {
+    const handleUpload = async ({ file, onSuccess, onError }) => {
         if (file.size > MAX_FILE_SIZE) {
             message.error('Fichier trop volumineux (max 15 Mo)');
             onError(new Error('too large'));
             return;
         }
-        if (kind === 'IMAGE' && !file.type.startsWith('image/')) {
-            message.error('Veuillez sélectionner une image');
-            onError(new Error('not image'));
+        if (!isAcceptedPdfFile(file)) {
+            message.error('Seuls les fichiers PDF (.pdf) sont acceptés.');
+            onError(new Error('not pdf'));
             return;
         }
         setUploadLoading(true);
         try {
             const formData = new FormData();
             formData.append('file', file);
-            formData.append('kind', kind);
+            formData.append('kind', 'DOCUMENT');
             await api.post(`/missions/${id}/files`, formData, {
                 headers: { 'Content-Type': 'multipart/form-data' },
             });
-            message.success('Fichier ajouté');
+            message.success('PDF ajouté');
             onSuccess('ok');
             await fetchMission();
         } catch (err) {
@@ -231,37 +231,23 @@ export default function MissionDetail() {
                 {/* Section fichiers */}
                 <Card
                     type="inner"
-                    title={<Space><PaperClipOutlined /> Fichiers & Images</Space>}
+                    title={<Space><PaperClipOutlined /> Pièces jointes (PDF)</Space>}
                     style={{ marginTop: 24 }}
                     extra={
                         canUpload && (
-                            <Space>
-                                <Upload
-                                    showUploadList={false}
-                                    accept="image/*"
-                                    customRequest={handleUpload('IMAGE')}
+                            <Upload
+                                showUploadList={false}
+                                accept={PDF_ACCEPT}
+                                customRequest={handleUpload}
+                            >
+                                <Button
+                                    size="small"
+                                    icon={<FilePdfOutlined />}
+                                    loading={uploadLoading}
                                 >
-                                    <Button
-                                        size="small"
-                                        icon={<FileImageOutlined />}
-                                        loading={uploadLoading}
-                                    >
-                                        Image
-                                    </Button>
-                                </Upload>
-                                <Upload
-                                    showUploadList={false}
-                                    customRequest={handleUpload('DOCUMENT')}
-                                >
-                                    <Button
-                                        size="small"
-                                        icon={<UploadOutlined />}
-                                        loading={uploadLoading}
-                                    >
-                                        Document
-                                    </Button>
-                                </Upload>
-                            </Space>
+                                    Ajouter un PDF
+                                </Button>
+                            </Upload>
                         )
                     }
                 >
@@ -317,7 +303,7 @@ export default function MissionDetail() {
                     {documents.length > 0 && (
                         <div>
                             <Text strong style={{ display: 'block', marginBottom: 8 }}>
-                                Documents ({documents.length})
+                                Fichiers PDF ({documents.length})
                             </Text>
                             <List
                                 size="small"
@@ -340,7 +326,7 @@ export default function MissionDetail() {
                                         ].filter(Boolean)}
                                     >
                                         <List.Item.Meta
-                                            avatar={<FileTextOutlined style={{ fontSize: 20, color: '#1677ff' }} />}
+                                            avatar={<FileTextOutlined style={{ fontSize: 20, color: '#1565C0' }} />}
                                             title={
                                                 <a
                                                     href={`${API_BASE}${f.fileUrl}`}
@@ -352,7 +338,7 @@ export default function MissionDetail() {
                                             }
                                             description={
                                                 <Space size={4}>
-                                                    <Tag color="blue">Document</Tag>
+                                                    <Tag color="blue">PDF</Tag>
                                                     <Text type="secondary" style={{ fontSize: 12 }}>
                                                         {f.uploadedBy?.name} · {dayjs(f.createdAt).format('D MMM YYYY HH:mm')}
                                                     </Text>
@@ -371,7 +357,7 @@ export default function MissionDetail() {
                     )}
 
                     {images.length === 0 && documents.length === 0 && (
-                        <Text type="secondary">Aucun fichier ajouté.</Text>
+                        <Text type="secondary">Aucune pièce jointe. Les nouveaux fichiers doivent être au format PDF.</Text>
                     )}
                 </Card>
             </Card>

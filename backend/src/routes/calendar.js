@@ -1,6 +1,16 @@
 const express = require('express');
 const { logger } = require('../utils/logger');
 
+/** Lundi 00:00:00 (semaine ISO / calendrier app) pour la date donnée */
+function startOfWeekMonday(d) {
+  const date = new Date(d);
+  date.setHours(0, 0, 0, 0);
+  const jsDay = date.getDay();
+  const offset = jsDay === 0 ? -6 : 1 - jsDay;
+  date.setDate(date.getDate() + offset);
+  return date;
+}
+
 /**
  * Handler GET /api/calendar/month - Récupérer tous les événements du mois
  */
@@ -153,8 +163,7 @@ router.get('/month', monthHandler);
 router.get('/week', async (req, res) => {
   try {
     const date = req.query.date ? new Date(req.query.date) : new Date();
-    const weekStart = new Date(date);
-    weekStart.setDate(date.getDate() - date.getDay() + 1);
+    const weekStart = startOfWeekMonday(date);
     const weekEnd = new Date(weekStart);
     weekEnd.setDate(weekStart.getDate() + 6);
     weekEnd.setHours(23, 59, 59, 999);
@@ -232,6 +241,8 @@ router.get('/week', async (req, res) => {
         endTime: meeting.endTime,
         room: meeting.room?.name,
         meetingId: meeting.id,
+        organizer: meeting.organizer?.name,
+        status: meeting.status,
       });
     });
 
@@ -246,6 +257,8 @@ router.get('/week', async (req, res) => {
         endTime: mission.endTime,
         location: mission.location,
         missionId: mission.id,
+        organizer: mission.createdBy?.name,
+        status: mission.status,
       });
     });
 
@@ -292,14 +305,45 @@ router.get('/day', async (req, res) => {
       orderBy: { startTime: 'asc' },
     });
 
+    const planningEventWhere = {
+      startTime: { gte: dayStart, lte: dayEnd },
+      ...(req.user.role === 'RESPONSABLE' ? { planning: { userId: req.user.id } } : {}),
+    };
+
+    const planningEvents = await req.prisma.planningEvent.findMany({
+      where: planningEventWhere,
+      include: {
+        planning: { select: { id: true, status: true, user: { select: { name: true } } } },
+        room: { select: { name: true } },
+      },
+      orderBy: { startTime: 'asc' },
+    });
+
     const events = [
+      ...planningEvents.map((event) => ({
+        id: event.id,
+        type: 'planning-event',
+        title: event.title,
+        date: new Date(event.startTime).toISOString().split('T')[0],
+        startTime: event.startTime,
+        endTime: event.endTime,
+        description: event.description,
+        eventType: event.type,
+        room: event.room?.name || event.destination || null,
+        organizer: event.planning?.user?.name,
+        status: event.planning?.status,
+        planningId: event.planningId,
+      })),
       ...meetings.map((meeting) => ({
         id: meeting.id,
         type: 'meeting',
         title: meeting.title,
+        date: new Date(meeting.startTime).toISOString().split('T')[0],
         startTime: meeting.startTime,
         endTime: meeting.endTime,
+        description: meeting.agenda,
         room: meeting.room?.name,
+        meetingId: meeting.id,
         organizer: meeting.organizer.name,
         status: meeting.status,
       })),
@@ -307,9 +351,12 @@ router.get('/day', async (req, res) => {
         id: mission.id,
         type: 'mission',
         title: mission.title,
+        date: new Date(mission.startTime).toISOString().split('T')[0],
         startTime: mission.startTime,
         endTime: mission.endTime,
+        description: mission.description,
         location: mission.location,
+        missionId: mission.id,
         organizer: mission.createdBy.name,
         status: mission.status,
       })),

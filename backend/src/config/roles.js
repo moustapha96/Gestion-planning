@@ -1,6 +1,10 @@
 const ROLES = {
     RESPONSABLE: 'RESPONSABLE',
     CONSOLIDATEUR: 'CONSOLIDATEUR',
+    /** Première étape de validation du planning (après consolidation). */
+    COORDINATEUR_PROJET: 'COORDINATEUR_PROJET',
+    /** Deuxième étape de validation du planning. */
+    SECRETAIRE_GENERAL: 'SECRETAIRE_GENERAL',
     DG: 'DG',
     ADMIN: 'ADMIN',
     /** Accès total : même périmètre qu'ADMIN + audit messagerie, promotion du rôle, modération messages */

@@ -7,7 +7,7 @@ import {
 import {
     BellOutlined, CheckOutlined, DeleteOutlined,
     CheckCircleOutlined, ReloadOutlined, ArrowRightOutlined,
-    FilterOutlined,
+    FilterOutlined, CalendarOutlined,
 } from '@ant-design/icons';
 import api from '../api/client';
 import { useAuth } from '../context/AuthContext';
@@ -17,12 +17,12 @@ const { Title, Text } = Typography;
 
 // ── Métadonnées par type ──────────────────────────────────────────
 const TYPE_META = {
-    PLANNING_SUBMITTED:    { color: 'blue',    label: 'Planning soumis',       border: '#1677ff', bg: '#e6f4ff' },
+    PLANNING_SUBMITTED:    { color: 'blue',    label: 'Planning soumis',       border: '#1565C0', bg: '#EFF6FF' },
     PLANNING_CONSOLIDATED: { color: 'purple',  label: 'Planning consolidé',    border: '#722ed1', bg: '#f9f0ff' },
     PLANNING_VALIDATED:    { color: 'green',   label: 'Planning validé',       border: '#52c41a', bg: '#f6ffed' },
     PLANNING_RETURNED:     { color: 'orange',  label: 'Planning retourné',     border: '#fa8c16', bg: '#fff7e6' },
     PLANNING_REMINDER:     { color: 'gold',    label: 'Rappel planning',       border: '#d4b106', bg: '#fffbe6' },
-    MEETING_CONVOCATION:   { color: 'blue',    label: 'Convocation réunion',   border: '#1677ff', bg: '#e6f4ff' },
+    MEETING_CONVOCATION:   { color: 'blue',    label: 'Convocation réunion',   border: '#1565C0', bg: '#EFF6FF' },
     MEETING_REMINDER:      { color: 'cyan',    label: 'Rappel réunion',        border: '#13c2c2', bg: '#e6fffb' },
     MEETING_CANCELLED:     { color: 'red',     label: 'Réunion annulée',       border: '#ff4d4f', bg: '#fff1f0' },
     MISSION_ASSIGNED:      { color: 'volcano', label: 'Mission assignée',      border: '#fa541c', bg: '#fff2e8' },
@@ -30,7 +30,7 @@ const TYPE_META = {
     ROLE_CHANGED:          { color: 'purple',  label: 'Rôle modifié',          border: '#722ed1', bg: '#f9f0ff' },
     ACCOUNT_ACTIVATED:     { color: 'green',   label: 'Compte activé',         border: '#52c41a', bg: '#f6ffed' },
     ACCOUNT_DEACTIVATED:   { color: 'red',     label: 'Compte désactivé',      border: '#ff4d4f', bg: '#fff1f0' },
-    ADMIN_BROADCAST:       { color: 'blue',    label: 'Message administrateur',border: '#1677ff', bg: '#e6f4ff' },
+    ADMIN_BROADCAST:       { color: 'blue',    label: 'Message administrateur',border: '#1565C0', bg: '#EFF6FF' },
 };
 const DEFAULT_META = { color: 'default', label: 'Notification', border: '#d9d9d9', bg: '#fafafa' };
 const getMeta = (type) => TYPE_META[type] || DEFAULT_META;
@@ -59,26 +59,47 @@ function formatDate(dateStr) {
     });
 }
 
+function capitalize(s) {
+    if (!s) return s;
+    return s.charAt(0).toUpperCase() + s.slice(1);
+}
+
 function groupByDay(notifications) {
     const today = new Date(); today.setHours(0, 0, 0, 0);
     const yesterday = new Date(today); yesterday.setDate(today.getDate() - 1);
-    const groups = {};
+    const groups = new Map(); // préserve l'ordre d'insertion
     notifications.forEach((n) => {
         const rawDate = n?.createdAt ? new Date(n.createdAt) : null;
         if (!rawDate || Number.isNaN(rawDate.getTime())) {
-            if (!groups['Sans date']) groups['Sans date'] = [];
-            groups['Sans date'].push(n);
+            const k = 'no-date';
+            if (!groups.has(k)) groups.set(k, { key: k, relative: 'Sans date', weekday: '', day: '', monthYear: '', items: [] });
+            groups.get(k).items.push(n);
             return;
         }
         const d = new Date(rawDate); d.setHours(0, 0, 0, 0);
-        let key;
-        if (d.getTime() === today.getTime()) key = "Aujourd'hui";
-        else if (d.getTime() === yesterday.getTime()) key = 'Hier';
-        else key = rawDate.toLocaleDateString('fr-FR', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' });
-        if (!groups[key]) groups[key] = [];
-        groups[key].push(n);
+        const k = d.toISOString().slice(0, 10); // clé stable YYYY-MM-DD
+
+        let relative = '';
+        if (d.getTime() === today.getTime()) relative = "Aujourd'hui";
+        else if (d.getTime() === yesterday.getTime()) relative = 'Hier';
+
+        const weekday = capitalize(rawDate.toLocaleDateString('fr-FR', { weekday: 'long' }));
+        const day = rawDate.toLocaleDateString('fr-FR', { day: 'numeric' });
+        const monthYear = capitalize(rawDate.toLocaleDateString('fr-FR', { month: 'long', year: 'numeric' }));
+
+        if (!groups.has(k)) {
+            groups.set(k, {
+                key: k,
+                relative,
+                weekday,
+                day,
+                monthYear,
+                items: [],
+            });
+        }
+        groups.get(k).items.push(n);
     });
-    return groups;
+    return Array.from(groups.values());
 }
 
 function normalizeNotification(n) {
@@ -137,7 +158,7 @@ function NotifCard({ item, onRead, onDelete, onNavigate }) {
                         {formatDate(item.createdAt)}
                     </Text>
                     {!item.isRead && (
-                        <Badge status="processing" text={<Text style={{ fontSize: 11, color: '#1677ff' }}>Nouveau</Text>} />
+                        <Badge status="processing" text={<Text style={{ fontSize: 11, color: '#1565C0' }}>Nouveau</Text>} />
                     )}
                 </div>
                 <Text
@@ -152,7 +173,7 @@ function NotifCard({ item, onRead, onDelete, onNavigate }) {
                 {item.link && (
                     <div style={{ marginTop: 6 }}>
                         <Text
-                            style={{ fontSize: 12, color: '#1677ff' }}
+                            style={{ fontSize: 12, color: '#1565C0' }}
                             onClick={(e) => { e.stopPropagation(); onNavigate(item); }}
                         >
                             Voir les détails <ArrowRightOutlined />
@@ -169,7 +190,7 @@ function NotifCard({ item, onRead, onDelete, onNavigate }) {
                             type="text" size="small"
                             icon={<CheckOutlined />}
                             onClick={(e) => { e.stopPropagation(); onRead(item.id); }}
-                            style={{ color: '#1677ff' }}
+                            style={{ color: '#1565C0' }}
                         />
                     </Tooltip>
                 )}
@@ -204,26 +225,102 @@ function NotifGroupedList({ items, loading, onRead, onDelete, navigate, markAsRe
 
     return (
         <>
-            {Object.entries(groups).map(([date, notifs]) => (
-                <div key={date} style={{ marginBottom: 16 }}>
-                    <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 8 }}>
-                        <Text type="secondary" style={{ fontSize: 11, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.06em' }}>
-                            {date}
-                        </Text>
-                        <Divider style={{ margin: 0, flex: 1 }} />
-                        <Text type="secondary" style={{ fontSize: 11 }}>{notifs.length}</Text>
+            {groups.map((g) => {
+                const isToday = g.relative === "Aujourd'hui";
+                const isYesterday = g.relative === 'Hier';
+                const accent = isToday ? '#1565C0' : isYesterday ? '#722ed1' : '#8c8c8c';
+                const accentBg = isToday ? '#EFF6FF' : isYesterday ? '#f9f0ff' : '#fafafa';
+                return (
+                    <div key={g.key} style={{ marginBottom: 16 }}>
+                        {/* En-tête horizontal : pastille jour · weekday · jour mois année · barre · compteur */}
+                        <div
+                            style={{
+                                display: 'flex',
+                                alignItems: 'center',
+                                gap: 10,
+                                marginBottom: 10,
+                                flexWrap: 'wrap',
+                            }}
+                        >
+                            {/* Pastille relative (Aujourd'hui / Hier / Date) */}
+                            {g.relative ? (
+                                <span
+                                    style={{
+                                        display: 'inline-flex',
+                                        alignItems: 'center',
+                                        gap: 6,
+                                        padding: '4px 10px',
+                                        borderRadius: 999,
+                                        background: accentBg,
+                                        border: `1px solid ${accent}33`,
+                                        color: accent,
+                                        fontSize: 12,
+                                        fontWeight: 700,
+                                        textTransform: 'uppercase',
+                                        letterSpacing: '0.04em',
+                                        whiteSpace: 'nowrap',
+                                    }}
+                                >
+                                    <CalendarOutlined style={{ fontSize: 12 }} />
+                                    {g.relative}
+                                </span>
+                            ) : null}
+
+                            {/* Détail horizontal de la date : Vendredi · 8 · Mai 2026 */}
+                            {g.weekday && (
+                                <span
+                                    style={{
+                                        display: 'inline-flex',
+                                        alignItems: 'center',
+                                        gap: 8,
+                                        whiteSpace: 'nowrap',
+                                    }}
+                                >
+                                    <Text style={{ fontSize: 13, fontWeight: 600, color: '#262626' }}>
+                                        {g.weekday}
+                                    </Text>
+                                    <span style={{
+                                        display: 'inline-block',
+                                        width: 4, height: 4, borderRadius: '50%',
+                                        background: '#d9d9d9',
+                                    }} />
+                                    <Text style={{ fontSize: 13, color: '#595959' }}>
+                                        {g.day}
+                                    </Text>
+                                    <Text style={{ fontSize: 13, color: '#595959' }}>
+                                        {g.monthYear}
+                                    </Text>
+                                </span>
+                            )}
+
+                            <Divider style={{ margin: 0, flex: 1, minWidth: 24 }} />
+
+                            <Tag
+                                color={isToday ? 'blue' : isYesterday ? 'purple' : 'default'}
+                                style={{
+                                    margin: 0,
+                                    fontSize: 11,
+                                    fontWeight: 600,
+                                    padding: '0 8px',
+                                    borderRadius: 999,
+                                }}
+                            >
+                                {g.items.length} {g.items.length > 1 ? 'notifications' : 'notification'}
+                            </Tag>
+                        </div>
+
+                        {g.items.map((item) => (
+                            <NotifCard
+                                key={item.id}
+                                item={item}
+                                onRead={onRead}
+                                onDelete={onDelete}
+                                onNavigate={handleNavigate}
+                            />
+                        ))}
                     </div>
-                    {notifs.map((item) => (
-                        <NotifCard
-                            key={item.id}
-                            item={item}
-                            onRead={onRead}
-                            onDelete={onDelete}
-                            onNavigate={handleNavigate}
-                        />
-                    ))}
-                </div>
-            ))}
+                );
+            })}
         </>
     );
 }

@@ -181,7 +181,10 @@ export default function MissionEdit() {
                             mode="multiple"
                             placeholder="Sélectionner les intervenants"
                             optionFilterProp="label"
-                            options={users.map((u) => ({ value: u.id, label: `${u.name} (${u.email})` }))}
+                            options={users.map((u) => ({
+                                value: u.id,
+                                label: `${u.name}${u.jobTitle ? ` — ${u.jobTitle}` : ''} (${u.email})`,
+                            }))}
                             filterOption={(input, opt) => (opt?.label ?? '').toLowerCase().includes(input.toLowerCase())}
                             size="large"
                         />

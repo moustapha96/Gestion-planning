@@ -11,12 +11,20 @@ import {
 import { useNavigate } from 'react-router-dom';
 import api, { API_BASE } from '../api/client';
 import { useAuth } from '../context/AuthContext';
+import { PDF_ACCEPT, isAcceptedPdfFile } from '../utils/pdfAttachment';
+import { resolveImageSrc } from '../utils/mediaUrl';
 
 const { Title, Text } = Typography;
 
 const CAN_EDIT = ['ADMIN', 'SUPER_ADMIN', 'DG'];
 const STATUS_COLORS = { ACTIVE: 'success', PAUSED: 'warning', COMPLETED: 'default' };
 const STATUS_LABELS = { ACTIVE: 'Actif', PAUSED: 'En pause', COMPLETED: 'Terminé' };
+
+function isValidOptionalLogoUrl(value) {
+    const v = String(value || '').trim();
+    if (!v) return true;
+    return /^https?:\/\//i.test(v) || v.startsWith('/');
+}
 
 export default function Projects() {
     const { user }    = useAuth();
@@ -31,10 +39,14 @@ export default function Projects() {
     const [drawerProject, setDrawerProject] = useState(null);   // détail drawer
     const [drawerLoading, setDrawerLoading] = useState(false);
     const [uploading,      setUploading]    = useState(false);
+    const [logoUploading, setLogoUploading] = useState(false);
+    const [pendingLogoFile, setPendingLogoFile] = useState(null);
     const [search,        setSearch]        = useState('');
     const [form] = Form.useForm();
 
     const canEdit = CAN_EDIT.includes(user?.role);
+    const canManageProjectRow = (p) =>
+        Boolean(p) && (canEdit || user?.role === 'RESPONSABLE' || p.createdById === user?.id);
     const canUploadProjectFiles = (project) =>
         Boolean(project) && project.status !== 'COMPLETED' && (
             canEdit || user?.role === 'RESPONSABLE' || project.createdById === user?.id
@@ -58,33 +70,89 @@ export default function Projects() {
     // ── Ouvrir formulaire création/édition ────────────────────────
     const openCreate = () => {
         setEditTarget(null);
+        setPendingLogoFile(null);
         form.resetFields();
         setModalOpen(true);
     };
 
     const openEdit = (p) => {
         setEditTarget(p);
-        form.setFieldsValue({ name: p.name, code: p.code || '', description: p.description || '', isActive: p.isActive });
+        setPendingLogoFile(null);
+        form.setFieldsValue({
+            name: p.name,
+            code: p.code || '',
+            description: p.description || '',
+            isActive: p.isActive,
+            logoUrl: p.logoUrl || '',
+        });
         setModalOpen(true);
     };
 
     const handleSave = async () => {
         const values = await form.validateFields();
+        const { logoUrl, ...rest } = values;
+        const payload = { ...rest };
+        if (editTarget) {
+            if (logoUrl !== undefined) {
+                payload.logoUrl = String(logoUrl || '').trim() || '/logo-gp.png';
+            }
+        } else if (String(logoUrl || '').trim()) {
+            payload.logoUrl = String(logoUrl).trim();
+        }
         setSaving(true);
         try {
             if (editTarget) {
-                await api.put(`/projects/${editTarget.id}`, values);
+                await api.put(`/projects/${editTarget.id}`, payload);
                 message.success('Projet mis à jour');
             } else {
-                await api.post('/projects', values);
+                const { data: created } = await api.post('/projects', payload);
                 message.success('Projet créé');
+                if (pendingLogoFile && created?.id) {
+                    const fd = new FormData();
+                    fd.append('logo', pendingLogoFile);
+                    await api.post(`/projects/${created.id}/logo`, fd, {
+                        headers: { 'Content-Type': 'multipart/form-data' },
+                    });
+                }
             }
             setModalOpen(false);
+            setPendingLogoFile(null);
             load();
         } catch (err) {
             message.error(err.response?.data?.error || 'Erreur sauvegarde');
         } finally {
             setSaving(false);
+        }
+    };
+
+    const handleLogoPick = (editId) => async ({ file, onSuccess, onError }) => {
+        if (!file.type?.startsWith('image/')) {
+            message.error('Veuillez choisir une image.');
+            onError?.(new Error('not image'));
+            return;
+        }
+        if (editId) {
+            setLogoUploading(true);
+            try {
+                const fd = new FormData();
+                fd.append('logo', file);
+                const { data } = await api.post(`/projects/${editId}/logo`, fd, {
+                    headers: { 'Content-Type': 'multipart/form-data' },
+                });
+                form.setFieldsValue({ logoUrl: data?.logoUrl || '' });
+                message.success('Logo mis à jour');
+                onSuccess?.(data);
+                load();
+            } catch (err) {
+                message.error(err?.response?.data?.error || 'Erreur upload logo');
+                onError?.(err);
+            } finally {
+                setLogoUploading(false);
+            }
+        } else {
+            setPendingLogoFile(file);
+            message.success('Logo sera envoyé à la création du projet');
+            onSuccess?.('ok');
         }
     };
 
@@ -123,6 +191,11 @@ export default function Projects() {
     };
 
     const handleUploadFile = (projectId) => async ({ file, onSuccess, onError }) => {
+        if (!isAcceptedPdfFile(file)) {
+            message.error('Seuls les fichiers PDF (.pdf) sont acceptés.');
+            onError?.(new Error('not pdf'));
+            return;
+        }
         setUploading(true);
         try {
             const fd = new FormData();
@@ -130,7 +203,7 @@ export default function Projects() {
             await api.post(`/projects/${projectId}/files`, fd, {
                 headers: { 'Content-Type': 'multipart/form-data' },
             });
-            message.success('Fichier ajouté');
+            message.success('PDF ajouté');
             onSuccess?.('ok');
             const current = projects.find((x) => x.id === projectId) || { id: projectId };
             openDetail(current);
@@ -175,6 +248,32 @@ export default function Projects() {
     // ── Colonnes tableau ──────────────────────────────────────────
     const columns = [
         {
+            title: 'Logo',
+            key: 'logo',
+            width: 72,
+            align: 'center',
+            render: (_, row) => {
+                const src = resolveImageSrc(row.logoUrl);
+                if (!src) return <Text type="secondary">—</Text>;
+                return (
+                    <img
+                        src={src}
+                        alt=""
+                        style={{
+                            width: 44,
+                            height: 44,
+                            objectFit: 'contain',
+                            borderRadius: 8,
+                            border: '1px solid #f0f0f0',
+                            background: '#fafafa',
+                            display: 'block',
+                            margin: '0 auto',
+                        }}
+                    />
+                );
+            },
+        },
+        {
             title: 'Code',
             dataIndex: 'code',
             width: 90,
@@ -185,7 +284,7 @@ export default function Projects() {
             dataIndex: 'name',
             sorter: (a, b) => a.name.localeCompare(b.name),
             render: (name, row) => (
-                <span style={{ fontWeight: 600, cursor: 'pointer', color: '#3e7cbc' }} onClick={() => openDetail(row)}>
+                <span style={{ fontWeight: 600, cursor: 'pointer', color: '#1565C0' }} onClick={() => openDetail(row)}>
                     {name}
                 </span>
             ),
@@ -213,7 +312,7 @@ export default function Projects() {
             align: 'center',
             render: (_, row) => (
                 <Badge count={row._count?.meetings || 0} showZero
-                    style={{ background: row._count?.meetings ? '#1677ff' : '#d9d9d9' }} />
+                    style={{ background: row._count?.meetings ? '#1565C0' : '#d9d9d9' }} />
             ),
         },
         {
@@ -239,7 +338,7 @@ export default function Projects() {
                     <Tooltip title="Voir détail">
                         <Button size="small" icon={<EyeOutlined />} onClick={() => openDetail(row)} />
                     </Tooltip>
-                    {canEdit && (
+                    {canManageProjectRow(row) && (
                         <Tooltip title="Modifier">
                             <Button size="small" icon={<EditOutlined />} onClick={() => openEdit(row)} />
                         </Tooltip>
@@ -294,10 +393,10 @@ export default function Projects() {
             {/* ── Stats ── */}
             <Row gutter={[16, 16]} style={{ marginBottom: 16 }}>
                 {[
-                    { title: 'Total projets',   value: total,    color: '#3e7cbc', icon: <ProjectOutlined /> },
+                    { title: 'Total projets',   value: total,    color: '#1565C0', icon: <ProjectOutlined /> },
                     { title: 'Projets actifs',  value: actifs,   color: '#52c41a', icon: <CheckCircleOutlined /> },
                     { title: 'Missions liées',  value: missions, color: '#722ed1', icon: <FlagOutlined /> },
-                    { title: 'Réunions liées',  value: meetings, color: '#1677ff', icon: <TeamOutlined /> },
+                    { title: 'Réunions liées',  value: meetings, color: '#1565C0', icon: <TeamOutlined /> },
                 ].map((s) => (
                     <Col xs={12} sm={6} key={s.title}>
                         <Card size="small" style={{ borderRadius: 10 }}>
@@ -345,7 +444,7 @@ export default function Projects() {
                 confirmLoading={saving}
                 okText={editTarget ? 'Enregistrer' : 'Créer'}
                 cancelText="Annuler"
-                width={520}
+                width={560}
                 destroyOnHidden
             >
                 <Form form={form} layout="vertical" style={{ marginTop: 16 }}>
@@ -357,6 +456,60 @@ export default function Projects() {
                     </Form.Item>
                     <Form.Item name="description" label="Description">
                         <Input.TextArea rows={3} placeholder="Description du projet..." maxLength={500} />
+                    </Form.Item>
+                    <Form.Item
+                        name="logoUrl"
+                        label="Logo (URL optionnelle)"
+                        extra="https://… ou chemin /uploads/… Laissez vide pour le logo par défaut."
+                        rules={[
+                            {
+                                validator: (_, v) => (isValidOptionalLogoUrl(v)
+                                    ? Promise.resolve()
+                                    : Promise.reject(new Error('URL http(s) ou chemin commençant par /'))),
+                            },
+                        ]}
+                    >
+                        <Input placeholder="https://exemple.com/logo.png" allowClear />
+                    </Form.Item>
+                    <Form.Item label="Ou importer une image">
+                        <Upload
+                            accept="image/*"
+                            showUploadList={false}
+                            disabled={logoUploading}
+                            customRequest={handleLogoPick(editTarget?.id)}
+                        >
+                            <Button icon={<UploadOutlined />} loading={logoUploading}>
+                                {editTarget ? 'Envoyer un logo' : 'Choisir une image'}
+                            </Button>
+                        </Upload>
+                        {!editTarget && pendingLogoFile && (
+                            <Text type="secondary" style={{ display: 'block', marginTop: 8 }}>
+                                Fichier : {pendingLogoFile.name}
+                            </Text>
+                        )}
+                    </Form.Item>
+                    <Form.Item label="Aperçu" shouldUpdate>
+                        {() => {
+                            const u = form.getFieldValue('logoUrl');
+                            const src = resolveImageSrc(u);
+                            if (!src) {
+                                return <Text type="secondary">Aucun aperçu</Text>;
+                            }
+                            return (
+                                <img
+                                    src={src}
+                                    alt="Aperçu logo"
+                                    style={{
+                                        maxWidth: 160,
+                                        maxHeight: 80,
+                                        objectFit: 'contain',
+                                        borderRadius: 8,
+                                        border: '1px solid #f0f0f0',
+                                        background: '#fafafa',
+                                    }}
+                                />
+                            );
+                        }}
                     </Form.Item>
                     {editTarget && (
                         <Form.Item name="isActive" label="Statut" valuePropName="checked">
@@ -375,17 +528,47 @@ export default function Projects() {
                         Ouvrir la page détail
                     </Button>
                 ) : null}
-                title={
-                    <span>
-                        <ProjectOutlined style={{ marginRight: 8 }} />
-                        {drawerProject?.name}
+                title={(
+                    <span style={{ display: 'inline-flex', alignItems: 'center', gap: 10 }}>
+                        {drawerProject?.logoUrl ? (
+                            <img
+                                src={resolveImageSrc(drawerProject.logoUrl) || ''}
+                                alt=""
+                                style={{
+                                    width: 36,
+                                    height: 36,
+                                    objectFit: 'contain',
+                                    borderRadius: 8,
+                                    border: '1px solid #f0f0f0',
+                                    flexShrink: 0,
+                                }}
+                            />
+                        ) : null}
+                        <ProjectOutlined style={{ marginRight: 4 }} />
+                        <span>{drawerProject?.name}</span>
                     </span>
-                }
+                )}
                 width={480}
                 loading={drawerLoading}
             >
                 {drawerProject && (
                     <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
+                        {drawerProject.logoUrl && resolveImageSrc(drawerProject.logoUrl) ? (
+                            <div style={{ textAlign: 'center', padding: '8px 0' }}>
+                                <img
+                                    src={resolveImageSrc(drawerProject.logoUrl) || ''}
+                                    alt={`Logo ${drawerProject.name}`}
+                                    style={{
+                                        maxWidth: '100%',
+                                        maxHeight: 120,
+                                        objectFit: 'contain',
+                                        borderRadius: 12,
+                                        border: '1px solid #f0f0f0',
+                                        background: '#fafafa',
+                                    }}
+                                />
+                            </div>
+                        ) : null}
                         <Descriptions bordered size="small" column={1}>
                             <Descriptions.Item label="Code">
                                 {drawerProject.code ? <Tag>{drawerProject.code}</Tag> : '—'}
@@ -429,7 +612,7 @@ export default function Projects() {
                         </Card>
 
                         {/* Réunions liées */}
-                        <Card size="small" title={<><TeamOutlined style={{ color: '#1677ff', marginRight: 6 }} />Réunions ({drawerProject._count?.meetings || 0})</>}>
+                        <Card size="small" title={<><TeamOutlined style={{ color: '#1565C0', marginRight: 6 }} />Réunions ({drawerProject._count?.meetings || 0})</>}>
                             {drawerProject.meetings?.length > 0 ? (
                                 <List
                                     size="small"
@@ -455,21 +638,25 @@ export default function Projects() {
 
                         <Card
                             size="small"
-                            title={<><FileAddOutlined style={{ color: '#1677ff', marginRight: 6 }} />Fichiers projet ({drawerProject._count?.files || 0})</>}
+                            title={<><FileAddOutlined style={{ color: '#1565C0', marginRight: 6 }} />Pièces jointes PDF ({drawerProject._count?.files || 0})</>}
                             extra={
                                 canUploadProjectFiles(drawerProject) && (
                                     <Upload
                                         showUploadList={false}
+                                        accept={PDF_ACCEPT}
                                         customRequest={handleUploadFile(drawerProject.id)}
                                         disabled={uploading}
                                     >
                                         <Button size="small" icon={<UploadOutlined />} loading={uploading}>
-                                            Ajouter
+                                            Ajouter un PDF
                                         </Button>
                                     </Upload>
                                 )
                             }
                         >
+                            <Text type="secondary" style={{ display: 'block', marginBottom: 8, fontSize: 12 }}>
+                                Uniquement des documents PDF (max. 20 Mo).
+                            </Text>
                             {drawerProject.files?.length > 0 ? (
                                 <List
                                     size="small"
@@ -492,7 +679,7 @@ export default function Projects() {
                                             ].filter(Boolean)}
                                         >
                                             <List.Item.Meta
-                                                avatar={<FileTextOutlined style={{ color: '#1677ff', fontSize: 18 }} />}
+                                                avatar={<FileTextOutlined style={{ color: '#1565C0', fontSize: 18 }} />}
                                                 title={
                                                     <a href={`${API_BASE}${f.fileUrl}`} target="_blank" rel="noopener noreferrer">
                                                         {f.fileName}
@@ -503,7 +690,7 @@ export default function Projects() {
                                         </List.Item>
                                     )}
                                 />
-                            ) : <Text type="secondary">Aucun fichier</Text>}
+                            ) : <Text type="secondary">Aucune pièce jointe</Text>}
                         </Card>
                     </div>
                 )}

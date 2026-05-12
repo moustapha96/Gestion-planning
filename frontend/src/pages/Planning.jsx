@@ -8,6 +8,7 @@ import {
     PlusOutlined, SendOutlined, CheckOutlined, RollbackOutlined,
     LeftOutlined, RightOutlined, CalendarOutlined, DeleteOutlined,
     EyeOutlined, FilterOutlined, ScheduleOutlined, ShareAltOutlined,
+    CopyOutlined,
 } from '@ant-design/icons';
 import dayjs from 'dayjs';
 import api from '../api/client';
@@ -22,6 +23,9 @@ const STATUS_COLORS = {
     DRAFT:            'default',
     SUBMITTED:        'blue',
     IN_CONSOLIDATION: 'purple',
+    CP_PENDING:       'geekblue',
+    SG_PENDING:       'cyan',
+    DG_PENDING:       'gold',
     VALIDATED:        'green',
     RETURNED:         'orange',
     CANCELLED:        'red',
@@ -30,6 +34,9 @@ const STATUS_LABELS = {
     DRAFT:            'Brouillon',
     SUBMITTED:        'Soumis',
     IN_CONSOLIDATION: 'En consolidation',
+    CP_PENDING:       'Att. coordinateur projet',
+    SG_PENDING:       'Att. SG ou direction',
+    DG_PENDING:       'Att. validation finale (SG ou DG)',
     VALIDATED:        'Validé',
     RETURNED:         'Retourné',
     CANCELLED:        'Annulé',
@@ -38,10 +45,86 @@ const STATUS_ROW_BG = {
     DRAFT:            '#fff',
     SUBMITTED:        '#f0f9ff',
     IN_CONSOLIDATION: '#faf5ff',
+    CP_PENDING:       '#f0f5ff',
+    SG_PENDING:       '#e6fffb',
+    DG_PENDING:       '#fffbe6',
     VALIDATED:        '#f6ffed',
     RETURNED:         '#fff7e6',
     CANCELLED:        '#fff1f0',
 };
+
+const PENDING_VALIDATION = ['CP_PENDING', 'SG_PENDING', 'DG_PENDING', 'IN_CONSOLIDATION'];
+
+// ── Helpers affichage ────────────────────────────────────────────
+function fmtTime(iso) {
+    if (!iso) return '';
+    try {
+        return new Date(iso).toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' });
+    } catch { return ''; }
+}
+
+function fmtDateLong(iso) {
+    if (!iso) return '';
+    try {
+        const d = new Date(iso);
+        return d.toLocaleDateString('fr-FR', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' });
+    } catch { return iso; }
+}
+
+const EVENT_TYPE_LABELS = {
+    REUNION:     'Réunion',
+    MISSION:     'Mission',
+    DEPLACEMENT: 'Déplacement',
+    FORMATION:   'Formation',
+    AUTRE:       'Autre',
+};
+
+function buildPlanningText(plannings, weekLabel) {
+    const lines = [
+        `Plannings ADM GP — Semaine du ${weekLabel}`,
+        `Généré le ${new Date().toLocaleDateString('fr-FR', { day: 'numeric', month: 'long', year: 'numeric' })}`,
+        '',
+    ];
+
+    for (const p of plannings) {
+        const events = (p.events || []).slice().sort(
+            (a, b) => new Date(a.startTime) - new Date(b.startTime),
+        );
+        lines.push('─'.repeat(50));
+        lines.push(
+            `👤 ${p.user?.name || '—'}  (${p.user?.direction?.name || p.user?.email || ''})`,
+        );
+        lines.push(`   Statut : ${STATUS_LABELS[p.status] || p.status}`);
+
+        if (!events.length) {
+            lines.push('   Aucun événement cette semaine.');
+        } else {
+            // Regrouper par jour
+            const byDay = {};
+            events.forEach((ev) => {
+                const day = new Date(ev.startTime).toISOString().split('T')[0];
+                if (!byDay[day]) byDay[day] = [];
+                byDay[day].push(ev);
+            });
+            lines.push('');
+            for (const [day, dayEvs] of Object.entries(byDay)) {
+                lines.push(`   📅 ${fmtDateLong(day + 'T00:00:00')}`);
+                for (const ev of dayEvs) {
+                    const start = fmtTime(ev.startTime);
+                    const end   = fmtTime(ev.endTime);
+                    const time  = end ? `${start} – ${end}` : start;
+                    const type  = ev.eventType?.name || EVENT_TYPE_LABELS[ev.type] || ev.type || '';
+                    const loc   = ev.room?.name || ev.destination || '';
+                    lines.push(
+                        `      ${time}  [${type}]  ${ev.title || ''}${loc ? `  📍 ${loc}` : ''}`,
+                    );
+                }
+            }
+        }
+        lines.push('');
+    }
+    return lines.join('\n');
+}
 
 // ── Helpers semaine ──────────────────────────────────────────────
 function getMondayOfWeek(d) {
@@ -72,24 +155,6 @@ function weekRangeLabel(d) {
     return `${monStr} – ${sunStr}`;
 }
 
-function toIcsDate(value) {
-    try {
-        const d = new Date(value);
-        if (!Number.isNaN(d.getTime())) {
-            return d.toISOString().replace(/[-:.]/g, '').slice(0, 15) + 'Z';
-        }
-    } catch { /* noop */ }
-    return '';
-}
-
-function escapeIcsText(text) {
-    return String(text || '')
-        .replace(/\\/g, '\\\\')
-        .replace(/;/g, '\\;')
-        .replace(/,/g, '\\,')
-        .replace(/\n/g, '\\n');
-}
-
 // ── Composant principal ──────────────────────────────────────────
 export default function Planning() {
     const navigate    = useNavigate();
@@ -106,12 +171,15 @@ export default function Planning() {
     const [createLoading,   setCreateLoading]   = useState(false);
     const [actionLoadingId, setActionLoadingId] = useState(null);
     const [deleteLoadingId, setDeleteLoadingId] = useState(null);
+    const [shareModal,      setShareModal]      = useState({ open: false, text: '' });
 
     const isConsolidateur = user?.role === 'CONSOLIDATEUR';
+    const isCoordProjet   = user?.role === 'COORDINATEUR_PROJET';
+    const isSG            = user?.role === 'SECRETAIRE_GENERAL';
     const isDG            = user?.role === 'DG';
     const isResponsable   = user?.role === 'RESPONSABLE';
     const isAdmin         = isPrivilegedAdmin(user?.role);
-    const canSeeAll       = isConsolidateur || isDG || isAdmin;
+    const canSeeAll       = isConsolidateur || isCoordProjet || isSG || isDG || isAdmin;
 
     useEffect(() => { fetchPlannings(selectedDate, mineOnly); }, [selectedDate, mineOnly]); // eslint-disable-line
 
@@ -152,11 +220,33 @@ export default function Planning() {
         } finally { setActionLoadingId(null); }
     };
 
+    const handleApproveCp = async (id) => {
+        setActionLoadingId(id);
+        try {
+            await api.put(`/plannings/${id}/approve-cp`);
+            message.success('Validation coordinateur enregistrée');
+            fetchPlannings(selectedDate, mineOnly);
+        } catch (err) {
+            message.error(err.response?.data?.error || 'Erreur');
+        } finally { setActionLoadingId(null); }
+    };
+
+    const handleApproveSg = async (id) => {
+        setActionLoadingId(id);
+        try {
+            await api.put(`/plannings/${id}/approve-sg`);
+            message.success('Accord SG / direction enregistré');
+            fetchPlannings(selectedDate, mineOnly);
+        } catch (err) {
+            message.error(err.response?.data?.error || 'Erreur');
+        } finally { setActionLoadingId(null); }
+    };
+
     const handleValidate = async (id) => {
         setActionLoadingId(id);
         try {
             await api.put(`/plannings/${id}/validate`);
-            message.success('Planning validé ✓');
+            message.success('Planning validé définitivement ✓');
             fetchPlannings(selectedDate, mineOnly);
         } catch (err) {
             message.error(err.response?.data?.error || 'Erreur');
@@ -204,74 +294,24 @@ export default function Planning() {
         } finally { setCreateLoading(false); }
     };
 
-    const handleShareAsICalendar = async () => {
-        const allEvents = (filteredPlannings || []).flatMap((p) =>
-            (p.events || []).map((ev) => ({
-                uid: `${ev.id || `${p.id}-${ev.startTime}`}-planning@gp`,
-                title: ev.title || 'Événement planning',
-                start: ev.startTime,
-                end: ev.endTime,
-                location: ev.room?.name || ev.destination || '',
-                description: `${p.user?.name || 'Utilisateur'} — ${STATUS_LABELS[p.status] || p.status}`,
-            })),
-        ).filter((ev) => ev.start);
-
-        if (!allEvents.length) {
-            message.warning('Aucun événement à partager pour cette période.');
+    const handleShare = () => {
+        const list = filteredPlannings || [];
+        if (!list.length) {
+            message.warning('Aucun planning à partager pour cette période.');
             return;
         }
+        const label = weekRangeLabel(selectedDate);
+        const text  = buildPlanningText(list, label);
+        setShareModal({ open: true, text });
+    };
 
-        const lines = [
-            'BEGIN:VCALENDAR',
-            'VERSION:2.0',
-            'PRODID:-//ADM GP//Planning//FR',
-            'CALSCALE:GREGORIAN',
-            'METHOD:PUBLISH',
-            ...allEvents.flatMap((ev) => {
-                const start = toIcsDate(ev.start);
-                const end = toIcsDate(ev.end || new Date(new Date(ev.start).getTime() + 60 * 60 * 1000));
-                return [
-                    'BEGIN:VEVENT',
-                    `UID:${ev.uid}`,
-                    `DTSTAMP:${toIcsDate(new Date())}`,
-                    `DTSTART:${start}`,
-                    `DTEND:${end}`,
-                    `SUMMARY:${escapeIcsText(ev.title)}`,
-                    ...(ev.location ? [`LOCATION:${escapeIcsText(ev.location)}`] : []),
-                    ...(ev.description ? [`DESCRIPTION:${escapeIcsText(ev.description)}`] : []),
-                    'END:VEVENT',
-                ];
-            }),
-            'END:VCALENDAR',
-        ];
-
-        const blob = new Blob([lines.join('\r\n')], { type: 'text/calendar;charset=utf-8' });
-        const fileName = `planning-${new Date().toISOString().slice(0, 10)}.ics`;
-        const file = new File([blob], fileName, { type: 'text/calendar' });
-
+    const handleCopyShare = async (text) => {
         try {
-            if (navigator.share && navigator.canShare?.({ files: [file] })) {
-                await navigator.share({
-                    title: 'iCalendar du planning',
-                    text: 'Partage du planning au format iCalendar (.ics)',
-                    files: [file],
-                });
-                message.success('iCalendar partagé.');
-                return;
-            }
+            await navigator.clipboard.writeText(text);
+            message.success('Événements copiés dans le presse-papiers.');
         } catch {
-            // Fallback download below
+            message.error('Impossible de copier — sélectionnez le texte manuellement.');
         }
-
-        const url = URL.createObjectURL(blob);
-        const a = document.createElement('a');
-        a.href = url;
-        a.download = fileName;
-        document.body.appendChild(a);
-        a.click();
-        a.remove();
-        URL.revokeObjectURL(url);
-        message.success('iCalendar téléchargé (.ics).');
     };
 
     // ── Données dérivées ─────────────────────────────────────────
@@ -281,7 +321,10 @@ export default function Planning() {
     );
 
     const statusCounts = useMemo(() => {
-        const c = { DRAFT: 0, SUBMITTED: 0, IN_CONSOLIDATION: 0, VALIDATED: 0, RETURNED: 0, CANCELLED: 0 };
+        const c = {
+            DRAFT: 0, SUBMITTED: 0, IN_CONSOLIDATION: 0, CP_PENDING: 0, SG_PENDING: 0, DG_PENDING: 0,
+            VALIDATED: 0, RETURNED: 0, CANCELLED: 0,
+        };
         plannings.forEach((p) => { if (c[p.status] !== undefined) c[p.status]++; });
         return c;
     }, [plannings]);
@@ -325,7 +368,7 @@ export default function Planning() {
                     <Badge
                         count={count}
                         showZero
-                        style={{ backgroundColor: count > 0 ? '#1677ff' : '#d9d9d9' }}
+                        style={{ backgroundColor: count > 0 ? '#1565C0' : '#d9d9d9' }}
                     />
                 );
             },
@@ -354,8 +397,12 @@ export default function Planning() {
                 const canSubmit = (record.userId === user?.id || isAdmin) &&
                     (record.status === 'DRAFT' || record.status === 'RETURNED');
                 const canConsol = (isConsolidateur || isAdmin) && record.status === 'SUBMITTED';
-                const canValid  = (isDG || isAdmin) && record.status === 'IN_CONSOLIDATION';
-                const canRet    = (isDG || isAdmin) && record.status === 'IN_CONSOLIDATION';
+                const canApproveCp = (isCoordProjet || isAdmin)
+                    && (record.status === 'CP_PENDING' || record.status === 'IN_CONSOLIDATION');
+                const canApproveSg = (isSG || isDG || isAdmin) && record.status === 'SG_PENDING';
+                const canValidFinal = ((isSG || isDG) && record.status === 'DG_PENDING')
+                    || (isAdmin && PENDING_VALIDATION.includes(record.status));
+                const canRet    = (isSG || isDG || isAdmin) && PENDING_VALIDATION.includes(record.status);
                 const canDel    = (record.userId === user?.id && record.status === 'DRAFT') || isAdmin;
 
                 return (
@@ -388,14 +435,34 @@ export default function Planning() {
                             </Button>
                         )}
 
-                        {canValid && (
+                        {canApproveCp && (
+                            <Button
+                                size="small" type="primary" icon={<CheckOutlined />}
+                                onClick={(e) => { e.stopPropagation(); handleApproveCp(record.id); }}
+                                loading={actionLoadingId === record.id}
+                                style={{ background: '#2f54eb', borderColor: '#2f54eb' }}
+                            >
+                                Accord coord.
+                            </Button>
+                        )}
+                        {canApproveSg && (
+                            <Button
+                                size="small" type="primary" icon={<CheckOutlined />}
+                                onClick={(e) => { e.stopPropagation(); handleApproveSg(record.id); }}
+                                loading={actionLoadingId === record.id}
+                                style={{ background: '#13c2c2', borderColor: '#13c2c2' }}
+                            >
+                                Accord SG / dir.
+                            </Button>
+                        )}
+                        {canValidFinal && (
                             <Button
                                 size="small" type="primary" icon={<CheckOutlined />}
                                 onClick={(e) => { e.stopPropagation(); handleValidate(record.id); }}
                                 loading={actionLoadingId === record.id}
                                 style={{ background: '#52c41a', borderColor: '#52c41a' }}
                             >
-                                Valider
+                                {isAdmin && record.status !== 'DG_PENDING' ? 'Valider déf. (admin)' : 'Valider déf.'}
                             </Button>
                         )}
 
@@ -437,6 +504,9 @@ export default function Planning() {
         { value: 'DRAFT',          label: 'Brouillon' },
         { value: 'SUBMITTED',      label: 'Soumis' },
         { value: 'IN_CONSOLIDATION', label: 'En consolidation' },
+        { value: 'CP_PENDING',       label: 'Att. coordinateur' },
+        { value: 'SG_PENDING',       label: 'Att. SG ou direction' },
+        { value: 'DG_PENDING',       label: 'Att. fin. SG/DG' },
         { value: 'VALIDATED',      label: 'Validé' },
         { value: 'RETURNED',       label: 'Retourné' },
         { value: 'CANCELLED',      label: 'Annulé' },
@@ -483,6 +553,9 @@ export default function Planning() {
                         { key: 'DRAFT',            color: 'default' },
                         { key: 'SUBMITTED',        color: 'blue'    },
                         { key: 'IN_CONSOLIDATION', color: 'purple'  },
+                        { key: 'CP_PENDING',       color: 'geekblue' },
+                        { key: 'SG_PENDING',       color: 'cyan' },
+                        { key: 'DG_PENDING',       color: 'gold' },
                         { key: 'VALIDATED',        color: 'green'   },
                         { key: 'RETURNED',         color: 'orange'  },
                         { key: 'CANCELLED',        color: 'red'     },
@@ -558,9 +631,9 @@ export default function Planning() {
                             <Button
                                 icon={<ShareAltOutlined />}
                                 size="small"
-                                onClick={handleShareAsICalendar}
+                                onClick={handleShare}
                             >
-                                Partager iCalendar
+                                Partager
                             </Button>
                         </Space>
                     </Col>
@@ -638,6 +711,35 @@ export default function Planning() {
                     placeholder="Décrivez les modifications nécessaires..."
                     showCount
                     maxLength={500}
+                />
+            </Modal>
+
+            {/* ── Modale partage événements ── */}
+            <Modal
+                title={<><ShareAltOutlined style={{ marginRight: 8 }} />Partager les événements</>}
+                open={shareModal.open}
+                onCancel={() => setShareModal({ open: false, text: '' })}
+                footer={[
+                    <Button
+                        key="copy"
+                        type="primary"
+                        icon={<CopyOutlined />}
+                        onClick={() => handleCopyShare(shareModal.text)}
+                    >
+                        Copier
+                    </Button>,
+                    <Button key="close" onClick={() => setShareModal({ open: false, text: '' })}>
+                        Fermer
+                    </Button>,
+                ]}
+                width={620}
+                destroyOnClose
+            >
+                <Input.TextArea
+                    value={shareModal.text}
+                    readOnly
+                    autoSize={{ minRows: 10, maxRows: 20 }}
+                    style={{ fontFamily: 'monospace', fontSize: 12, background: '#fafafa' }}
                 />
             </Modal>
         </div>

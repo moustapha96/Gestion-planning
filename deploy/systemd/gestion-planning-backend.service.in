@@ -1,0 +1,25 @@
+[Unit]
+Description=Gestion Planning — API backend (Node.js / Express)
+After=network-online.target
+Wants=network-online.target
+# Décommentez la ligne suivante si PostgreSQL est sur la même machine :
+# After=postgresql.service
+
+[Service]
+Type=simple
+User=__RUN_USER__
+Group=__RUN_GROUP__
+WorkingDirectory=__ROOT__/backend
+# NODE_ENV : laisser backend/.env ou ajoutez Environment=NODE_ENV=production
+Environment=PATH=__NODE_DIR__:/usr/local/bin:/usr/bin:/bin
+# Charge les variables (DATABASE_URL, JWT_SECRET, FRONTEND_URL, PORT, …) depuis backend/.env via dotenv au démarrage
+ExecStart=__NODE_BIN__ server.js
+Restart=on-failure
+RestartSec=5
+TimeoutStopSec=30
+
+# Hardening léger (optionnel : ajuster selon vos besoins)
+NoNewPrivileges=true
+
+[Install]
+WantedBy=multi-user.target

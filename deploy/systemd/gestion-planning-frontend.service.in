@@ -1,0 +1,21 @@
+[Unit]
+Description=Gestion Planning — frontend (Vite preview, proxy /api → backend)
+After=network-online.target gestion-planning-backend.service
+Wants=gestion-planning-backend.service
+
+[Service]
+Type=simple
+User=__RUN_USER__
+Group=__RUN_GROUP__
+WorkingDirectory=__ROOT__/frontend
+Environment=PATH=__NODE_DIR__:/usr/local/bin:/usr/bin:/bin
+# Nécessite un build au moins une fois : `cd frontend && npm run build`
+ExecStart=__NODE_BIN__ ./node_modules/vite/bin/vite.js preview --host 0.0.0.0 --port 9000
+Restart=on-failure
+RestartSec=5
+TimeoutStopSec=30
+
+NoNewPrivileges=true
+
+[Install]
+WantedBy=multi-user.target

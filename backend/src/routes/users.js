@@ -10,8 +10,20 @@ const {
 } = require('../config/roles');
 const { ROLE_PERMISSIONS, ROLE_LABELS } = require('../config/rolePermissions');
 const { syncDirectionDiscussionMembers } = require('../services/directionDiscussion.service');
+const { syncProjectDiscussionMembers } = require('../services/projectDiscussion.service');
 
 const router = express.Router();
+
+const MAX_USER_PHONE = 40;
+const MAX_USER_JOB_TITLE = 120;
+const MAX_USER_CELL_UNIT = 120;
+
+function clipUserText(v, maxLen) {
+    if (v === undefined) return undefined;
+    if (v === null || v === '') return null;
+    const t = String(v).trim();
+    return t ? t.slice(0, maxLen) : null;
+}
 
 /**
  * GET /api/users/role-permissions - Permissions par rôle (ADMIN)
@@ -51,6 +63,11 @@ router.get('/', roleMiddleware(ADMIN_ROUTE_ROLES), async (req, res) => {
                 createdAt: true,
                 directionId: true,
                 direction: { select: { id: true, name: true, code: true } },
+                projectId: true,
+                project: { select: { id: true, name: true, code: true } },
+                phone: true,
+                jobTitle: true,
+                cellUnit: true,
             },
             orderBy: { createdAt: 'desc' },
         });
@@ -65,7 +82,17 @@ router.get('/participants', async (req, res) => {
     try {
         const users = await req.prisma.user.findMany({
             where: { isActive: true, isDeleted: false },
-            select: { id: true, name: true, email: true, role: true, avatarUrl: true },
+            select: {
+                id: true,
+                name: true,
+                email: true,
+                role: true,
+                avatarUrl: true,
+                phone: true,
+                jobTitle: true,
+                cellUnit: true,
+                direction: { select: { id: true, name: true, code: true } },
+            },
             orderBy: { name: 'asc' },
         });
         res.json(users);
@@ -97,14 +124,14 @@ router.get('/participants', async (req, res) => {
  *                 format: email
  *               role:
  *                 type: string
- *                 enum: [RESPONSABLE, CONSOLIDATEUR, DG, ADMIN]
+ *                 enum: [RESPONSABLE, CONSOLIDATEUR, COORDINATEUR_PROJET, SECRETAIRE_GENERAL, DG, ADMIN, SUPER_ADMIN]
  *               password:
  *                 type: string
  *                 description: Mot de passe initial (min 8 caractères)
  */
 router.post('/', roleMiddleware(ADMIN_ROUTE_ROLES), async (req, res) => {
     try {
-        const { name, email, role, password, directionId } = req.body;
+        const { name, email, role, password, directionId, projectId, phone, jobTitle, cellUnit } = req.body;
 
         if (!isValidRole(role)) {
             return res.status(400).json({ error: 'Rôle invalide' });
@@ -143,6 +170,16 @@ router.post('/', roleMiddleware(ADMIN_ROUTE_ROLES), async (req, res) => {
             }
         }
 
+        if (projectId) {
+            const project = await req.prisma.project.findUnique({
+                where: { id: projectId },
+                select: { id: true, isActive: true, status: true },
+            });
+            if (!project || !project.isActive || project.status !== 'ACTIVE') {
+                return res.status(400).json({ error: 'Projet invalide, inactif ou non actif.' });
+            }
+        }
+
         const user = await req.prisma.user.create({
             data: {
                 name,
@@ -151,11 +188,18 @@ router.post('/', roleMiddleware(ADMIN_ROUTE_ROLES), async (req, res) => {
                 passwordHash: hashedPassword,
                 isActive: false,
                 directionId: directionId || null,
+                projectId: projectId || null,
+                phone: clipUserText(phone, MAX_USER_PHONE) ?? null,
+                jobTitle: clipUserText(jobTitle, MAX_USER_JOB_TITLE) ?? null,
+                cellUnit: clipUserText(cellUnit, MAX_USER_CELL_UNIT) ?? null,
             },
         });
 
         if (user.directionId) {
             await syncDirectionDiscussionMembers(req.prisma, user.directionId);
+        }
+        if (user.projectId) {
+            await syncProjectDiscussionMembers(req.prisma, user.projectId);
         }
 
         logger.info('USER_CREATED', `Utilisateur ${email} créé par admin ${req.user.id}`, {
@@ -181,6 +225,10 @@ router.post('/', roleMiddleware(ADMIN_ROUTE_ROLES), async (req, res) => {
             role: user.role,
             isActive: user.isActive,
             directionId: user.directionId || null,
+            projectId: user.projectId || null,
+            phone: user.phone || null,
+            jobTitle: user.jobTitle || null,
+            cellUnit: user.cellUnit || null,
         });
     } catch (error) {
         logger.error('CREATE_USER', 'Erreur création utilisateur', { error: error.message });
@@ -199,7 +247,7 @@ router.post('/', roleMiddleware(ADMIN_ROUTE_ROLES), async (req, res) => {
  */
 router.put('/:id', roleMiddleware(ADMIN_ROUTE_ROLES), async (req, res) => {
     try {
-        const { name, email, role, directionId } = req.body;
+        const { name, email, role, directionId, projectId, phone, jobTitle, cellUnit } = req.body;
 
         if (role && !isValidRole(role)) {
             return res.status(400).json({ error: 'Rôle invalide' });
@@ -249,16 +297,33 @@ router.put('/:id', roleMiddleware(ADMIN_ROUTE_ROLES), async (req, res) => {
             }
         }
 
+        if (projectId !== undefined && projectId !== null && projectId !== '') {
+            const project = await req.prisma.project.findUnique({
+                where: { id: projectId },
+                select: { id: true, isActive: true, status: true },
+            });
+            if (!project || !project.isActive || project.status !== 'ACTIVE') {
+                return res.status(400).json({ error: 'Projet invalide, inactif ou non actif.' });
+            }
+        }
+
         const previousRole = targetUser.role;
         const previousDirectionId = targetUser.directionId || null;
+        const previousProjectId = targetUser.projectId || null;
+        const updateData = {
+            name: name || undefined,
+            email: email || undefined,
+            role: role || undefined,
+            directionId: directionId === undefined ? undefined : (directionId || null),
+            projectId: projectId === undefined ? undefined : (projectId || null),
+        };
+        if (phone !== undefined) updateData.phone = clipUserText(phone, MAX_USER_PHONE);
+        if (jobTitle !== undefined) updateData.jobTitle = clipUserText(jobTitle, MAX_USER_JOB_TITLE);
+        if (cellUnit !== undefined) updateData.cellUnit = clipUserText(cellUnit, MAX_USER_CELL_UNIT);
+
         const updated = await req.prisma.user.update({
             where: { id: req.params.id },
-            data: {
-                name: name || undefined,
-                email: email || undefined,
-                role: role || undefined,
-                directionId: directionId === undefined ? undefined : (directionId || null),
-            },
+            data: updateData,
             select: {
                 id: true,
                 name: true,
@@ -268,6 +333,11 @@ router.put('/:id', roleMiddleware(ADMIN_ROUTE_ROLES), async (req, res) => {
                 avatarUrl: true,
                 directionId: true,
                 direction: { select: { id: true, name: true, code: true } },
+                projectId: true,
+                project: { select: { id: true, name: true, code: true } },
+                phone: true,
+                jobTitle: true,
+                cellUnit: true,
             },
         });
 
@@ -277,6 +347,14 @@ router.put('/:id', roleMiddleware(ADMIN_ROUTE_ROLES), async (req, res) => {
         }
         if (nextDirectionId) {
             await syncDirectionDiscussionMembers(req.prisma, nextDirectionId);
+        }
+
+        const nextProjectId = updated.projectId || null;
+        if (previousProjectId && previousProjectId !== nextProjectId) {
+            await syncProjectDiscussionMembers(req.prisma, previousProjectId);
+        }
+        if (nextProjectId) {
+            await syncProjectDiscussionMembers(req.prisma, nextProjectId);
         }
 
         // Si le rôle a changé : email + notification in-app à l'utilisateur concerné

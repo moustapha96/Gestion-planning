@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, useSearchParams } from 'react-router-dom';
 import {
     Card,
     Form,
@@ -10,15 +10,18 @@ import {
     Space,
     Typography,
     App,
+    Tag,
+    Alert,
 } from 'antd';
 import { ArrowLeftOutlined, FlagOutlined } from '@ant-design/icons';
 import dayjs from 'dayjs';
 import api from '../api/client';
 
-const { Title } = Typography;
+const { Title, Text } = Typography;
 
 export default function MissionCreate() {
     const navigate = useNavigate();
+    const [searchParams] = useSearchParams();
     const { message } = App.useApp();
     const [form] = Form.useForm();
     const [users, setUsers] = useState([]);
@@ -51,6 +54,16 @@ export default function MissionCreate() {
                 setProjects([]);
             });
     }, []);
+
+    useEffect(() => {
+        const dateParam = searchParams.get('date');
+        if (!dateParam || !/^\d{4}-\d{2}-\d{2}$/.test(dateParam)) return;
+        const d = dayjs(dateParam);
+        form.setFieldsValue({
+            startTime: d.hour(9).minute(0).second(0),
+            endTime: d.hour(12).minute(0).second(0),
+        });
+    }, [searchParams, form]);
 
     const handleSubmit = async (values) => {
         const start = values.startTime?.toISOString?.() ?? values.startTime;
@@ -89,10 +102,37 @@ export default function MissionCreate() {
             </div>
 
             <Card>
-                <Title level={4} style={{ marginBottom: 24 }}>
-                    <FlagOutlined style={{ color: '#722ed1', marginRight: 8 }} />
-                    Nouvelle mission
-                </Title>
+                <div style={{
+                    display: 'flex', alignItems: 'center',
+                    justifyContent: 'space-between', flexWrap: 'wrap', gap: 8,
+                    marginBottom: 16,
+                }}>
+                    <Title level={4} style={{ margin: 0 }}>
+                        <FlagOutlined style={{ color: '#722ed1', marginRight: 8 }} />
+                        Nouvelle mission
+                    </Title>
+                    <Tag
+                        icon={<FlagOutlined />}
+                        color="purple"
+                        style={{ fontSize: 12, fontWeight: 600, padding: '2px 10px', margin: 0 }}
+                    >
+                        Type : Mission
+                    </Tag>
+                </div>
+
+                {/* <Alert
+                    type="info"
+                    showIcon
+                    title="Type d'événement verrouillé"
+                    description={
+                        <Text style={{ fontSize: 13 }}>
+                            Toutes les entrées créées ici sont automatiquement de type <Text strong>Mission</Text>.
+                            Pour créer un autre type d'événement (réunion, atelier, formation…), utilisez la
+                            page <Text strong>« Événements »</Text> ou <Text strong>« Réunions »</Text>.
+                        </Text>
+                    }
+                    style={{ marginBottom: 20 }}
+                /> */}
 
                 <Form
                     form={form}
@@ -159,7 +199,10 @@ export default function MissionCreate() {
                             mode="multiple"
                             placeholder="Sélectionner les personnes à assigner"
                             optionFilterProp="label"
-                            options={users.map((u) => ({ value: u.id, label: `${u.name} (${u.email})` }))}
+                            options={users.map((u) => ({
+                                value: u.id,
+                                label: `${u.name}${u.jobTitle ? ` — ${u.jobTitle}` : ''} (${u.email})`,
+                            }))}
                             filterOption={(input, opt) => (opt?.label ?? '').toLowerCase().includes(input.toLowerCase())}
                             size="large"
                         />

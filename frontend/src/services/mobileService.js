@@ -95,7 +95,7 @@ class MobileService {
         try {
             await StatusBar.setStyle({ style: Style.Dark });
             if (IS_ANDROID) {
-                await StatusBar.setBackgroundColor({ color: '#3e7cbc' });
+                await StatusBar.setBackgroundColor({ color: '#1565C0' });
                 await StatusBar.setOverlaysWebView({ overlay: false });
             }
         } catch (e) {
@@ -283,7 +283,7 @@ class MobileService {
                 visibility:  1, // PUBLIC
                 vibration:   true,
                 lights:      true,
-                lightColor:  '#3e7cbc',
+                lightColor:  '#1565C0',
                 sound:       'default',
             });
 
@@ -375,7 +375,7 @@ class MobileService {
                     actionTypeId: actions,
                     autoCancel:   true,
                     smallIcon:    IS_ANDROID ? 'ic_stat_notification' : undefined,
-                    iconColor:    '#3e7cbc',
+                    iconColor:    '#1565C0',
                     sound:        'default',
                 }],
             });

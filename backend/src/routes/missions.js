@@ -6,6 +6,7 @@ const { logger } = require('../utils/logger');
 const { notificationService } = require('../services/notification.service');
 const { createAuditLog } = require('../utils/audit');
 const { ROLES, isPrivilegedAdmin } = require('../config/roles');
+const { pdfOnlyMulterFileFilter, wrapMulterUpload } = require('../utils/pdfUpload');
 
 const router = express.Router();
 
@@ -16,13 +17,12 @@ const uploadMissionFile = multer({
             fs.mkdirSync(missionsUploadDir, { recursive: true });
             cb(null, missionsUploadDir);
         },
-        filename(req, file, cb) {
-            const ext = (path.extname(file.originalname) || '').toLowerCase().slice(0, 10) || '.bin';
-            const safe = `${req.params.id}_${Date.now()}${ext}`;
-            cb(null, safe);
+        filename(req, _file, cb) {
+            cb(null, `${req.params.id}_${Date.now()}.pdf`);
         },
     }),
     limits: { fileSize: 15 * 1024 * 1024 },
+    fileFilter: pdfOnlyMulterFileFilter,
 });
 
 const canEditMission = (mission, user) =>
@@ -159,8 +159,17 @@ router.get('/:id', async (req, res) => {
 
 /**
  * POST /api/missions - Créer une mission et notifier les intervenants
+ * Seuls les Responsables (assistants de projet) et les Admins peuvent créer des missions.
  */
 router.post('/', async (req, res) => {
+    // Contrôle d'accès : RESPONSABLE, ADMIN, SUPER_ADMIN uniquement
+    const creatorRole = req.user?.role;
+    const allowedCreatorRoles = [ROLES.RESPONSABLE, ROLES.ADMIN, ROLES.SUPER_ADMIN];
+    if (!allowedCreatorRoles.includes(creatorRole)) {
+        return res.status(403).json({
+            error: 'Seuls les Responsables (assistants de projet) et les Administrateurs peuvent créer des missions.',
+        });
+    }
     try {
         const { title, description, location, startTime, endTime, userIds, directionId, projectId } = req.body || {};
         if (!title || !location || !startTime || !endTime) {
@@ -394,9 +403,9 @@ router.delete('/:id', async (req, res) => {
 });
 
 /**
- * POST /api/missions/:id/files - Ajouter un fichier (image ou document)
+ * POST /api/missions/:id/files - Ajouter un PDF (pièce jointe)
  */
-router.post('/:id/files', uploadMissionFile.single('file'), async (req, res) => {
+router.post('/:id/files', wrapMulterUpload(uploadMissionFile.single('file')), async (req, res) => {
     try {
         if (!req.file) {
             return res.status(400).json({ error: 'Aucun fichier envoyé. Utilisez le champ "file".' });
@@ -414,9 +423,7 @@ router.post('/:id/files', uploadMissionFile.single('file'), async (req, res) => 
             isPrivilegedAdmin(req.user?.role);
         if (!canView) return res.status(403).json({ error: 'Accès non autorisé' });
 
-        const rawKind = String(req.body?.kind || 'DOCUMENT').toUpperCase();
-        const allowedKinds = ['IMAGE', 'DOCUMENT'];
-        const kind = allowedKinds.includes(rawKind) ? rawKind : 'DOCUMENT';
+        const kind = 'DOCUMENT';
         const fileUrl = `/uploads/missions/${req.file.filename}`;
 
         const saved = await req.prisma.missionFile.create({

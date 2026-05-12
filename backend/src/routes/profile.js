@@ -12,6 +12,18 @@ const { validatePasswordStrength } = require('../utils/passwordUtils');
 
 const router = express.Router();
 
+const MAX_PHONE = 40;
+const MAX_JOB_TITLE = 120;
+const MAX_CELL_UNIT = 120;
+
+function normContactField(v, maxLen) {
+    if (v === undefined) return undefined;
+    if (v === null) return null;
+    const t = String(v).trim();
+    if (!t) return null;
+    return t.slice(0, maxLen);
+}
+
 const avatarsDir = path.join(__dirname, '../../uploads/avatars');
 const upload = multer({
     storage: multer.diskStorage({
@@ -38,7 +50,22 @@ router.get('/', async (req, res) => {
     try {
         const user = await req.prisma.user.findUnique({
             where: { id: req.user.id },
-            select: { id: true, name: true, email: true, role: true, isActive: true, avatarUrl: true, createdAt: true },
+            select: {
+                id: true,
+                name: true,
+                email: true,
+                role: true,
+                isActive: true,
+                avatarUrl: true,
+                createdAt: true,
+                phone: true,
+                jobTitle: true,
+                cellUnit: true,
+                directionId: true,
+                direction: { select: { id: true, name: true, code: true, logoUrl: true } },
+                projectId: true,
+                project: { select: { id: true, name: true, code: true, logoUrl: true } },
+            },
         });
         if (!user) return res.status(404).json({ error: 'Utilisateur non trouvé' });
         res.json(user);
@@ -48,29 +75,104 @@ router.get('/', async (req, res) => {
 });
 
 /**
- * PUT /api/profile — Modifier son profil (nom, email)
+ * GET /api/profile/cell-units — Liste les cellules/services distincts déjà saisis
+ * (priorité : utilisateurs de la même direction, sinon toute la base).
+ * Retour : { suggestions: [{ value: 'Cellule X', count: 3 }], scope: 'direction'|'global' }
+ */
+router.get('/cell-units', async (req, res) => {
+    try {
+        const me = await req.prisma.user.findUnique({
+            where: { id: req.user.id },
+            select: { directionId: true },
+        });
+
+        const where = (directionId) => ({
+            cellUnit: { not: null },
+            isActive: true,
+            ...(directionId ? { directionId } : {}),
+        });
+
+        const buildSuggestions = async (directionId) => {
+            const rows = await req.prisma.user.groupBy({
+                by: ['cellUnit'],
+                where: where(directionId),
+                _count: { cellUnit: true },
+            });
+            return rows
+                .filter((r) => r.cellUnit && String(r.cellUnit).trim())
+                .map((r) => ({ value: r.cellUnit, count: r._count.cellUnit }))
+                .sort((a, b) => b.count - a.count || a.value.localeCompare(b.value, 'fr'));
+        };
+
+        let suggestions = [];
+        let scope = 'global';
+        if (me?.directionId) {
+            suggestions = await buildSuggestions(me.directionId);
+            if (suggestions.length) scope = 'direction';
+        }
+        if (!suggestions.length) {
+            suggestions = await buildSuggestions(null);
+        }
+
+        res.json({ suggestions, scope });
+    } catch (error) {
+        logger.error('CELL_UNITS_LIST', error.message, { userId: req.user?.id });
+        res.status(500).json({ error: error.message });
+    }
+});
+
+/**
+ * PUT /api/profile — Modifier son profil (nom, email, téléphone, poste, cellule — pas la direction / projet)
  */
 router.put('/', async (req, res) => {
     try {
-        const { name, email } = req.body || {};
+        const body = req.body || {};
+        const { name, email } = body;
         const data = {};
-        if (name) data.name = name.trim();
-        if (email) {
-            // Vérifier unicité de l'email (CDC §3.1.1)
+        if (name !== undefined && name !== null) {
+            const n = String(name).trim();
+            if (n.length < 2) return res.status(400).json({ error: 'Le nom doit contenir au moins 2 caractères.' });
+            data.name = n;
+        }
+        if (email !== undefined && email !== null && String(email).trim()) {
+            const em = String(email).toLowerCase().trim();
             const existing = await req.prisma.user.findFirst({
-                where: { email: email.toLowerCase(), id: { not: req.user.id } },
+                where: { email: em, id: { not: req.user.id } },
             });
             if (existing) return res.status(409).json({ error: 'Cet email est déjà utilisé.' });
-            data.email = email.toLowerCase();
+            data.email = em;
+        }
+        if (Object.prototype.hasOwnProperty.call(body, 'phone')) {
+            data.phone = normContactField(body.phone, MAX_PHONE);
+        }
+        if (Object.prototype.hasOwnProperty.call(body, 'jobTitle')) {
+            data.jobTitle = normContactField(body.jobTitle, MAX_JOB_TITLE);
+        }
+        if (Object.prototype.hasOwnProperty.call(body, 'cellUnit')) {
+            data.cellUnit = normContactField(body.cellUnit, MAX_CELL_UNIT);
         }
         if (!Object.keys(data).length) return res.status(400).json({ error: 'Aucune donnée à mettre à jour.' });
 
         const updated = await req.prisma.user.update({
             where: { id: req.user.id },
             data,
-            select: { id: true, name: true, email: true, role: true, avatarUrl: true },
+            select: {
+                id: true,
+                name: true,
+                email: true,
+                role: true,
+                avatarUrl: true,
+                phone: true,
+                jobTitle: true,
+                cellUnit: true,
+                directionId: true,
+                direction: { select: { id: true, name: true, code: true, logoUrl: true } },
+                projectId: true,
+                project: { select: { id: true, name: true, code: true, logoUrl: true } },
+                createdAt: true,
+            },
         });
-        auditLogger.info('PROFILE_UPDATED', `Profil modifié : ${req.user.email}`, { userId: req.user.id });
+        auditLogger.info('PROFILE_UPDATED', `Profil modifié : ${updated.email}`, { userId: req.user.id });
         res.json(updated);
     } catch (error) {
         res.status(500).json({ error: error.message });

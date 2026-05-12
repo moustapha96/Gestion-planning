@@ -1,8 +1,34 @@
 const nodemailer = require('nodemailer');
+const path = require('path');
+const fs = require('fs');
 const { PrismaClient } = require('@prisma/client');
 const { logger } = require('../utils/logger');
 const { emitToUser } = require('../realtime/socket');
 const prisma = new PrismaClient();
+
+// ── Logo embarqué dans les e-mails (CID inline) ────────────────────
+// Avantages d'un CID par rapport à une URL :
+//  - fonctionne dans Gmail, Outlook, webmails, mobiles, hors-ligne
+//  - aucun blocage "image distante" / "tracker"
+//  - jamais cassé même si le serveur web frontend est arrêté
+const EMAIL_LOGO_CID = 'app-logo';
+const EMAIL_LOGO_PATH = path.resolve(__dirname, '../assets/logo-gp.png');
+const EMAIL_LOGO_AVAILABLE = (() => {
+    try { return fs.existsSync(EMAIL_LOGO_PATH); } catch { return false; }
+})();
+if (!EMAIL_LOGO_AVAILABLE) {
+    logger.warn('EMAIL', `Logo non trouvé à ${EMAIL_LOGO_PATH} — repli sur URL distante.`);
+}
+
+function buildEmailLogoAttachments() {
+    if (!EMAIL_LOGO_AVAILABLE) return [];
+    return [{
+        filename: 'logo-gp.png',
+        path: EMAIL_LOGO_PATH,
+        cid: EMAIL_LOGO_CID,
+        contentDisposition: 'inline',
+    }];
+}
 
 // ── Firebase Admin SDK (FCM pour push natif Android/iOS) ─────────
 let firebaseAdmin = null;
@@ -609,10 +635,18 @@ function getPublicAppBaseUrl() {
 }
 
 /**
- * URL absolue du logo dans les e-mails.
- * Priorité : EMAIL_LOGO_URL → app_logo_url (http ou chemin relatif/absolu) → http://localhost:9000/logo-gp.png
+ * Source du logo dans les e-mails.
+ *
+ * Priorité :
+ *   1. Pièce jointe inline (cid:app-logo) — fonctionne sur tous les clients,
+ *      même sans accès Internet vers le serveur frontend (ex. http://localhost:9000).
+ *   2. EMAIL_LOGO_URL (env) si défini.
+ *   3. branding.app_logo_url (depuis l'admin) — peut être absolu ou relatif.
+ *   4. Fallback : http://localhost:9000/logo-gp.png (uniquement utile en dev local).
  */
 function getEmailLogoUrl(branding) {
+    if (EMAIL_LOGO_AVAILABLE) return `cid:${EMAIL_LOGO_CID}`;
+
     const explicit = (process.env.EMAIL_LOGO_URL || '').trim();
     if (explicit) return explicit;
     const u = branding?.app_logo_url ? String(branding.app_logo_url).trim() : '';
@@ -622,7 +656,6 @@ function getEmailLogoUrl(branding) {
     if (u && u.startsWith('/')) return `${base}${u}`;
     if (u && !u.startsWith('/')) return `${base}/${u}`;
 
-    // Fallback strict demandé (sans config admin)
     return 'http://localhost:9000/logo-gp.png';
 }
 
@@ -902,6 +935,7 @@ class NotificationService {
                 to,
                 subject: branded.subject,
                 html: branded.html,
+                attachments: buildEmailLogoAttachments(),
             });
 
             logger.success(
@@ -943,6 +977,7 @@ class NotificationService {
                 to,
                 subject: branded.subject,
                 html: branded.html,
+                attachments: buildEmailLogoAttachments(),
             });
             logger.success('EMAIL_SENT', `Rapport envoyé à ${to}`, { to, messageId: info.messageId });
             return { success: true, messageId: info.messageId };

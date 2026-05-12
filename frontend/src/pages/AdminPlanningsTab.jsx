@@ -32,15 +32,23 @@ const STATUS_COLORS = {
     DRAFT: 'default',
     SUBMITTED: 'blue',
     IN_CONSOLIDATION: 'purple',
+    CP_PENDING: 'geekblue',
+    SG_PENDING: 'cyan',
+    DG_PENDING: 'gold',
     VALIDATED: 'green',
     RETURNED: 'orange',
+    CANCELLED: 'red',
 };
 const STATUS_LABELS = {
     DRAFT: 'Brouillon',
     SUBMITTED: 'Soumis',
     IN_CONSOLIDATION: 'En consolidation',
+    CP_PENDING: 'Att. coordinateur',
+    SG_PENDING: 'Att. SG ou direction',
+    DG_PENDING: 'Att. DG',
     VALIDATED: 'Validé',
     RETURNED: 'Retourné',
+    CANCELLED: 'Annulé',
 };
 
 export default function AdminPlanningsTab() {
@@ -247,7 +255,69 @@ export default function AdminPlanningsTab() {
                                 Consolider
                             </Button>
                         )}
-                        {record.status === 'IN_CONSOLIDATION' && (
+                        {(record.status === 'CP_PENDING' || record.status === 'IN_CONSOLIDATION') && (
+                            <>
+                                <Button
+                                    size="small"
+                                    type="primary"
+                                    icon={<CheckOutlined />}
+                                    loading={busy}
+                                    onClick={() => runAction(record.id, () => api.put(`/plannings/${record.id}/approve-cp`))}
+                                >
+                                    Accord coord.
+                                </Button>
+                                <Button
+                                    size="small"
+                                    type="primary"
+                                    icon={<CheckOutlined />}
+                                    loading={busy}
+                                    onClick={() => runAction(record.id, () => api.put(`/plannings/${record.id}/validate`))}
+                                    style={{ background: '#52c41a', borderColor: '#52c41a' }}
+                                >
+                                    Valider déf. (court-circuit)
+                                </Button>
+                                <Button
+                                    size="small"
+                                    danger
+                                    icon={<RollbackOutlined />}
+                                    onClick={() => setReturnModal({ open: true, id: record.id })}
+                                >
+                                    Retourner
+                                </Button>
+                            </>
+                        )}
+                        {record.status === 'SG_PENDING' && (
+                            <>
+                                <Button
+                                    size="small"
+                                    type="primary"
+                                    icon={<CheckOutlined />}
+                                    loading={busy}
+                                    onClick={() => runAction(record.id, () => api.put(`/plannings/${record.id}/approve-sg`))}
+                                >
+                                    Accord SG / dir.
+                                </Button>
+                                <Button
+                                    size="small"
+                                    type="primary"
+                                    icon={<CheckOutlined />}
+                                    loading={busy}
+                                    onClick={() => runAction(record.id, () => api.put(`/plannings/${record.id}/validate`))}
+                                    style={{ background: '#52c41a', borderColor: '#52c41a' }}
+                                >
+                                    Valider déf. (court-circuit)
+                                </Button>
+                                <Button
+                                    size="small"
+                                    danger
+                                    icon={<RollbackOutlined />}
+                                    onClick={() => setReturnModal({ open: true, id: record.id })}
+                                >
+                                    Retourner
+                                </Button>
+                            </>
+                        )}
+                        {record.status === 'DG_PENDING' && (
                             <>
                                 <Button
                                     size="small"
@@ -256,7 +326,7 @@ export default function AdminPlanningsTab() {
                                     loading={busy}
                                     onClick={() => runAction(record.id, () => api.put(`/plannings/${record.id}/validate`))}
                                 >
-                                    Valider
+                                    Valider déf.
                                 </Button>
                                 <Button
                                     size="small"
@@ -289,7 +359,7 @@ export default function AdminPlanningsTab() {
         <div>
             <Text type="secondary" style={{ display: 'block', marginBottom: 16 }}>
                 Vue globale : créer des plannings pour un responsable, faire avancer le workflow (soumission → consolidation →
-                validation) ou retourner pour correction. Toute action est enregistrée.
+                coordinateur projet → accord SG ou direction → validation finale SG ou DG) ou retourner pour correction. L&apos;administration peut court-circuiter la validation finale.
             </Text>
             <Row gutter={[12, 12]} style={{ marginBottom: 16 }}>
                 <Col xs={24} sm={12} md={6}>

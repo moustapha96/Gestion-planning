@@ -1,10 +1,12 @@
 import { useEffect, useState, useCallback } from 'react';
 import {
     Table, Button, Tag, Space, Typography, Alert, Modal, Input, App, Popconfirm, Switch,
+    Checkbox, Divider, Row, Col,
 } from 'antd';
 import {
     PlusOutlined, DownloadOutlined, DeleteOutlined, CloudSyncOutlined,
-    ExclamationCircleOutlined, ClearOutlined,
+    ExclamationCircleOutlined, ClearOutlined, CheckCircleOutlined, CloseCircleOutlined,
+    LockOutlined,
 } from '@ant-design/icons';
 import api from '../api/client';
 
@@ -36,6 +38,8 @@ export default function AdminSuperBackupsTab() {
     const [purgeOpen, setPurgeOpen] = useState(false);
     const [purgeConfirmText, setPurgeConfirmText] = useState('');
     const [purgeCreateBackup, setPurgeCreateBackup] = useState(true);
+    const [purgePreserveRooms, setPurgePreserveRooms] = useState(true);
+    const [purgePreserveRepertoire, setPurgePreserveRepertoire] = useState(true);
     const [confirmText, setConfirmText] = useState('');
 
     const load = useCallback(async () => {
@@ -119,6 +123,8 @@ export default function AdminSuperBackupsTab() {
     const openPurge = () => {
         setPurgeConfirmText('');
         setPurgeCreateBackup(true);
+        setPurgePreserveRooms(true);
+        setPurgePreserveRepertoire(true);
         setPurgeOpen(true);
     };
 
@@ -132,11 +138,22 @@ export default function AdminSuperBackupsTab() {
             const { data } = await api.post('/super-admin/purge-data', {
                 confirm: 'PURGE_ALL_DATA',
                 createBackup: purgeCreateBackup,
+                preserveRooms: purgePreserveRooms,
+                preserveRepertoire: purgePreserveRepertoire,
             });
-            message.success('Purge exécutée avec succès');
+            const preserved = [
+                'comptes admin',
+                'directions',
+                'configuration',
+                purgePreserveRooms && 'salles',
+                purgePreserveRepertoire && 'répertoire',
+            ].filter(Boolean).join(', ');
+            message.success(`Purge exécutée — éléments conservés : ${preserved}`);
             setPurgeOpen(false);
             setPurgeConfirmText('');
             setPurgeCreateBackup(true);
+            setPurgePreserveRooms(true);
+            setPurgePreserveRepertoire(true);
             await load();
             return data;
         } catch (err) {
@@ -251,16 +268,17 @@ export default function AdminSuperBackupsTab() {
                 type="warning"
                 showIcon
                 style={{ marginBottom: 16 }}
-                message="Purge globale des données"
+                message="Vider la base de données"
                 description={(
                     <>
-                        Supprime toutes les données métier en conservant la configuration, les comptes admin/super admin,
-                        les directions et le répertoire. Cette action est irréversible.
+                        Supprime les données métier (plannings, réunions, missions, projets, utilisateurs…)
+                        en conservant obligatoirement la configuration, les comptes admin/super admin et les directions.
+                        Les salles et le répertoire sont préservés par défaut (paramétrable). Action irréversible.
                     </>
                 )}
                 action={(
                     <Button danger icon={<ClearOutlined />} onClick={openPurge}>
-                        Purger les données
+                        Vider la base
                     </Button>
                 )}
             />
@@ -314,37 +332,124 @@ export default function AdminSuperBackupsTab() {
                 title={(
                     <span>
                         <ExclamationCircleOutlined style={{ color: '#ff4d4f', marginRight: 8 }} />
-                        Confirmer la purge globale ?
+                        Vider la base de données
                     </span>
                 )}
                 open={purgeOpen}
                 onCancel={() => setPurgeOpen(false)}
                 onOk={doPurge}
-                okText="Purger maintenant"
+                okText="Vider maintenant"
                 okButtonProps={{ danger: true, loading: purging }}
+                width={560}
                 destroyOnClose
             >
-                <p>
-                    Cette opération est destructive. Les données métier seront supprimées définitivement.
-                </p>
-                <p style={{ marginBottom: 8 }}>
-                    Créer une sauvegarde avant purge :
-                </p>
-                <Switch
-                    checked={purgeCreateBackup}
-                    onChange={setPurgeCreateBackup}
-                    checkedChildren="Oui"
-                    unCheckedChildren="Non"
-                    style={{ marginBottom: 16 }}
+                {/* Ce qui est toujours préservé */}
+                <div style={{
+                    background: '#f6ffed', border: '1px solid #b7eb8f',
+                    borderRadius: 8, padding: '12px 16px', marginBottom: 16,
+                }}>
+                    <div style={{ fontWeight: 600, color: '#237804', marginBottom: 8 }}>
+                        <LockOutlined style={{ marginRight: 6 }} />
+                        Toujours préservés (non modifiable)
+                    </div>
+                    {[
+                        'Comptes Administrateur et Super Administrateur',
+                        'Directions (structure organisationnelle)',
+                        'Configuration de l\'application (AppSetting)',
+                    ].map((item) => (
+                        <div key={item} style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 4 }}>
+                            <CheckCircleOutlined style={{ color: '#52c41a', fontSize: 13 }} />
+                            <Text style={{ fontSize: 13 }}>{item}</Text>
+                        </div>
+                    ))}
+                </div>
+
+                {/* Options de préservation */}
+                <div style={{
+                    background: '#fffbe6', border: '1px solid #ffe58f',
+                    borderRadius: 8, padding: '12px 16px', marginBottom: 16,
+                }}>
+                    <div style={{ fontWeight: 600, color: '#ad6800', marginBottom: 10 }}>
+                        Éléments à conserver (optionnel)
+                    </div>
+                    <Row gutter={[0, 10]}>
+                        <Col span={24}>
+                            <Checkbox
+                                checked={purgePreserveRooms}
+                                onChange={(e) => setPurgePreserveRooms(e.target.checked)}
+                            >
+                                <span style={{ fontWeight: 500 }}>Salles de réunion</span>
+                                <Text type="secondary" style={{ fontSize: 12, marginLeft: 6 }}>
+                                    (noms, capacité, équipements)
+                                </Text>
+                            </Checkbox>
+                        </Col>
+                        <Col span={24}>
+                            <Checkbox
+                                checked={purgePreserveRepertoire}
+                                onChange={(e) => setPurgePreserveRepertoire(e.target.checked)}
+                            >
+                                <span style={{ fontWeight: 500 }}>Répertoire téléphonique</span>
+                                <Text type="secondary" style={{ fontSize: 12, marginLeft: 6 }}>
+                                    (contacts et numéros)
+                                </Text>
+                            </Checkbox>
+                        </Col>
+                    </Row>
+                </div>
+
+                {/* Ce qui sera supprimé */}
+                <div style={{
+                    background: '#fff2f0', border: '1px solid #ffccc7',
+                    borderRadius: 8, padding: '12px 16px', marginBottom: 16,
+                }}>
+                    <div style={{ fontWeight: 600, color: '#cf1322', marginBottom: 8 }}>
+                        <CloseCircleOutlined style={{ marginRight: 6 }} />
+                        Sera supprimé définitivement
+                    </div>
+                    {[
+                        'Tous les utilisateurs (hors admin)',
+                        'Plannings, réunions, missions',
+                        'Projets et documents associés',
+                        'Messagerie (messages, discussions)',
+                        'Réservations de salles',
+                        'Notifications et journaux d\'audit (non-admin)',
+                        !purgePreserveRooms && 'Salles de réunion',
+                        !purgePreserveRepertoire && 'Répertoire téléphonique',
+                    ].filter(Boolean).map((item) => (
+                        <div key={item} style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 4 }}>
+                            <CloseCircleOutlined style={{ color: '#ff4d4f', fontSize: 13 }} />
+                            <Text style={{ fontSize: 13 }}>{item}</Text>
+                        </div>
+                    ))}
+                </div>
+
+                <Divider style={{ margin: '12px 0' }} />
+
+                {/* Sauvegarde avant purge */}
+                <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 16 }}>
+                    <Switch
+                        checked={purgeCreateBackup}
+                        onChange={setPurgeCreateBackup}
+                        checkedChildren="Oui"
+                        unCheckedChildren="Non"
+                    />
+                    <Text>Créer une sauvegarde automatique avant de vider</Text>
+                </div>
+
+                {/* Confirmation textuelle */}
+                <Alert
+                    type="error"
+                    showIcon
+                    style={{ marginBottom: 10 }}
+                    message="Cette opération est irréversible. Tapez PURGE_ALL_DATA pour confirmer."
                 />
-                <p>
-                    Pour confirmer, tapez <Text strong>PURGE_ALL_DATA</Text> ci-dessous :
-                </p>
                 <Input
                     placeholder="PURGE_ALL_DATA"
                     value={purgeConfirmText}
                     onChange={(e) => setPurgeConfirmText(e.target.value)}
                     autoComplete="off"
+                    status={purgeConfirmText && purgeConfirmText !== 'PURGE_ALL_DATA' ? 'error' : ''}
                 />
             </Modal>
         </div>

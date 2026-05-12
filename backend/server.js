@@ -16,6 +16,8 @@ const backupsDir = path.join(__dirname, 'backups');
     path.join(uploadsDir, 'direct-messages'),
     path.join(uploadsDir, 'branding'),
     path.join(uploadsDir, 'project-files'),
+    path.join(uploadsDir, 'project-logos'),
+    path.join(uploadsDir, 'project-messages'),
     backupsDir,
 ].forEach((dir) => {
     try { fs.mkdirSync(dir, { recursive: true }); } catch {}
@@ -51,6 +53,7 @@ const twofaRoutes = require('./src/routes/twofa');
 const adminSettingsRoutes = require('./src/routes/admin-settings');
 const directMessagesRoutes = require('./src/routes/direct-messages');
 const directionMessagesRoutes = require('./src/routes/direction-messages');
+const projectMessagesRoutes = require('./src/routes/project-messages');
 const eventsRoutes = require('./src/routes/events');
 const pushTokensRoutes = require('./src/routes/pushTokens');
 const projectsRoutes   = require('./src/routes/projects');
@@ -219,6 +222,7 @@ app.use('/api/2fa', authMiddleware, twofaRoutes);
 app.use('/api/admin/settings', authMiddleware, adminSettingsRoutes);
 app.use('/api/direct-messages', authMiddleware, directMessagesRoutes);
 app.use('/api/direction-messages', authMiddleware, directionMessagesRoutes);
+app.use('/api/project-messages', authMiddleware, projectMessagesRoutes);
 app.use('/api/events', authMiddleware, eventsRoutes);
 app.use('/api/push',     authMiddleware, pushTokensRoutes);
 app.use('/api/projects', authMiddleware, projectsRoutes);
@@ -260,6 +264,23 @@ httpServer.listen(PORT, () => {
     });
     console.log(`Server running on port ${PORT}`);
     console.log(`Swagger docs: http://localhost:${PORT}/api/docs`);
+
+    // Seed des types d'événement par défaut (REUNION, MISSION, ATELIER, …) — idempotent
+    if (typeof eventsRoutes.ensureDefaultEventTypes === 'function') {
+        eventsRoutes.ensureDefaultEventTypes(prisma)
+            .then(({ created, existed }) => {
+                if (created.length) {
+                    logger.info(
+                        'EVENT_TYPES_SEED',
+                        `Types d'événement créés : ${created.join(', ')}`,
+                        { created, existed },
+                    );
+                }
+            })
+            .catch((err) => {
+                logger.error('EVENT_TYPES_SEED', err.message, { stack: err.stack });
+            });
+    }
 
     // Cron : rapport hebdomadaire chaque lundi à 8h00 (CDC §3.10)
     cron.schedule('0 8 * * 1', () => {

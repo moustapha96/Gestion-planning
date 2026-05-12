@@ -1,11 +1,43 @@
 import { useEffect, useMemo, useState } from 'react';
 import { useNavigate, useParams, useSearchParams } from 'react-router-dom';
-import { Card, Typography, Form, Input, Select, DatePicker, Button, Row, Col, Space, Alert, Spin, App } from 'antd';
-import { ArrowLeftOutlined } from '@ant-design/icons';
+import { Card, Typography, Form, Input, Select, DatePicker, Button, Row, Col, Space, Alert, Spin, App, Tag } from 'antd';
+import { ArrowLeftOutlined, TeamOutlined } from '@ant-design/icons';
 import dayjs from 'dayjs';
 import api from '../api/client';
 
 const { Title, Text } = Typography;
+
+/**
+ * Affichage en lecture seule du type d'événement sélectionné dans le formulaire
+ * (réagit aux changements via Form.useWatch).
+ */
+function SelectedEventTypeBadge({ eventTypes, form }) {
+    const selectedId = Form.useWatch('eventTypeId', form);
+    const selected = (eventTypes || []).find((t) => t.id === selectedId);
+    if (!selected) {
+        return <Tag color="default">Réunion (par défaut)</Tag>;
+    }
+    return (
+        <Space size={6}>
+            <Tag
+                icon={<TeamOutlined />}
+                color="blue"
+                style={{
+                    margin: 0,
+                    borderColor: selected.color || undefined,
+                    color: selected.color || undefined,
+                    background: 'transparent',
+                    fontWeight: 600,
+                }}
+            >
+                {selected.name}
+            </Tag>
+            {/* <Text type="secondary" style={{ fontSize: 12 }}>
+                Type verrouillé pour ce formulaire.
+            </Text> */}
+        </Space>
+    );
+}
 
 export default function MeetingFormPage() {
     const { id } = useParams();
@@ -19,6 +51,7 @@ export default function MeetingFormPage() {
     const [users, setUsers] = useState([]);
     const [directions, setDirections] = useState([]);
     const [projects, setProjects] = useState([]);
+    const [eventTypes, setEventTypes] = useState([]);
     const [availableRooms, setAvailableRooms] = useState([]);
     const [loadingRooms, setLoadingRooms] = useState(false);
     const [loading, setLoading] = useState(true);
@@ -48,6 +81,7 @@ export default function MeetingFormPage() {
                 setUsers(userRes.data || []);
                 setDirections(taxonomyRes?.data?.directions || []);
                 setProjects(taxonomyRes?.data?.projects || []);
+                setEventTypes(taxonomyRes?.data?.eventTypes || []);
 
                 if (isEdit) {
                     const { data } = await api.get(`/meetings/${id}`);
@@ -58,6 +92,7 @@ export default function MeetingFormPage() {
                         roomId: data.roomId || undefined,
                         directionId: data.directionId || undefined,
                         projectId: data.projectId || undefined,
+                        eventTypeId: data.eventTypeId || data.eventType?.id || undefined,
                         meetingLink: data.meetingLink || '',
                         startTime: data.startTime ? dayjs(data.startTime) : null,
                         endTime: data.endTime ? dayjs(data.endTime) : null,
@@ -65,6 +100,7 @@ export default function MeetingFormPage() {
                 } else {
                     const dateParam = searchParams.get('date');
                     const roomIdParam = searchParams.get('roomId');
+                    const requestedTypeId = searchParams.get('eventTypeId') || null;
                     let start = dayjs().hour(9).minute(0).second(0);
                     let end = dayjs().hour(10).minute(0).second(0);
                     if (dateParam && /^\d{4}-\d{2}-\d{2}$/.test(dateParam)) {
@@ -72,6 +108,12 @@ export default function MeetingFormPage() {
                         start = d.hour(9).minute(0).second(0);
                         end = d.hour(10).minute(0).second(0);
                     }
+                    const allTypes = taxonomyRes?.data?.eventTypes || [];
+                    const fromUrl = requestedTypeId ? allTypes.find((t) => t.id === requestedTypeId) : null;
+                    // Priorité : 1) type passé en URL  2) REUNION  3) premier type disponible
+                    const defaultEt = fromUrl
+                        || allTypes.find((t) => t.code === 'REUNION')
+                        || allTypes[0];
                     form.setFieldsValue({
                         startTime: start,
                         endTime: end,
@@ -80,6 +122,7 @@ export default function MeetingFormPage() {
                         title: '',
                         agenda: '',
                         participantIds: [],
+                        ...(defaultEt ? { eventTypeId: defaultEt.id } : {}),
                     });
                 }
             } catch (err) {
@@ -148,6 +191,7 @@ export default function MeetingFormPage() {
                     roomId: values.roomId || null,
                     directionId: values.directionId || null,
                     projectId: values.projectId || null,
+                    eventTypeId: values.eventTypeId || null,
                     meetingLink: link || null,
                     startTime: start.toISOString(),
                     endTime: end.toISOString(),
@@ -163,6 +207,7 @@ export default function MeetingFormPage() {
                 roomId: values.roomId || undefined,
                 directionId: values.directionId || undefined,
                 projectId: values.projectId || undefined,
+                eventTypeId: values.eventTypeId || undefined,
                 meetingLink: link || undefined,
                 startTime: start.toISOString(),
                 endTime: end.toISOString(),
@@ -198,6 +243,14 @@ export default function MeetingFormPage() {
                     </Form.Item>
                     <Form.Item name="agenda" label="Ordre du jour">
                         <Input.TextArea rows={4} />
+                    </Form.Item>
+                    {/* Type d'événement — verrouillé : automatiquement défini (REUNION ou type passé en URL).
+                        On garde un Form.Item caché pour conserver la valeur dans le payload de soumission. */}
+                    <Form.Item name="eventTypeId" hidden>
+                        <Input />
+                    </Form.Item>
+                    <Form.Item label="Type d'événement">
+                        <SelectedEventTypeBadge eventTypes={eventTypes} form={form} />
                     </Form.Item>
                     <Row gutter={16}>
                         <Col xs={24} sm={12}>
@@ -236,7 +289,14 @@ export default function MeetingFormPage() {
                     </Form.Item>
                     {!isEdit && (
                         <Form.Item name="participantIds" label="Participants supplémentaires">
-                            <Select mode="multiple" optionFilterProp="label" options={users.map((u) => ({ value: u.id, label: `${u.name} — ${u.email}` }))} />
+                            <Select
+                                mode="multiple"
+                                optionFilterProp="label"
+                                options={users.map((u) => ({
+                                    value: u.id,
+                                    label: `${u.name}${u.jobTitle ? ` — ${u.jobTitle}` : ''} (${u.email})`,
+                                }))}
+                            />
                         </Form.Item>
                     )}
                     <Space>

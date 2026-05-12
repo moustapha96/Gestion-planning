@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useState, useMemo } from 'react';
 import {
     Row,
     Col,
@@ -13,14 +13,16 @@ import {
     Button,
     Divider,
     Alert,
+    Segmented,
 } from 'antd';
 import {
     HomeOutlined,
     CalendarOutlined,
     ClockCircleOutlined,
     ReloadOutlined,
+    PlusOutlined,
 } from '@ant-design/icons';
-import { Link } from 'react-router-dom';
+import { Link, useNavigate } from 'react-router-dom';
 import api from '../api/client';
 import { useAuth } from '../context/AuthContext';
 import { isPrivilegedAdmin } from '../utils/roles';
@@ -30,8 +32,64 @@ const { Title, Text } = Typography;
 const STATUS_COLORS = { FREE: 'success', OCCUPIED: 'error', BUSY: 'error' };
 const STATUS_LABELS = { FREE: 'Libre', OCCUPIED: 'Occupée', BUSY: 'Occupée' };
 
+function localYmd(d) {
+    const x = d instanceof Date ? d : new Date(d);
+    if (Number.isNaN(x.getTime())) return '';
+    return `${x.getFullYear()}-${String(x.getMonth() + 1).padStart(2, '0')}-${String(x.getDate()).padStart(2, '0')}`;
+}
+
+function eventDayKey(ev) {
+    if (ev?.date && /^\d{4}-\d{2}-\d{2}$/.test(ev.date)) return ev.date;
+    const raw = ev?.startTime;
+    if (raw) return localYmd(raw);
+    return '';
+}
+
+function mondayFirstWeekdayIndex(jsDay) {
+    return jsDay === 0 ? 6 : jsDay - 1;
+}
+
+function weekDaysFromDate(anchor) {
+    const d = new Date(anchor);
+    const diff = d.getDate() - mondayFirstWeekdayIndex(d.getDay());
+    const monday = new Date(d);
+    monday.setDate(diff);
+    monday.setHours(0, 0, 0, 0);
+    return Array.from({ length: 7 }, (_, i) => {
+        const x = new Date(monday);
+        x.setDate(monday.getDate() + i);
+        return x;
+    });
+}
+
+function formatAgendaTime(iso) {
+    if (!iso) return '';
+    try {
+        return new Date(iso).toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' });
+    } catch {
+        return '';
+    }
+}
+
+function agendaEventColor(ev) {
+    if (ev.type === 'meeting') return 'blue';
+    if (ev.type === 'mission') return 'purple';
+    if (ev.type === 'planning-event') return 'green';
+    return 'default';
+}
+
+function agendaEventLink(ev) {
+    if (ev.planningId) return `/planning/${ev.planningId}`;
+    if (ev.meetingId) return `/meetings/${ev.meetingId}`;
+    if (ev.type === 'meeting' && ev.id) return `/meetings/${ev.id}`;
+    if (ev.missionId) return `/missions/${ev.missionId}`;
+    if (ev.type === 'mission' && ev.id) return `/missions/${ev.id}`;
+    return '/calendar';
+}
+
 export default function Dashboard() {
     const { user } = useAuth();
+    const navigate = useNavigate();
     const [data, setData] = useState(null);
     const [weekData, setWeekData] = useState(null);
     const [advancedData, setAdvancedData] = useState(null);
@@ -43,6 +101,9 @@ export default function Dashboard() {
     });
     const [toDate, setToDate] = useState(() => new Date().toISOString().slice(0, 10));
     const [loading, setLoading] = useState(true);
+    const [agendaView, setAgendaView] = useState('week');
+    const [agendaEvents, setAgendaEvents] = useState([]);
+    const [agendaLoading, setAgendaLoading] = useState(false);
 
     const load = async () => {
         setLoading(true);
@@ -84,6 +145,29 @@ export default function Dashboard() {
     useEffect(() => {
         load();
     }, []);
+
+    useEffect(() => {
+        let cancelled = false;
+        const loadAgenda = async () => {
+            setAgendaLoading(true);
+            try {
+                const d = new Date().toISOString().split('T')[0];
+                const { data } = agendaView === 'week'
+                    ? await api.get('/calendar/week', { params: { date: d } })
+                    : await api.get('/calendar/day', { params: { date: d } });
+                if (!cancelled) setAgendaEvents(data?.events || []);
+            } catch {
+                if (!cancelled) setAgendaEvents([]);
+            } finally {
+                if (!cancelled) setAgendaLoading(false);
+            }
+        };
+        loadAgenda();
+        return () => { cancelled = true; };
+    }, [agendaView]);
+
+    const agendaWeekDays = useMemo(() => weekDaysFromDate(new Date()), []);
+    const todayStr = useMemo(() => localYmd(new Date()), []);
 
     useEffect(() => {
         if (!isPrivilegedAdmin(user?.role)) return;
@@ -258,6 +342,125 @@ export default function Dashboard() {
                         </Card>
                     </Col>
                 </Row>
+
+                <Card
+                    title={(
+                        <Space wrap>
+                            <CalendarOutlined />
+                            <span>Mon agenda</span>
+                            <Segmented
+                                size="small"
+                                value={agendaView}
+                                onChange={setAgendaView}
+                                options={[
+                                    { label: 'Semaine', value: 'week' },
+                                    { label: "Aujourd'hui", value: 'day' },
+                                ]}
+                            />
+                        </Space>
+                    )}
+                    extra={(
+                        <Space wrap>
+                            <Button
+                                type="primary"
+                                size="small"
+                                icon={<PlusOutlined />}
+                                onClick={() => {
+                                    const p = new Date().toISOString().split('T')[0];
+                                    navigate(`/meetings/new?date=${p}`);
+                                }}
+                            >
+                                Réunion
+                            </Button>
+                            <Button
+                                size="small"
+                                icon={<PlusOutlined />}
+                                onClick={() => {
+                                    const p = new Date().toISOString().split('T')[0];
+                                    navigate(`/missions/new?date=${p}`);
+                                }}
+                            >
+                                Mission
+                            </Button>
+                            <Link to="/events">Événements</Link>
+                            <Link to="/calendar">Calendrier complet</Link>
+                        </Space>
+                    )}
+                    style={{ marginBottom: 24 }}
+                >
+                    <Spin spinning={agendaLoading}>
+                        {agendaView === 'week' ? (
+                            <Row gutter={[12, 12]}>
+                                {agendaWeekDays.map((day) => {
+                                    const k = localYmd(day);
+                                    const dayEvs = agendaEvents
+                                        .filter((e) => eventDayKey(e) === k)
+                                        .sort((a, b) => new Date(a.startTime) - new Date(b.startTime));
+                                    const isToday = k === todayStr;
+                                    return (
+                                        <Col xs={24} sm={12} md={8} lg={3} key={k}>
+                                            <div style={{
+                                                border: `1px solid ${isToday ? '#1565C0' : '#f0f0f0'}`,
+                                                borderRadius: 10,
+                                                padding: 10,
+                                                minHeight: 120,
+                                                background: isToday ? '#f0f7ff' : '#fff',
+                                            }}>
+                                                <Text strong style={{ display: 'block', marginBottom: 8, fontSize: 12 }}>
+                                                    {day.toLocaleDateString('fr-FR', { weekday: 'short', day: 'numeric', month: 'short' })}
+                                                </Text>
+                                                {dayEvs.length === 0 ? (
+                                                    <Text type="secondary" style={{ fontSize: 11 }}>—</Text>
+                                                ) : (
+                                                    <Space orientation="vertical" size={6} style={{ width: '100%' }}>
+                                                        {dayEvs.slice(0, 5).map((ev) => (
+                                                            <div key={`${ev.type}-${ev.id}`}>
+                                                                <Tag color={agendaEventColor(ev)} style={{ marginRight: 4, fontSize: 10 }}>
+                                                                    {formatAgendaTime(ev.startTime)}
+                                                                </Tag>
+                                                                <Link to={agendaEventLink(ev)} style={{ fontSize: 12 }}>
+                                                                    {ev.title}
+                                                                </Link>
+                                                            </div>
+                                                        ))}
+                                                        {dayEvs.length > 5 && (
+                                                            <Text type="secondary" style={{ fontSize: 11 }}>
+                                                                +{dayEvs.length - 5}…
+                                                            </Text>
+                                                        )}
+                                                    </Space>
+                                                )}
+                                            </div>
+                                        </Col>
+                                    );
+                                })}
+                            </Row>
+                        ) : (
+                            <Space orientation="vertical" size={10} style={{ width: '100%' }}>
+                                {agendaEvents.length === 0 ? (
+                                    <Text type="secondary">Aucun événement aujourd&apos;hui.</Text>
+                                ) : (
+                                    agendaEvents.map((ev) => (
+                                        <div
+                                            key={`${ev.type}-${ev.id}`}
+                                            style={{
+                                                display: 'flex',
+                                                alignItems: 'center',
+                                                gap: 10,
+                                                padding: '8px 12px',
+                                                borderRadius: 8,
+                                                border: '1px solid #f0f0f0',
+                                            }}
+                                        >
+                                            <Tag color={agendaEventColor(ev)}>{formatAgendaTime(ev.startTime)}</Tag>
+                                            <Link to={agendaEventLink(ev)}><Text strong>{ev.title}</Text></Link>
+                                        </div>
+                                    ))
+                                )}
+                            </Space>
+                        )}
+                    </Spin>
+                </Card>
 
                 <Card title="État des salles aujourd'hui">
                     <Table

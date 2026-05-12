@@ -11,6 +11,10 @@ const { isRoomAvailableForSlot, isRoomActive } = require('../utils/availability'
 const { createAuditLog } = require('../utils/audit');
 const { ROLES, isPrivilegedAdmin } = require('../config/roles');
 const { emitToUsers, emitToMeetingRoom } = require('../realtime/socket');
+const { pdfOnlyMulterFileFilter, wrapMulterUpload } = require('../utils/pdfUpload');
+const { resolveMeetingEventTypeId } = require('../services/eventType.service');
+
+const EVENT_TYPE_INCLUDE = { select: { id: true, name: true, code: true, color: true } };
 
 const router = express.Router();
 let meetingFilesFeatureChecked = false;
@@ -130,13 +134,12 @@ const uploadMeetingFile = multer({
             fs.mkdirSync(meetingsUploadDir, { recursive: true });
             cb(null, meetingsUploadDir);
         },
-        filename(req, file, cb) {
-            const ext = (path.extname(file.originalname) || '').toLowerCase().slice(0, 10) || '.bin';
-            const safe = `${req.params.id}_${Date.now()}${ext}`;
-            cb(null, safe);
+        filename(req, _file, cb) {
+            cb(null, `${req.params.id}_${Date.now()}.pdf`);
         },
     }),
     limits: { fileSize: 15 * 1024 * 1024 },
+    fileFilter: pdfOnlyMulterFileFilter,
 });
 
 /**
@@ -232,6 +235,7 @@ router.get('/', async (req, res) => {
                     room: true,
                     direction: { select: { id: true, name: true, code: true } },
                     project: { select: { id: true, name: true, code: true } },
+                    eventType: EVENT_TYPE_INCLUDE,
                     invitations: { include: { user: true } },
                     ...(includeFiles
                         ? {
@@ -301,6 +305,7 @@ router.get('/:id', async (req, res) => {
                 room: true,
                 direction: { select: { id: true, name: true, code: true } },
                 project: { select: { id: true, name: true, code: true } },
+                eventType: EVENT_TYPE_INCLUDE,
                 invitations: { include: { user: true } },
                 messages: {
                     include: {
@@ -442,8 +447,8 @@ router.delete('/:id/messages/:messageId', async (req, res) => {
     }
 });
 
-// POST /api/meetings/:id/files - ajouter un fichier (image, document, compte rendu)
-router.post('/:id/files', uploadMeetingFile.single('file'), async (req, res) => {
+// POST /api/meetings/:id/files - ajouter un PDF (document ou compte rendu)
+router.post('/:id/files', wrapMulterUpload(uploadMeetingFile.single('file')), async (req, res) => {
     try {
         if (!req.file) {
             return res.status(400).json({ error: 'Aucun fichier envoyé. Utilisez le champ "file".' });
@@ -462,7 +467,7 @@ router.post('/:id/files', uploadMeetingFile.single('file'), async (req, res) => 
         }
 
         const rawKind = String(req.body?.kind || 'DOCUMENT').toUpperCase();
-        const allowedKinds = ['IMAGE', 'DOCUMENT', 'REPORT'];
+        const allowedKinds = ['DOCUMENT', 'REPORT'];
         const kind = allowedKinds.includes(rawKind) ? rawKind : 'DOCUMENT';
         const fileUrl = `/uploads/meetings/${req.file.filename}`;
 
@@ -525,7 +530,7 @@ router.delete('/:id/files/:fileId', async (req, res) => {
  * @swagger
  * /api/meetings/{id}/attachment:
  *   post:
- *     summary: Joindre un fichier à la réunion (organisateur ou admin)
+ *     summary: Joindre un PDF à la réunion (organisateur ou admin)
  *     tags: [Meetings]
  *     security:
  *       - bearerAuth: []
@@ -549,7 +554,7 @@ router.delete('/:id/files/:fileId', async (req, res) => {
  *       403:
  *         description: Non autorisé
  */
-router.post('/:id/attachment', uploadMeetingFile.single('file'), async (req, res) => {
+router.post('/:id/attachment', wrapMulterUpload(uploadMeetingFile.single('file')), async (req, res) => {
     try {
         if (!req.file) {
             return res.status(400).json({ error: 'Aucun fichier envoyé. Utilisez le champ "file".' });
@@ -603,7 +608,7 @@ router.put('/:id', async (req, res) => {
             return res.status(400).json({ error: 'Réunion finalisée : modification impossible.' });
         }
 
-        const { title, agenda, roomId, meetingLink, startTime, endTime, directionId, projectId } = req.body;
+        const { title, agenda, roomId, meetingLink, startTime, endTime, directionId, projectId, eventTypeId } = req.body;
         const newStart = startTime ? new Date(startTime) : meeting.startTime;
         const newEnd = endTime ? new Date(endTime) : meeting.endTime;
         const hasMeetingLinkInPayload = meetingLink !== undefined;
@@ -670,6 +675,15 @@ router.put('/:id', async (req, res) => {
             }
         }
 
+        let eventTypeIdData = undefined;
+        if (Object.prototype.hasOwnProperty.call(req.body, 'eventTypeId')) {
+            try {
+                eventTypeIdData = await resolveMeetingEventTypeId(req.prisma, req.body.eventTypeId);
+            } catch (e) {
+                return res.status(400).json({ error: e.message });
+            }
+        }
+
         const updated = await req.prisma.meeting.update({
             where: { id: req.params.id },
             data: {
@@ -681,12 +695,14 @@ router.put('/:id', async (req, res) => {
                 ...(hasMeetingLinkInPayload && { meetingLink: normalizedMeetingLink }),
                 ...(startTime !== undefined && { startTime: newStart }),
                 ...(endTime !== undefined && { endTime: newEnd }),
+                ...(eventTypeIdData !== undefined && { eventTypeId: eventTypeIdData }),
             },
             include: {
                 organizer: { select: { name: true, email: true } },
                 room: true,
                 direction: { select: { id: true, name: true, code: true } },
                 project: { select: { id: true, name: true, code: true } },
+                eventType: EVENT_TYPE_INCLUDE,
                 invitations: { include: { user: true } },
             },
         });
@@ -895,6 +911,15 @@ router.post('/', async (req, res) => {
             }
         }
 
+        let resolvedEventTypeId = undefined;
+        if (Object.prototype.hasOwnProperty.call(req.body, 'eventTypeId')) {
+            try {
+                resolvedEventTypeId = await resolveMeetingEventTypeId(req.prisma, req.body.eventTypeId);
+            } catch (e) {
+                return res.status(400).json({ error: e.message });
+            }
+        }
+
         const meeting = await req.prisma.meeting.create({
             data: {
                 title,
@@ -907,11 +932,12 @@ router.post('/', async (req, res) => {
                 startTime: start,
                 endTime: end,
                 status: 'DRAFT',
+                ...(resolvedEventTypeId !== undefined && { eventTypeId: resolvedEventTypeId }),
                 invitations: {
                     create: participantList.map((userId) => ({ userId, status: 'PENDING' })),
                 },
             },
-            include: { invitations: true },
+            include: { invitations: true, eventType: EVENT_TYPE_INCLUDE },
         });
 
         logger.info('MEETING_CREATED', `Réunion créée par ${req.user.name}`, {

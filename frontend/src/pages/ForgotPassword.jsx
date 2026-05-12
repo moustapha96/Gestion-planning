@@ -12,7 +12,7 @@ const pageStyle = {
     display: 'flex',
     alignItems: 'center',
     justifyContent: 'center',
-    background: 'linear-gradient(135deg, #3e7cbc 0%, #2a5fa0 100%)',
+    background: 'linear-gradient(135deg, #1565C0 0%, #0D47A1 100%)',
 };
 
 const cardStyle = {
@@ -74,7 +74,7 @@ export default function ForgotPassword() {
                         }
                         extra={
                             <Link to="/login">
-                                <Button type="primary" style={{ background: '#3e7cbc', borderColor: '#3e7cbc' }}>
+                                <Button type="primary" style={{ background: '#1565C0', borderColor: '#1565C0' }}>
                                     Retour à la connexion
                                 </Button>
                             </Link>
@@ -111,7 +111,7 @@ export default function ForgotPassword() {
                                         size="large"
                                         loading={loading}
                                         block
-                                        style={{ background: '#3e7cbc', borderColor: '#48BB78', borderWidth: 1.5 }}
+                                        style={{ background: '#1565C0', borderColor: '#48BB78', borderWidth: 1.5 }}
                                     >
                                         Envoyer le lien
                                     </Button>

@@ -8,6 +8,8 @@ import {
     FileTextOutlined,
     DownloadOutlined, PrinterOutlined,
 } from '@ant-design/icons';
+import jsPDF from 'jspdf';
+import autoTable from 'jspdf-autotable';
 import api from '../api/client';
 import { useAuth } from '../context/AuthContext';
 
@@ -25,7 +27,7 @@ function mondayFirstWeekdayIndex(jsDay) {
 }
 
 const EVENT_STYLES = {
-    meeting: { bg: '#e6f4ff', border: '#1677ff', color: '#0958d9', label: 'Réunion'  },
+    meeting: { bg: '#EFF6FF', border: '#1565C0', color: '#1D4ED8', label: 'Réunion'  },
     mission: { bg: '#f9f0ff', border: '#722ed1', color: '#531dab', label: 'Mission'  },
     planning:{ bg: '#f6ffed', border: '#52c41a', color: '#389e0d', label: 'Planning' },
     default: { bg: '#fffbe6', border: '#faad14', color: '#d48806', label: 'Événement'},
@@ -34,13 +36,15 @@ const EVENT_STYLES = {
 function getEventStyle(ev) {
     if (ev.type === 'meeting') return EVENT_STYLES.meeting;
     if (ev.type === 'mission') return EVENT_STYLES.mission;
-    if (ev.type === 'planning' || ev.eventType === 'REUNION') return EVENT_STYLES.planning;
+    if (ev.type === 'planning-event' || ev.type === 'planning' || ev.eventType === 'REUNION') {
+        return EVENT_STYLES.planning;
+    }
     return EVENT_STYLES.default;
 }
 
 function getEventLocation(ev) {
     // N'afficher que des lieux lisibles (jamais un identifiant technique)
-    const raw = ev?.room || ev?.location || '';
+    const raw = ev?.room || ev?.location || ev?.destination || '';
     const value = String(raw || '').trim();
     if (!value) return '';
     const looksLikeId =
@@ -59,6 +63,21 @@ function parseMinutes(timeStr) {
     const m = String(timeStr).match(/^(\d{1,2}):(\d{2})/);
     if (m) return parseInt(m[1]) * 60 + parseInt(m[2]);
     return null;
+}
+
+/** Date locale YYYY-MM-DD (évite le décalage UTC sur les clés de semaine) */
+function localYmd(d) {
+    const x = d instanceof Date ? d : new Date(d);
+    if (Number.isNaN(x.getTime())) return '';
+    return `${x.getFullYear()}-${String(x.getMonth() + 1).padStart(2, '0')}-${String(x.getDate()).padStart(2, '0')}`;
+}
+
+/** Jour calendaire d'un événement pour le placer dans la grille */
+function eventDayKey(ev) {
+    if (ev?.date && /^\d{4}-\d{2}-\d{2}$/.test(ev.date)) return ev.date;
+    const raw = ev?.startTime || ev?.time;
+    if (raw) return localYmd(raw);
+    return '';
 }
 
 function formatTime(timeStr) {
@@ -155,13 +174,13 @@ function TimeGrid({ containerRef, columns, eventsMap, nowLine, onNavigate }) {
                                 {/* En-tête collant */}
                                 <div style={{
                                     position: 'sticky', top: 0, zIndex: 5,
-                                    background: todayFlag ? '#e6f4ff' : '#fafafa',
-                                    borderBottom: `2px solid ${todayFlag ? '#1677ff' : '#f0f0f0'}`,
+                                    background: todayFlag ? '#EFF6FF' : '#fafafa',
+                                    borderBottom: `2px solid ${todayFlag ? '#1565C0' : '#f0f0f0'}`,
                                     padding: '6px 4px', textAlign: 'center', minHeight: 38,
                                 }}>
                                     <Text strong={todayFlag} style={{
                                         fontSize: 11,
-                                        color: todayFlag ? '#1677ff' : '#595959',
+                                        color: todayFlag ? '#1565C0' : '#595959',
                                         display: 'block',
                                     }}>
                                         {header}
@@ -170,7 +189,7 @@ function TimeGrid({ containerRef, columns, eventsMap, nowLine, onNavigate }) {
                                         <div style={{
                                             display: 'inline-block',
                                             width: 6, height: 6, borderRadius: '50%',
-                                            background: '#1677ff', marginTop: 2,
+                                            background: '#1565C0', marginTop: 2,
                                         }} />
                                     )}
                                 </div>
@@ -202,7 +221,7 @@ function TimeGrid({ containerRef, columns, eventsMap, nowLine, onNavigate }) {
                                     )}
 
                                     {colEvents.map((ev) => (
-                                        <GridEvent key={ev.id} ev={ev} onNavigate={onNavigate} />
+                                        <GridEvent key={`${ev.type || 'ev'}-${ev.id}`} ev={ev} onNavigate={onNavigate} />
                                     ))}
                                 </div>
                             </div>
@@ -216,23 +235,39 @@ function TimeGrid({ containerRef, columns, eventsMap, nowLine, onNavigate }) {
 
 // ── Export helpers ────────────────────────────────────────────────
 
+// Dérive la date YYYY-MM-DD depuis un ISO string si ev.date est absent
+function evDate(ev) {
+    if (ev.date) return ev.date;
+    const raw = ev.startTime || ev.time;
+    if (raw) {
+        const d = new Date(raw);
+        if (!isNaN(d.getTime())) return d.toISOString().split('T')[0];
+    }
+    return '';
+}
+
 function icsDate(dateStr, timeStr) {
-    if (!timeStr) return dateStr.replace(/-/g, '') + 'T000000';
-    try {
-        const d = new Date(timeStr);
-        if (!isNaN(d.getTime()))
-            return d.toISOString().replace(/[-:.]/g, '').slice(0, 15) + 'Z';
-    } catch { /* noop */ }
-    const [y, mo, da] = dateStr.split('-');
-    const m = String(timeStr).match(/^(\d{1,2}):(\d{2})/);
-    return m ? `${y}${mo}${da}T${m[1].padStart(2, '0')}${m[2]}00` : dateStr.replace(/-/g, '') + 'T000000';
+    // timeStr est un ISO string complet → conversion directe
+    if (timeStr) {
+        try {
+            const d = new Date(timeStr);
+            if (!isNaN(d.getTime()))
+                return d.toISOString().replace(/[-:.]/g, '').slice(0, 15) + 'Z';
+        } catch { /* noop */ }
+    }
+    // Fallback sur dateStr seule
+    const safe = String(dateStr || '').replace(/-/g, '');
+    if (safe.length >= 8) return safe.slice(0, 8) + 'T000000';
+    return '19700101T000000';
 }
 
 function triggerDownload(blob, filename) {
     const url = URL.createObjectURL(blob);
     const a   = Object.assign(document.createElement('a'), { href: url, download: filename });
+    document.body.appendChild(a);
     a.click();
-    URL.revokeObjectURL(url);
+    // Laisser le temps au navigateur de traiter le clic avant de révoquer l'URL
+    setTimeout(() => { URL.revokeObjectURL(url); document.body.removeChild(a); }, 1000);
 }
 
 function safeLabel(label) {
@@ -261,7 +296,7 @@ function defaultEventEndICS(ev, dtStart) {
         }
     } catch { /* noop */ }
     const ds = String(dtStart);
-    const day = ds.length >= 8 ? ds.slice(0, 8) : String(ev.date || '').replace(/-/g, '');
+    const day = ds.length >= 8 ? ds.slice(0, 8) : String(evDate(ev)).replace(/-/g, '');
     return `${day}T235959`;
 }
 
@@ -273,7 +308,7 @@ function exportICS(events, label) {
         'CALSCALE:GREGORIAN', 'METHOD:PUBLISH',
     ];
     for (const ev of events) {
-        const dtStart = icsDate(ev.date, ev.startTime || ev.time);
+        const dtStart = icsDate(evDate(ev), ev.startTime || ev.time);
         const dtEnd   = defaultEventEndICS(ev, dtStart);
         lines.push(
             'BEGIN:VEVENT',
@@ -299,9 +334,9 @@ function exportCSV(events, label) {
     const rows = [
         ['Date', 'Heure début', 'Heure fin', 'Titre', 'Type', 'Salle'].join(SEP),
         ...[...events]
-            .sort((a, b) => (a.date || '').localeCompare(b.date || ''))
+            .sort((a, b) => evDate(a).localeCompare(evDate(b)))
             .map((ev) => [
-                ev.date || '',
+                evDate(ev),
                 formatTime(ev.startTime || ev.time),
                 formatTime(ev.endTime),
                 `"${String(ev.title || '').replace(/"/g, '""')}"`,
@@ -310,66 +345,139 @@ function exportCSV(events, label) {
             ].join(SEP)),
     ];
     triggerDownload(
-        new Blob([BOM + rows.join('\n')], { type: 'text/csv;charset=utf-8' }),
+        new Blob([BOM + rows.join('\r\n')], { type: 'text/csv;charset=utf-8' }),
         `calendrier-${safeLabel(label)}.csv`,
     );
 }
 
-function escapeHtml(s) {
-    return String(s ?? '')
-        .replace(/&/g, '&amp;')
-        .replace(/</g, '&lt;')
-        .replace(/>/g, '&gt;')
-        .replace(/"/g, '&quot;');
+/** Format jolie de date « 8 mai 2026 » à partir d'une chaîne YYYY-MM-DD */
+function prettyDate(ymd) {
+    if (!ymd) return '';
+    try {
+        const [y, m, d] = ymd.split('-').map((s) => parseInt(s, 10));
+        if (!y || !m || !d) return ymd;
+        return new Date(y, m - 1, d).toLocaleDateString('fr-FR', {
+            weekday: 'short', day: 'numeric', month: 'short', year: 'numeric',
+        });
+    } catch {
+        return ymd;
+    }
 }
 
-function exportPrintPDF(events, label) {
-    const rows = [...events]
-        .sort((a, b) => (a.date || '').localeCompare(b.date || ''))
-        .map((ev) => {
-            const s    = getEventStyle(ev);
-            const time = `${formatTime(ev.startTime || ev.time)}${ev.endTime ? ` – ${formatTime(ev.endTime)}` : ''}`;
-            return `<tr>
-                <td>${escapeHtml(ev.date || '')}</td>
-                <td>${escapeHtml(time)}</td>
-                <td>${escapeHtml(ev.title || '')}</td>
-                <td style="color:${escapeHtml(s.color)};font-weight:600">${escapeHtml(s.label)}</td>
-                <td>${escapeHtml(getEventLocation(ev) || '')}</td>
-            </tr>`;
-        })
-        .join('');
+/**
+ * Export PDF natif (jsPDF + autotable).
+ * Génère et télécharge directement un fichier .pdf — sans popup.
+ */
+function exportPDF(events, label) {
+    const doc = new jsPDF({ orientation: 'landscape', unit: 'mm', format: 'a4' });
+    const pageWidth = doc.internal.pageSize.getWidth();
+    const pageHeight = doc.internal.pageSize.getHeight();
 
-    const html = `<!DOCTYPE html><html lang="fr"><head>
-<meta charset="utf-8">
-<title>Calendrier — ${escapeHtml(label)}</title>
-<style>
-  body { font-family: Arial, sans-serif; font-size: 12px; margin: 24px; color: #1a1a1a; }
-  h1   { font-size: 18px; color: #3e7cbc; margin-bottom: 4px; }
-  p    { color: #666; margin-bottom: 16px; font-size: 11px; }
-  table { width: 100%; border-collapse: collapse; }
-  thead tr { background: #3e7cbc; color: #fff; }
-  th   { padding: 8px 10px; text-align: left; font-size: 11px; }
-  td   { padding: 6px 10px; border-bottom: 1px solid #eee; }
-  tr:nth-child(even) td { background: #f8fafc; }
-  @media print { body { margin: 0; } button { display: none; } }
-</style>
-</head><body>
-<h1>Calendrier — ${escapeHtml(label)}</h1>
-<p>Exporté le ${new Date().toLocaleDateString('fr-FR', { day:'numeric', month:'long', year:'numeric' })} · ${events.length} événement(s)</p>
-<table>
-  <thead><tr><th>Date</th><th>Horaire</th><th>Titre</th><th>Type</th><th>Salle</th></tr></thead>
-  <tbody>${rows || '<tr><td colspan="5" style="text-align:center;color:#999;padding:24px">Aucun événement</td></tr>'}</tbody>
-</table>
-<script>window.addEventListener('load', () => window.print());<\/script>
-</body></html>`;
+    // ── En-tête ──
+    doc.setFillColor(21, 101, 192); // #1565C0
+    doc.rect(0, 0, pageWidth, 18, 'F');
+    doc.setTextColor(255, 255, 255);
+    doc.setFont('helvetica', 'bold');
+    doc.setFontSize(14);
+    doc.text('CALENDRIER', 10, 11);
+    doc.setFontSize(11);
+    doc.setFont('helvetica', 'normal');
+    doc.text(String(label || ''), pageWidth - 10, 11, { align: 'right' });
 
-    const w = window.open('', '_blank', 'noopener,noreferrer,width=900,height=650');
-    if (w) {
-        w.document.write(html);
-        w.document.close();
-        return true;
+    // ── Sous-titre / méta ──
+    doc.setTextColor(80, 80, 80);
+    doc.setFontSize(9);
+    const exportedOn = new Date().toLocaleDateString('fr-FR', {
+        day: 'numeric', month: 'long', year: 'numeric',
+    });
+    doc.text(
+        `Exporté le ${exportedOn} · ${events.length} événement(s)`,
+        10, 24,
+    );
+
+    // ── Préparation du tableau ──
+    const sorted = [...events].sort((a, b) => {
+        const da = evDate(a);
+        const db = evDate(b);
+        if (da !== db) return da.localeCompare(db);
+        const ta = String(a.startTime || a.time || '');
+        const tb = String(b.startTime || b.time || '');
+        return ta.localeCompare(tb);
+    });
+
+    // Groupement par date avec une ligne d'en-tête par jour
+    const tableBody = [];
+    let currentDate = null;
+    for (const ev of sorted) {
+        const d = evDate(ev);
+        if (d !== currentDate) {
+            tableBody.push([{
+                content: prettyDate(d).toUpperCase(),
+                colSpan: 5,
+                styles: {
+                    fillColor: [232, 240, 249],
+                    textColor: [21, 101, 192],
+                    fontStyle: 'bold',
+                    fontSize: 9,
+                    halign: 'left',
+                },
+            }]);
+            currentDate = d;
+        }
+        const s = getEventStyle(ev);
+        const time = `${formatTime(ev.startTime || ev.time)}${ev.endTime ? ` – ${formatTime(ev.endTime)}` : ''}`;
+        tableBody.push([
+            { content: time || '—', styles: { halign: 'left', fontStyle: 'bold' } },
+            ev.title || '—',
+            { content: s.label, styles: { halign: 'center', fontStyle: 'bold' } },
+            getEventLocation(ev) || '—',
+            ev.description ? String(ev.description).slice(0, 200) : '',
+        ]);
     }
-    return false;
+
+    autoTable(doc, {
+        startY: 30,
+        head: [['Horaire', 'Titre', 'Type', 'Lieu', 'Description']],
+        body: tableBody.length
+            ? tableBody
+            : [[{
+                content: 'Aucun événement à exporter pour la période affichée.',
+                colSpan: 5,
+                styles: { halign: 'center', textColor: [150, 150, 150], fontStyle: 'italic' },
+            }]],
+        theme: 'grid',
+        styles: { fontSize: 8, cellPadding: 2, font: 'helvetica', valign: 'middle' },
+        headStyles: {
+            fillColor: [10, 39, 68],
+            textColor: [255, 255, 255],
+            fontStyle: 'bold',
+            fontSize: 9,
+        },
+        columnStyles: {
+            0: { cellWidth: 32 },              // Horaire
+            1: { cellWidth: 80 },              // Titre
+            2: { cellWidth: 28, halign: 'center' }, // Type
+            3: { cellWidth: 50 },              // Lieu
+            4: { cellWidth: 'auto' },          // Description
+        },
+        alternateRowStyles: { fillColor: [248, 250, 252] },
+        margin: { top: 28, left: 8, right: 8, bottom: 14 },
+        didDrawPage: (data) => {
+            doc.setFontSize(7);
+            doc.setTextColor(120, 120, 120);
+            doc.text(
+                `ADM GP · Calendrier — ${label}  ·  Page ${data.pageNumber}`,
+                pageWidth / 2,
+                pageHeight - 6,
+                { align: 'center' },
+            );
+            doc.setDrawColor(21, 101, 192);
+            doc.setLineWidth(0.2);
+            doc.line(8, pageHeight - 10, pageWidth - 8, pageHeight - 10);
+        },
+    });
+
+    doc.save(`calendrier-${safeLabel(label)}.pdf`);
 }
 
 // ── Page principale ───────────────────────────────────────────────
@@ -465,7 +573,7 @@ export default function Calendar() {
     const getFirstDayMon = (d) => mondayFirstWeekdayIndex(new Date(d.getFullYear(), d.getMonth(), 1).getDay());
     const getEventsForDate = (day) => {
         const ds = `${year}-${String(month).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
-        return events.filter((e) => e.date === ds);
+        return events.filter((e) => eventDayKey(e) === ds);
     };
 
     const isTodayDate = (date) => new Date().toDateString() === new Date(date).toDateString();
@@ -489,13 +597,27 @@ export default function Calendar() {
     }, [weekDays]);
 
     const getEventLink = (ev) => {
+        if (ev.planningId) return `/planning/${ev.planningId}`;
         if (ev.meetingId) return `/meetings/${ev.meetingId}`;
         if (ev.type === 'meeting' && ev.id) return `/meetings/${ev.id}`;
         if (ev.missionId) return `/missions/${ev.missionId}`;
         if (ev.type === 'mission' && ev.id) return `/missions/${ev.id}`;
-        if (ev.planningId) return `/planning/${ev.planningId}`;
         return null;
     };
+
+    /** Date utilisée pour les liens « Nouvelle réunion / mission » (mois affiché vs jour sélectionné) */
+    const createAnchorDate = useMemo(() => {
+        if (view === 'month') {
+            const now = new Date();
+            if (now.getMonth() === currentMonth.getMonth() && now.getFullYear() === currentMonth.getFullYear()) {
+                return now;
+            }
+            return new Date(year, month - 1, 1);
+        }
+        return selectedDate;
+    }, [view, currentMonth, selectedDate, year, month]);
+
+    const createDateParam = createAnchorDate.toISOString().split('T')[0];
 
     const handleEventClick = (ev) => {
         setDetailsEvent(ev);
@@ -528,9 +650,9 @@ export default function Calendar() {
                     onClick={() => { setSelectedDate(new Date(year, month - 1, day)); setView('day'); }}
                     style={{
                         minHeight: 96,
-                        border: `1px solid ${today ? '#1677ff60' : '#f0f0f0'}`,
+                        border: `1px solid ${today ? '#1565C060' : '#f0f0f0'}`,
                         padding: '4px 6px',
-                        background: today ? '#e6f4ff' : '#fff',
+                        background: today ? '#EFF6FF' : '#fff',
                         cursor: 'pointer',
                         transition: 'background 0.1s',
                     }}
@@ -542,7 +664,7 @@ export default function Calendar() {
                         <span style={{
                             display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
                             width: 22, height: 22, borderRadius: '50%',
-                            background: today ? '#1677ff' : 'transparent',
+                            background: today ? '#1565C0' : 'transparent',
                             color: today ? '#fff' : '#262626',
                             fontWeight: today ? 700 : 400, fontSize: 12,
                         }}>
@@ -556,7 +678,7 @@ export default function Calendar() {
                         const t = formatTime(ev.startTime || ev.time);
                         return (
                             <div
-                                key={ev.id}
+                                key={`${ev.type || 'ev'}-${ev.id}`}
                                 onClick={(e) => { e.stopPropagation(); handleEventClick(ev); }}
                                 title={ev.title}
                                 style={{
@@ -593,6 +715,11 @@ export default function Calendar() {
 
     const exportMenuItems = [
         {
+            key: 'pdf',
+            label: 'PDF — Téléchargement direct',
+            icon: <PrinterOutlined />,
+        },
+        {
             key: 'ics',
             label: 'iCal (.ics) — Google / Outlook / Apple',
             icon: <CalendarOutlined />,
@@ -601,11 +728,6 @@ export default function Calendar() {
             key: 'csv',
             label: 'CSV — Excel / Google Sheets',
             icon: <FileTextOutlined />,
-        },
-        {
-            key: 'pdf',
-            label: 'PDF — Impression',
-            icon: <PrinterOutlined />,
         },
     ];
 
@@ -623,16 +745,11 @@ export default function Calendar() {
                 exportCSV(list, currentLabel);
                 message.success('Fichier CSV téléchargé.');
             } else if (key === 'pdf') {
-                const ok = exportPrintPDF(list, currentLabel);
-                if (!ok) {
-                    message.error(
-                        'Impossible d’ouvrir la fenêtre d’impression. Autorisez les pop-ups pour ce site ou choisissez iCal / CSV.',
-                    );
-                } else {
-                    message.info('Une fenêtre s’ouvre : utilisez Imprimer ou Enregistrer au format PDF.');
-                }
+                exportPDF(list, currentLabel);
+                message.success('PDF généré et téléchargé.');
             }
-        } catch {
+        } catch (err) {
+            console.error('[Calendar] Export error', err);
             message.error('Export impossible. Réessayez.');
         }
     };
@@ -664,16 +781,23 @@ export default function Calendar() {
                             { label: 'Jour',    value: 'day'   },
                         ]}
                     />
-                    {view !== 'month' && (
+                    <Button.Group size="small">
                         <Button
-                            type="primary" size="small"
-                            onClick={() =>
-                                navigate(`/meetings/new?date=${selectedDate.toISOString().split('T')[0]}`)
-                            }
+                            type="primary"
+                            onClick={() => navigate(`/meetings/new?date=${createDateParam}`)}
                         >
                             + Réunion
                         </Button>
-                    )}
+                        <Button onClick={() => navigate(`/missions/new?date=${createDateParam}`)}>
+                            + Mission
+                        </Button>
+                    </Button.Group>
+                    <Button size="small" onClick={() => navigate('/events')}>
+                        Liste des événements
+                    </Button>
+                    <Button size="small" onClick={() => navigate('/planning')}>
+                        Planning hebdo
+                    </Button>
                     <Tooltip title={exportTooltip}>
                         <span style={{ display: 'inline-block' }}>
                             <Dropdown
@@ -763,14 +887,14 @@ export default function Calendar() {
                     {/* ══ VUE SEMAINE ══ */}
                     {view === 'week' && (() => {
                         const columns = weekDays.map((d) => ({
-                            key:       d.toISOString().split('T')[0],
+                            key:       localYmd(d),
                             header:    d.toLocaleDateString('fr-FR', { weekday: 'short', day: 'numeric' }),
                             todayFlag: isTodayDate(d),
                         }));
                         const eventsMap = {};
                         weekDays.forEach((d) => {
-                            const k = d.toISOString().split('T')[0];
-                            eventsMap[k] = weekEvents.filter((e) => e.date === k);
+                            const k = localYmd(d);
+                            eventsMap[k] = weekEvents.filter((e) => eventDayKey(e) === k);
                         });
                         return (
                             <TimeGrid
@@ -785,7 +909,7 @@ export default function Calendar() {
 
                     {/* ══ VUE JOUR ══ */}
                     {view === 'day' && (() => {
-                        const dateStr = selectedDate.toISOString().split('T')[0];
+                        const dateStr = localYmd(selectedDate);
                         return (
                             <TimeGrid
                                 containerRef={timeGridRef}
@@ -794,7 +918,7 @@ export default function Calendar() {
                                     header:    selectedDate.toLocaleDateString('fr-FR', { weekday: 'long', day: 'numeric', month: 'short' }),
                                     todayFlag: isTodayDate(selectedDate),
                                 }]}
-                                eventsMap={{ [dateStr]: dayEvents }}
+                                eventsMap={{ [dateStr]: dayEvents.filter((e) => eventDayKey(e) === dateStr) }}
                                 nowLine={nowLine}
                                 onNavigate={handleEventClick}
                             />
@@ -868,7 +992,9 @@ export default function Calendar() {
                             <Descriptions.Item label="Date">{detailsEvent.date || '-'}</Descriptions.Item>
                             <Descriptions.Item label="Début">{formatTime(detailsEvent.startTime || detailsEvent.time) || '-'}</Descriptions.Item>
                             <Descriptions.Item label="Fin">{formatTime(detailsEvent.endTime) || '-'}</Descriptions.Item>
-                            <Descriptions.Item label="Lieu">{detailsEvent.room || '-'}</Descriptions.Item>
+                            <Descriptions.Item label="Lieu">
+                                {getEventLocation(detailsEvent) || detailsEvent.room || detailsEvent.location || '-'}
+                            </Descriptions.Item>
                             <Descriptions.Item label="Description">{detailsEvent.description || '-'}</Descriptions.Item>
                         </Descriptions>
                         <Space style={{ marginTop: 16 }}>

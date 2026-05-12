@@ -14,14 +14,23 @@ import {
     PauseCircleOutlined,
     CheckCircleOutlined,
     StopOutlined,
+    MessageOutlined,
 } from '@ant-design/icons';
 import api, { API_BASE } from '../api/client';
 import { useAuth } from '../context/AuthContext';
+import { PDF_ACCEPT, isAcceptedPdfFile } from '../utils/pdfAttachment';
+import { resolveImageSrc } from '../utils/mediaUrl';
 
 const { Title, Text } = Typography;
 const STATUS_COLORS = { ACTIVE: 'success', PAUSED: 'warning', COMPLETED: 'default' };
 const STATUS_LABELS = { ACTIVE: 'Actif', PAUSED: 'En pause', COMPLETED: 'Terminé' };
 const CAN_EDIT = ['ADMIN', 'SUPER_ADMIN', 'DG'];
+
+function isValidOptionalLogoUrl(value) {
+    const v = String(value || '').trim();
+    if (!v) return true;
+    return /^https?:\/\//i.test(v) || v.startsWith('/');
+}
 
 export default function ProjectDetail() {
     const { id } = useParams();
@@ -32,6 +41,7 @@ export default function ProjectDetail() {
     const [loading, setLoading] = useState(true);
     const [uploading, setUploading] = useState(false);
     const [saving, setSaving] = useState(false);
+    const [logoUploading, setLogoUploading] = useState(false);
     const [editOpen, setEditOpen] = useState(false);
     const [form] = Form.useForm();
 
@@ -57,6 +67,11 @@ export default function ProjectDetail() {
     useEffect(() => { load(); }, [id]);
 
     const handleUpload = async ({ file, onSuccess, onError }) => {
+        if (!isAcceptedPdfFile(file)) {
+            message.error('Seuls les fichiers PDF (.pdf) sont acceptés.');
+            onError?.(new Error('not pdf'));
+            return;
+        }
         setUploading(true);
         try {
             const fd = new FormData();
@@ -64,7 +79,7 @@ export default function ProjectDetail() {
             await api.post(`/projects/${id}/files`, fd, {
                 headers: { 'Content-Type': 'multipart/form-data' },
             });
-            message.success('Fichier ajouté');
+            message.success('PDF ajouté');
             onSuccess?.('ok');
             load();
         } catch (err) {
@@ -91,15 +106,46 @@ export default function ProjectDetail() {
             code: project.code || '',
             description: project.description || '',
             isActive: Boolean(project.isActive),
+            logoUrl: project.logoUrl || '',
         });
         setEditOpen(true);
+    };
+
+    const handleLogoUpload = async ({ file, onSuccess, onError }) => {
+        if (!file.type?.startsWith('image/')) {
+            message.error('Veuillez choisir une image.');
+            onError?.(new Error('not image'));
+            return;
+        }
+        setLogoUploading(true);
+        try {
+            const fd = new FormData();
+            fd.append('logo', file);
+            const { data } = await api.post(`/projects/${id}/logo`, fd, {
+                headers: { 'Content-Type': 'multipart/form-data' },
+            });
+            form.setFieldsValue({ logoUrl: data?.logoUrl || '' });
+            message.success('Logo mis à jour');
+            onSuccess?.(data);
+            load();
+        } catch (err) {
+            message.error(err?.response?.data?.error || 'Erreur upload logo');
+            onError?.(err);
+        } finally {
+            setLogoUploading(false);
+        }
     };
 
     const handleSave = async () => {
         try {
             const values = await form.validateFields();
+            const { logoUrl, ...rest } = values;
+            const payload = {
+                ...rest,
+                logoUrl: String(logoUrl || '').trim() || '/logo-gp.png',
+            };
             setSaving(true);
-            await api.put(`/projects/${id}`, values);
+            await api.put(`/projects/${id}`, payload);
             message.success('Projet mis à jour');
             setEditOpen(false);
             load();
@@ -141,17 +187,15 @@ export default function ProjectDetail() {
                 <Button icon={<ArrowLeftOutlined />} onClick={() => navigate('/projects')}>
                     Retour aux projets
                 </Button>
-                {canEdit && (
-                    <Popconfirm
-                        title="Ouvrir l'édition du projet ?"
-                        okText="Oui"
-                        cancelText="Annuler"
-                        onConfirm={openEdit}
-                    >
-                        <Button icon={<EditOutlined />}>
-                            Modifier
-                        </Button>
-                    </Popconfirm>
+                {user?.projectId === project.id && (
+                    <Button icon={<MessageOutlined />} onClick={() => navigate('/discussions?channel=project')}>
+                        Messagerie du projet
+                    </Button>
+                )}
+                {canManageStatus && (
+                    <Button icon={<EditOutlined />} onClick={openEdit}>
+                        Modifier
+                    </Button>
                 )}
                 {canManageStatus && project.status !== 'COMPLETED' && (
                     <Popconfirm
@@ -203,11 +247,43 @@ export default function ProjectDetail() {
                         <Button danger icon={<DeleteOutlined />}>Supprimer</Button>
                     </Popconfirm>
                 )}
+            </Space>
+
+            <div style={{ display: 'flex', alignItems: 'center', gap: 16, marginBottom: 16, flexWrap: 'wrap' }}>
+                {resolveImageSrc(project.logoUrl) ? (
+                    <img
+                        src={resolveImageSrc(project.logoUrl) || ''}
+                        alt={`Logo ${project.name}`}
+                        style={{
+                            width: 64,
+                            height: 64,
+                            objectFit: 'contain',
+                            borderRadius: 12,
+                            border: '1px solid #f0f0f0',
+                            background: '#fafafa',
+                            flexShrink: 0,
+                        }}
+                    />
+                ) : (
+                    <div
+                        style={{
+                            width: 64,
+                            height: 64,
+                            borderRadius: 12,
+                            background: '#e6f4ff',
+                            display: 'flex',
+                            alignItems: 'center',
+                            justifyContent: 'center',
+                            flexShrink: 0,
+                        }}
+                    >
+                        <ProjectOutlined style={{ fontSize: 28, color: '#1565C0' }} />
+                    </div>
+                )}
                 <Title level={3} style={{ margin: 0 }}>
-                    <ProjectOutlined style={{ marginRight: 8 }} />
                     {project.name}
                 </Title>
-            </Space>
+            </div>
 
             <Card style={{ marginBottom: 16 }}>
                 <Descriptions bordered size="small" column={1}>
@@ -255,15 +331,18 @@ export default function ProjectDetail() {
             </Card>
 
             <Card
-                title={<><FileAddOutlined style={{ marginRight: 6 }} />Fichiers ({project._count?.files || 0})</>}
+                title={<><FileAddOutlined style={{ marginRight: 6 }} />Pièces jointes PDF ({project._count?.files || 0})</>}
                 extra={
                     canUploadFiles && (
-                        <Upload showUploadList={false} customRequest={handleUpload} disabled={uploading}>
-                            <Button size="small" icon={<UploadOutlined />} loading={uploading}>Ajouter</Button>
+                        <Upload showUploadList={false} accept={PDF_ACCEPT} customRequest={handleUpload} disabled={uploading}>
+                            <Button size="small" icon={<UploadOutlined />} loading={uploading}>Ajouter un PDF</Button>
                         </Upload>
                     )
                 }
             >
+                <Text type="secondary" style={{ display: 'block', marginBottom: 12, fontSize: 12 }}>
+                    Uniquement des documents PDF (max. 20 Mo).
+                </Text>
                 {project.files?.length > 0 ? (
                     <List
                         size="small"
@@ -286,7 +365,7 @@ export default function ProjectDetail() {
                                 ].filter(Boolean)}
                             >
                                 <List.Item.Meta
-                                    avatar={<FileTextOutlined style={{ color: '#1677ff', fontSize: 18 }} />}
+                                    avatar={<FileTextOutlined style={{ color: '#1565C0', fontSize: 18 }} />}
                                     title={<a href={`${API_BASE}${f.fileUrl}`} target="_blank" rel="noopener noreferrer">{f.fileName}</a>}
                                     description={`${f.uploadedBy?.name || 'Utilisateur'} · ${new Date(f.createdAt).toLocaleString('fr-FR')}`}
                                 />
@@ -315,6 +394,50 @@ export default function ProjectDetail() {
                     </Form.Item>
                     <Form.Item name="description" label="Description">
                         <Input.TextArea rows={3} maxLength={500} />
+                    </Form.Item>
+                    <Form.Item
+                        name="logoUrl"
+                        label="Logo (URL)"
+                        extra="https://… ou /uploads/… Vide = logo par défaut."
+                        rules={[
+                            {
+                                validator: (_, v) => (isValidOptionalLogoUrl(v)
+                                    ? Promise.resolve()
+                                    : Promise.reject(new Error('URL http(s) ou chemin commençant par /'))),
+                            },
+                        ]}
+                    >
+                        <Input allowClear placeholder="https://…" />
+                    </Form.Item>
+                    <Form.Item label="Importer une image">
+                        <Upload
+                            accept="image/*"
+                            showUploadList={false}
+                            disabled={logoUploading}
+                            customRequest={handleLogoUpload}
+                        >
+                            <Button icon={<UploadOutlined />} loading={logoUploading}>Envoyer un logo</Button>
+                        </Upload>
+                    </Form.Item>
+                    <Form.Item label="Aperçu" shouldUpdate>
+                        {() => {
+                            const u = form.getFieldValue('logoUrl');
+                            const src = resolveImageSrc(u);
+                            if (!src) return <Text type="secondary">—</Text>;
+                            return (
+                                <img
+                                    src={src}
+                                    alt="Aperçu"
+                                    style={{
+                                        maxWidth: 200,
+                                        maxHeight: 100,
+                                        objectFit: 'contain',
+                                        borderRadius: 8,
+                                        border: '1px solid #f0f0f0',
+                                    }}
+                                />
+                            );
+                        }}
                     </Form.Item>
                     <Form.Item name="isActive" label="Actif" valuePropName="checked">
                         <Switch />

@@ -11,6 +11,7 @@ import {
     FolderOpenOutlined,
     ApartmentOutlined,
     ProjectOutlined,
+    TagsOutlined,
 } from '@ant-design/icons';
 
 /** Liens de la zone Administration (sidebar + sous-menu principal). */
@@ -26,6 +27,7 @@ export const ADMIN_NAV_ITEMS = [
     { path: '/admin/config', label: 'Configuration globale', icon: SettingOutlined, superOnly: false },
     { path: '/admin/directions', label: 'Directions', icon: ApartmentOutlined, superOnly: false },
     { path: '/admin/projects', label: 'Projets (taxonomie)', icon: ProjectOutlined, superOnly: false },
+    { path: '/admin/event-types', label: 'Types d\'événements', icon: TagsOutlined, superOnly: false },
     { path: '/admin/backups', label: 'Sauvegardes', icon: DatabaseOutlined, superOnly: false },
     { path: '/admin/documents', label: 'Documents (fichiers)', icon: FolderOpenOutlined, superOnly: true },
 ];
@@ -37,5 +39,6 @@ export function getAdminNavForRole(isSuperAdmin) {
 export function getAdminPageTitle(pathname) {
     const found = ADMIN_NAV_ITEMS.find((i) => i.path === pathname);
     if (!found && pathname.startsWith('/admin/directions/')) return 'Directions';
+    if (pathname === '/admin/event-types') return 'Types d\'événements';
     return found?.label || 'Administration';
 }

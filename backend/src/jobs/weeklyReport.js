@@ -55,6 +55,9 @@ async function runWeeklyReport(prisma) {
             DRAFT: 'Brouillon',
             SUBMITTED: 'Soumis',
             IN_CONSOLIDATION: 'En consolidation',
+            CP_PENDING: 'Attente coordinateur projet',
+            SG_PENDING: 'Attente SG ou direction',
+            DG_PENDING: 'Attente validation finale (SG ou DG)',
             VALIDATED: 'Validé',
             RETURNED: 'Retourné',
             SENT: 'Envoyée',
@@ -66,7 +69,10 @@ async function runWeeklyReport(prisma) {
             ADMIN: 'Administrateur',
             RESPONSABLE: 'Responsable',
             CONSOLIDATEUR: 'Consolidateur',
+            COORDINATEUR_PROJET: 'Coordinateur de projet',
+            SECRETAIRE_GENERAL: 'Secrétaire général',
             DG: 'Directeur Général',
+            SUPER_ADMIN: 'Super administrateur',
         };
 
         const rows = (arr, labelMap) =>

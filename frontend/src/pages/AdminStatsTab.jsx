@@ -12,10 +12,24 @@ import api from '../api/client';
 
 const { Title, Text } = Typography;
 
-const ROLE_LABELS = { RESPONSABLE: 'Responsable', CONSOLIDATEUR: 'Consolidateur', DG: 'Dir. Général', ADMIN: 'Administrateur' };
-const ROLE_COLORS = { RESPONSABLE: 'blue', CONSOLIDATEUR: 'purple', DG: 'gold', ADMIN: 'red' };
-const STATUS_LABELS = { DRAFT: 'Brouillon', SUBMITTED: 'Soumis', IN_CONSOLIDATION: 'En consolidation', VALIDATED: 'Validé', RETURNED: 'Retourné' };
-const STATUS_COLORS = { DRAFT: 'default', SUBMITTED: 'blue', IN_CONSOLIDATION: 'purple', VALIDATED: 'green', RETURNED: 'orange' };
+const ROLE_LABELS = {
+    RESPONSABLE: 'Responsable', CONSOLIDATEUR: 'Consolidateur', COORDINATEUR_PROJET: 'Coord. projet',
+    SECRETAIRE_GENERAL: 'Secr. général', DG: 'Dir. Général', ADMIN: 'Administrateur', SUPER_ADMIN: 'Super admin',
+};
+const ROLE_COLORS = {
+    RESPONSABLE: 'blue', CONSOLIDATEUR: 'purple', COORDINATEUR_PROJET: 'geekblue', SECRETAIRE_GENERAL: 'cyan',
+    DG: 'gold', ADMIN: 'red', SUPER_ADMIN: 'magenta',
+};
+const STATUS_LABELS = {
+    DRAFT: 'Brouillon', SUBMITTED: 'Soumis', IN_CONSOLIDATION: 'En consolidation',
+    CP_PENDING: 'Att. coord.', SG_PENDING: 'Att. SG/dir.', DG_PENDING: 'Att. fin. SG/DG',
+    VALIDATED: 'Validé', RETURNED: 'Retourné', CANCELLED: 'Annulé',
+};
+const STATUS_COLORS = {
+    DRAFT: 'default', SUBMITTED: 'blue', IN_CONSOLIDATION: 'purple',
+    CP_PENDING: 'geekblue', SG_PENDING: 'cyan', DG_PENDING: 'gold',
+    VALIDATED: 'green', RETURNED: 'orange', CANCELLED: 'red',
+};
 
 export default function AdminStatsTab() {
     const [stats, setStats] = useState(null);
@@ -64,13 +78,13 @@ export default function AdminStatsTab() {
                             title={<><UserOutlined /> Utilisateurs actifs</>}
                             value={stats.activeUsers}
                             suffix={<Text type="secondary" style={{ fontSize: 13 }}>/ {stats.users}</Text>}
-                            valueStyle={{ color: '#1677ff' }}
+                            valueStyle={{ color: '#1565C0' }}
                         />
                         <div style={{ marginTop: 8 }}>
                             <Progress
                                 percent={stats.users > 0 ? Math.round((stats.activeUsers / stats.users) * 100) : 0}
                                 size="small"
-                                strokeColor="#1677ff"
+                                strokeColor="#1565C0"
                                 showInfo={false}
                             />
                             <Text type="secondary" style={{ fontSize: 12 }}>
@@ -113,8 +127,11 @@ export default function AdminStatsTab() {
                         />
                         <div style={{ marginTop: 8 }}>
                             <Text type="secondary" style={{ fontSize: 12 }}>
-                                {stats.planningsByStatus?.SUBMITTED || 0} soumis &nbsp;·&nbsp;
-                                {stats.planningsByStatus?.IN_CONSOLIDATION || 0} en consol.
+                                {stats.planningsByStatus?.SUBMITTED || 0} soumis ·{' '}
+                                {(stats.planningsByStatus?.CP_PENDING || 0)
+                                    + (stats.planningsByStatus?.SG_PENDING || 0)
+                                    + (stats.planningsByStatus?.DG_PENDING || 0)
+                                    + (stats.planningsByStatus?.IN_CONSOLIDATION || 0)} en validation
                             </Text>
                         </div>
                     </Card>
@@ -163,7 +180,7 @@ export default function AdminStatsTab() {
                             title={<><TeamOutlined /> Réunions ce mois</>}
                             value={stats.meetingsThisMonth}
                             suffix={<Text type="secondary" style={{ fontSize: 13 }}>/ {stats.meetings} total</Text>}
-                            valueStyle={{ color: '#1677ff' }}
+                            valueStyle={{ color: '#1565C0' }}
                         />
                         <Text type="secondary" style={{ fontSize: 12 }}>non annulées</Text>
                     </Card>

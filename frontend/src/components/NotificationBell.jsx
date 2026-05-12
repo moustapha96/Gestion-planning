@@ -37,10 +37,10 @@ export default function NotificationBell({ tone = 'default' }) {
                             alignItems: 'center',
                             justifyContent: 'center',
                             color: panelOpen
-                                ? (onDark ? '#e6f7ff' : '#1677ff')
+                                ? (onDark ? '#e6f7ff' : '#1565C0')
                                 : (onDark ? 'rgba(255,255,255,0.92)' : 'rgba(0,0,0,0.65)'),
                             background: panelOpen
-                                ? (onDark ? 'rgba(255,255,255,0.18)' : '#e6f4ff')
+                                ? (onDark ? 'rgba(255,255,255,0.18)' : '#EFF6FF')
                                 : 'transparent',
                             borderRadius: 8,
                         }}

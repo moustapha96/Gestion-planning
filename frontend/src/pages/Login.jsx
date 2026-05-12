@@ -13,13 +13,13 @@ const pageStyle = {
     display: 'flex',
     alignItems: 'center',
     justifyContent: 'center',
-    background: 'linear-gradient(135deg, #3e7cbc 0%, #2a5fa0 100%)',
+    background: 'linear-gradient(135deg, #1565C0 0%, #0D47A1 100%)',
 };
 
 const cardStyle = {
     background: 'rgba(255,255,255,0.95)',
     borderRadius: 16,
-    padding: '32px 40px',
+    padding: '22px 32px 16px',
     width: '100%',
     maxWidth: 440,
     boxShadow: '0 8px 32px rgba(0,0,0,0.18)',
@@ -28,6 +28,7 @@ const cardStyle = {
 const ADM_BLUE = '#1565C0';
 
 export default function Login() {
+    const [form] = Form.useForm();
     const [loading, setLoading] = useState(false);
     const [error, setError] = useState('');
     const [step, setStep] = useState('credentials');
@@ -47,7 +48,15 @@ export default function Login() {
                 navigate('/dashboard');
             }
         } catch (err) {
-            setError(err.response?.data?.error || 'Email ou mot de passe incorrect');
+            const status = err?.response?.status;
+            const serverMessage = err?.response?.data?.error;
+            const authFailed =
+                status === 401 ||
+                status === 403 ||
+                /incorrect|invalide|invalid|wrong|mot de passe|password|identifiant|email/i.test(serverMessage || '');
+
+            form.setFieldsValue({ email: values.email });
+            setError(authFailed ? 'Identifiants incorrects (email ou mot de passe).' : (serverMessage || 'Une erreur est survenue. Veuillez reessayer.'));
         } finally {
             setLoading(false);
         }
@@ -72,17 +81,17 @@ export default function Login() {
 
                 {/* Header logo */}
                 <div style={{ textAlign: 'center' }}>
-                    <img src={logo} alt="ADM GP logo" style={{ height: 200, display: 'block', margin: '0 auto 5px' }} />
+                    <img src={logo} alt="ADM GP logo" style={{ height: 148, display: 'block', margin: '0 auto 2px' }} />
                     <Text style={{ color: 'rgba(255,255,255,0.75)' }}>
                         {step === 'credentials' ? 'Connectez-vous à votre compte' : 'Vérification en deux étapes'}
                     </Text>
                 </div>
 
-                <Divider style={{ borderColor: '#E8EFF8', margin: '16px 0' }} />
+                <Divider style={{ borderColor: '#E8EFF8', margin: '10px 0 12px' }} />
 
                 {/* Indicateur 2FA */}
                 {step === 'totp' && (
-                    <div style={{ marginBottom: 20 }}>
+                    <div style={{ marginBottom: 14 }}>
                         <Steps
                             current={1}
                             size="small"
@@ -98,7 +107,7 @@ export default function Login() {
 
                 {/* Étape 1 : email + mot de passe */}
                 {step === 'credentials' && (
-                    <Form layout="vertical" onFinish={handleCredentials}>
+                    <Form form={form} layout="vertical" onFinish={handleCredentials}>
                         <Form.Item
                             name="email"
                             label={<span style={{ color: '#1A2B4A', fontWeight: 500 }}>Email</span>}
@@ -113,17 +122,17 @@ export default function Login() {
                         >
                             <Input.Password prefix={<LockOutlined style={{ color: '#90A8C8' }} />} size="large" placeholder="••••••••" />
                         </Form.Item>
-                        <div style={{ textAlign: 'right', marginBottom: 16, marginTop: -8 }}>
+                        <div style={{ textAlign: 'right', marginBottom: 12, marginTop: -8 }}>
                             <Link to="/forgot-password" style={{ color: ADM_BLUE, fontSize: 13 }}>Mot de passe oublié ?</Link>
                         </div>
                         <Form.Item>
-                            <Space orientation="vertical" style={{ width: '100%' }} size="middle">
+                            <Space orientation="vertical" style={{ width: '100%' }} size="small">
                                 <Button type="primary" htmlType="submit" size="large" loading={loading} block
-                                    style={{ background: '#3e7cbc', borderColor: '#48BB78', borderWidth: 1.5 }}>
+                                    style={{ background: '#1565C0', borderColor: '#48BB78', borderWidth: 1.5 }}>
                                     Se connecter
                                 </Button>
                                 <Button size="large" icon={<HomeOutlined />} block onClick={() => navigate('/')}
-                                    style={{ background: 'white', color: '#3e7cbc', borderColor: 'white', fontWeight: 600 }}>
+                                    style={{ background: 'white', color: '#1565C0', borderColor: 'white', fontWeight: 600 }}>
                                     Voir l&apos;accueil du planning
                                 </Button>
                             </Space>
@@ -137,8 +146,8 @@ export default function Login() {
                         <div style={{
                             background: '#F0F6FF',
                             borderRadius: 10,
-                            padding: 18,
-                            marginBottom: 20,
+                            padding: 14,
+                            marginBottom: 14,
                             border: '1px solid #C5D8F0',
                             textAlign: 'center',
                         }}>
@@ -170,7 +179,7 @@ export default function Login() {
                                 />
                             </Form.Item>
                             <Form.Item>
-                                <Space direction="vertical" style={{ width: '100%' }} size="middle">
+                                <Space direction="vertical" style={{ width: '100%' }} size="small">
                                     <Button
                                         type="primary"
                                         htmlType="submit"
@@ -194,13 +203,13 @@ export default function Login() {
                             </Form.Item>
                         </Form>
 
-                        <div style={{ fontSize: 12, color: '#9CA3AF', textAlign: 'center' }}>
+                        <div style={{ fontSize: 12, color: '#9CA3AF', textAlign: 'center', marginTop: 4 }}>
                             Le code expire dans 30 secondes. Générez-en un nouveau si besoin.
                         </div>
                     </div>
                 )}
 
-                <Divider style={{ borderColor: 'rgba(255,255,255,0.15)' }} />
+                <Divider style={{ borderColor: 'rgba(255,255,255,0.15)', margin: '12px 0 8px' }} />
                 <div style={{ fontSize: 12, color: 'rgba(255,255,255,0.5)', textAlign: 'center' }}>
                     ADM GP · Optimisation et Organisation
                 </div>

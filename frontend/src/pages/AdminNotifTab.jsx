@@ -9,8 +9,14 @@ import api from '../api/client';
 const { TextArea } = Input;
 const { Title, Text } = Typography;
 
-const ROLE_LABELS = { RESPONSABLE: 'Responsable', CONSOLIDATEUR: 'Consolidateur', DG: 'Dir. Général', ADMIN: 'Administrateur' };
-const ROLE_COLORS = { RESPONSABLE: 'blue', CONSOLIDATEUR: 'purple', DG: 'gold', ADMIN: 'red' };
+const ROLE_LABELS = {
+    RESPONSABLE: 'Responsable', CONSOLIDATEUR: 'Consolidateur', COORDINATEUR_PROJET: 'Coord. projet',
+    SECRETAIRE_GENERAL: 'Secr. général', DG: 'Dir. Général', ADMIN: 'Administrateur', SUPER_ADMIN: 'Super admin',
+};
+const ROLE_COLORS = {
+    RESPONSABLE: 'blue', CONSOLIDATEUR: 'purple', COORDINATEUR_PROJET: 'geekblue', SECRETAIRE_GENERAL: 'cyan',
+    DG: 'gold', ADMIN: 'red', SUPER_ADMIN: 'magenta',
+};
 
 const AUDIENCE_OPTIONS = [
     { value: 'ALL', label: 'Tous les utilisateurs actifs', icon: <TeamOutlined /> },

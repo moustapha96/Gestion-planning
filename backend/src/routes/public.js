@@ -16,6 +16,38 @@ function endOfDay(d) {
     return x;
 }
 
+/** Lundi 00:00:00 local */
+function startOfWeekMonday(d) {
+    const date = new Date(d);
+    date.setHours(0, 0, 0, 0);
+    const jsDay = date.getDay();
+    const offset = jsDay === 0 ? -6 : 1 - jsDay;
+    date.setDate(date.getDate() + offset);
+    return date;
+}
+
+function ymdLocal(d) {
+    const x = new Date(d);
+    if (Number.isNaN(x.getTime())) return '';
+    return `${x.getFullYear()}-${String(x.getMonth() + 1).padStart(2, '0')}-${String(x.getDate()).padStart(2, '0')}`;
+}
+
+function mapRoomsWithBookings(rooms) {
+    return (rooms || []).map((r) => ({
+        id: r.id,
+        name: r.name,
+        capacity: r.capacity,
+        location: r.location || '',
+        bookings: (r.bookings || []).map((b) => ({
+            id: b.id,
+            startTime: b.startTime,
+            endTime: b.endTime,
+            meetingTitle: (b.meeting && b.meeting.title) || null,
+            meetingId: b.meetingId,
+        })),
+    }));
+}
+
 // GET /api/public/day-planning - Planning de la journée pour toutes les salles (public)
 router.get('/day-planning', async (req, res) => {
     try {
@@ -43,19 +75,7 @@ router.get('/day-planning', async (req, res) => {
             orderBy: { name: 'asc' },
         });
 
-        const roomsWithBookings = (rooms || []).map((r) => ({
-            id: r.id,
-            name: r.name,
-            capacity: r.capacity,
-            location: r.location || '',
-            bookings: (r.bookings || []).map((b) => ({
-                id: b.id,
-                startTime: b.startTime,
-                endTime: b.endTime,
-                meetingTitle: (b.meeting && b.meeting.title) || null,
-                meetingId: b.meetingId,
-            })),
-        }));
+        const roomsWithBookings = mapRoomsWithBookings(rooms);
 
         const missions = await req.prisma.mission.findMany({
             where: {
@@ -74,6 +94,7 @@ router.get('/day-planning', async (req, res) => {
             include: {
                 organizer: { select: { name: true } },
                 room: { select: { name: true, location: true } },
+                eventType: { select: { id: true, name: true, code: true, color: true } },
             },
             orderBy: { startTime: 'asc' },
         });
@@ -86,6 +107,89 @@ router.get('/day-planning', async (req, res) => {
         });
     } catch (error) {
         res.status(200).json({ rooms: [], date: new Date().toISOString() });
+    }
+});
+
+// GET /api/public/week-planning - Lundi–dimanche : salles, réunions, missions (public)
+router.get('/week-planning', async (req, res) => {
+    try {
+        if (!req.prisma) {
+            return res.status(200).json({ weekStart: null, days: [] });
+        }
+        const anchor = req.query.date ? new Date(req.query.date) : new Date();
+        const monday = startOfWeekMonday(anchor);
+        const sunday = new Date(monday);
+        sunday.setDate(monday.getDate() + 6);
+        const rangeEnd = endOfDay(sunday);
+
+        const roomsRaw = await req.prisma.room.findMany({
+            where: { status: 'ACTIVE' },
+            include: {
+                bookings: {
+                    where: {
+                        status: 'CONFIRMED',
+                        date: { gte: monday, lte: rangeEnd },
+                    },
+                    include: { meeting: { select: { id: true, title: true } } },
+                    orderBy: [{ date: 'asc' }, { createdAt: 'asc' }],
+                },
+            },
+            orderBy: { name: 'asc' },
+        });
+
+        const meetings = await req.prisma.meeting.findMany({
+            where: {
+                status: { not: 'CANCELLED' },
+                startTime: { gte: monday, lte: rangeEnd },
+            },
+            include: {
+                organizer: { select: { name: true } },
+                room: { select: { name: true, location: true } },
+                eventType: { select: { id: true, name: true, code: true, color: true } },
+            },
+            orderBy: { startTime: 'asc' },
+        });
+
+        const missions = await req.prisma.mission.findMany({
+            where: {
+                status: { not: 'CANCELLED' },
+                startTime: { gte: monday, lte: rangeEnd },
+            },
+            include: { createdBy: { select: { name: true } } },
+            orderBy: { startTime: 'asc' },
+        });
+
+        const roomsBase = mapRoomsWithBookings(roomsRaw);
+        const days = [];
+        for (let i = 0; i < 7; i += 1) {
+            const d = new Date(monday);
+            d.setDate(monday.getDate() + i);
+            const dk = ymdLocal(startOfDay(d));
+
+            const roomsForDay = roomsBase.map((room) => ({
+                ...room,
+                bookings: room.bookings.filter((b) => ymdLocal(b.date) === dk),
+            }));
+
+            const meetingsForDay = meetings.filter((m) => ymdLocal(m.startTime) === dk);
+            const missionsForDay = missions.filter((m) => ymdLocal(m.startTime) === dk);
+
+            days.push({
+                date: `${dk}T12:00:00.000Z`,
+                dateKey: dk,
+                rooms: roomsForDay,
+                meetings: meetingsForDay,
+                missions: missionsForDay,
+            });
+        }
+
+        res.status(200).json({
+            weekStart: monday.toISOString(),
+            weekEnd: rangeEnd.toISOString(),
+            days,
+        });
+    } catch (error) {
+        res.status(200).json({ weekStart: null, days: [] });
     }
 });
 

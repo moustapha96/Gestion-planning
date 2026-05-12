@@ -12,7 +12,9 @@ API REST pour la gestion de planning, réunions, salles et notifications.
 ## Rôles utilisateurs
 - **RESPONSABLE** : Soumet son planning hebdomadaire
 - **CONSOLIDATEUR** : Consolide les plannings des responsables
-- **DG** : Valide ou retourne les plannings consolidés
+- **COORDINATEUR_PROJET** : Première validation du planning après consolidation
+- **SECRETAIRE_GENERAL** : Même pouvoir que la direction sur les deux dernières étapes (accord SG/DG puis validation finale) ; retour pour correction
+- **DG** : Même pouvoir que le secrétaire général sur l’accord et la validation finale ; visualise tout le circuit
 - **ADMIN** : Gestion des utilisateurs et configuration
 - **SUPER_ADMIN** : Même périmètre qu'ADMIN + audit messagerie et modération globale
 
@@ -47,11 +49,16 @@ Toutes les routes protégées requièrent un token JWT Bearer dans le header Aut
             email: { type: 'string', format: 'email', example: 'jean.dupont@example.com' },
             role: {
               type: 'string',
-              enum: ['RESPONSABLE', 'CONSOLIDATEUR', 'DG', 'ADMIN', 'SUPER_ADMIN'],
+              enum: ['RESPONSABLE', 'CONSOLIDATEUR', 'COORDINATEUR_PROJET', 'SECRETAIRE_GENERAL', 'DG', 'ADMIN', 'SUPER_ADMIN'],
               example: 'RESPONSABLE',
             },
             isActive: { type: 'boolean', example: true },
             createdAt: { type: 'string', format: 'date-time' },
+            phone: { type: 'string', nullable: true, example: '+221 33 123 45 67' },
+            jobTitle: { type: 'string', nullable: true, example: 'Chargé de mission' },
+            cellUnit: { type: 'string', nullable: true, example: 'Cellule budget' },
+            directionId: { type: 'string', nullable: true },
+            projectId: { type: 'string', nullable: true },
           },
         },
         Planning: {
@@ -62,7 +69,7 @@ Toutes les routes protégées requièrent un token JWT Bearer dans le header Aut
             weekStart: { type: 'string', format: 'date-time' },
             status: {
               type: 'string',
-              enum: ['DRAFT', 'SUBMITTED', 'IN_CONSOLIDATION', 'VALIDATED', 'RETURNED'],
+              enum: ['DRAFT', 'SUBMITTED', 'IN_CONSOLIDATION', 'CP_PENDING', 'SG_PENDING', 'DG_PENDING', 'VALIDATED', 'RETURNED', 'CANCELLED'],
               example: 'DRAFT',
             },
             submittedAt: { type: 'string', format: 'date-time', nullable: true },

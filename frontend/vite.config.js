@@ -65,6 +65,26 @@ export default defineConfig({
         }),
     ],
     base: './',
+    /** Même proxy qu’en dev : `vite preview` (service systemd) relaie /api vers le backend local. */
+    preview: {
+        port: 9000,
+        host: true,
+        proxy: {
+            '/api': {
+                target: 'http://127.0.0.1:3001',
+                changeOrigin: true,
+            },
+            '/uploads': {
+                target: 'http://127.0.0.1:3001',
+                changeOrigin: true,
+            },
+            '/socket.io': {
+                target: 'http://127.0.0.1:3001',
+                changeOrigin: true,
+                ws: true,
+            },
+        },
+    },
     server: {
         port: 9000,
         proxy: {

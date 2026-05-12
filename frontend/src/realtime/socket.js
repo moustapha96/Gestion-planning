@@ -104,7 +104,7 @@ export function getSocketStatusLabel(status = socketStatus) {
     if (!status.browserOnline) return 'Navigateur hors ligne';
     switch (status.state) {
         case 'connected':
-            return 'Temps réel connecté';
+            return 'Connecté';
         case 'connecting':
             return 'Connexion au serveur…';
         case 'reconnecting':

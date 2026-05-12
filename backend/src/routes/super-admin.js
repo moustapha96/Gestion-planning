@@ -131,7 +131,12 @@ router.post('/backups/:id/restore', privilegedAdminMiddleware, async (req, res) 
 
 /**
  * POST /api/super-admin/purge-data
- * body: { confirm: "PURGE_ALL_DATA", createBackup?: boolean }
+ * body: {
+ *   confirm: "PURGE_ALL_DATA",
+ *   createBackup?: boolean,
+ *   preserveRooms?: boolean,      // défaut true
+ *   preserveRepertoire?: boolean, // défaut true
+ * }
  */
 router.post('/purge-data', privilegedAdminMiddleware, async (req, res) => {
     try {
@@ -142,6 +147,9 @@ router.post('/purge-data', privilegedAdminMiddleware, async (req, res) => {
             });
         }
 
+        const preserveRooms      = req.body?.preserveRooms      !== false;
+        const preserveRepertoire = req.body?.preserveRepertoire !== false;
+
         let backup = null;
         if (req.body?.createBackup !== false) {
             ensureBackupsDir();
@@ -151,14 +159,22 @@ router.post('/purge-data', privilegedAdminMiddleware, async (req, res) => {
             });
         }
 
-        const purgeCounts = await purgeBusinessData(req.prisma);
+        const purgeCounts = await purgeBusinessData(req.prisma, {
+            preserveRooms,
+            preserveRepertoire,
+        });
+
+        const detail = [
+            preserveRooms      ? 'salles préservées'      : 'salles supprimées',
+            preserveRepertoire ? 'répertoire préservé'    : 'répertoire supprimé',
+        ].join(', ');
 
         await createAuditLog(
             req,
             'DATA_PURGED',
             'System',
             'global',
-            `Purge globale exécutée${backup ? ` après backup ${backup.fileName}` : ''}`,
+            `Purge globale exécutée${backup ? ` après backup ${backup.fileName}` : ''} — ${detail}`,
         );
 
         res.json({

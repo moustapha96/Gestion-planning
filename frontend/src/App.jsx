@@ -23,6 +23,7 @@ import {
     AppConfigTab,
 } from './pages/admin/AdminSections';
 import AdminTaxonomyPage from './pages/admin/AdminTaxonomyPage';
+import AdminEventTypesPage from './pages/admin/AdminEventTypesPage';
 import DirectionDetailPage from './pages/admin/DirectionDetailPage';
 import DirectionEditPage from './pages/admin/DirectionEditPage';
 import AdminStatsTab from './pages/AdminStatsTab';
@@ -120,6 +121,7 @@ export default function App() {
                                 <Route path="directions/:id" element={<DirectionDetailPage />} />
                                 <Route path="directions/:id/edit" element={<DirectionEditPage />} />
                                 <Route path="projects" element={<AdminTaxonomyPage variant="projects" />} />
+                                <Route path="event-types" element={<AdminEventTypesPage />} />
                                 <Route
                                     path="backups"
                                     element={<AdminSuperBackupsTab />}

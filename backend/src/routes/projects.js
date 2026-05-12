@@ -3,12 +3,29 @@ const path = require('path');
 const fs = require('fs');
 const multer = require('multer');
 const { isPrivilegedAdmin, ROLES } = require('../config/roles');
+const { pdfOnlyMulterFileFilter, wrapMulterUpload } = require('../utils/pdfUpload');
 
 const router = express.Router();
 
 const ALLOWED_ROLES = ['ADMIN', 'SUPER_ADMIN', 'DG'];
 const PROJECT_STATUSES = ['ACTIVE', 'PAUSED', 'COMPLETED'];
 const uploadsDir = path.join(__dirname, '../../uploads/project-files');
+const projectLogosDir = path.join(__dirname, '../../uploads/project-logos');
+
+const uploadProjectLogo = multer({
+    storage: multer.diskStorage({
+        destination(_req, _file, cb) {
+            fs.mkdirSync(projectLogosDir, { recursive: true });
+            cb(null, projectLogosDir);
+        },
+        filename(req, file, cb) {
+            const ext = (path.extname(file.originalname) || '').toLowerCase();
+            const safeId = String(req.params.id || 'new').replace(/[^a-zA-Z0-9_-]/g, '');
+            cb(null, `project_logo_${safeId}_${Date.now()}${ext || '.png'}`);
+        },
+    }),
+    limits: { fileSize: 5 * 1024 * 1024 },
+});
 
 const uploadProjectFile = multer({
     storage: multer.diskStorage({
@@ -16,12 +33,12 @@ const uploadProjectFile = multer({
             fs.mkdirSync(uploadsDir, { recursive: true });
             cb(null, uploadsDir);
         },
-        filename(req, file, cb) {
-            const ext = (path.extname(file.originalname) || '').toLowerCase().slice(0, 10) || '.bin';
-            cb(null, `${req.params.id}_${Date.now()}${ext}`);
+        filename(req, _file, cb) {
+            cb(null, `${req.params.id}_${Date.now()}.pdf`);
         },
     }),
     limits: { fileSize: 20 * 1024 * 1024 },
+    fileFilter: pdfOnlyMulterFileFilter,
 });
 
 function canManageProject(project, user) {
@@ -88,14 +105,16 @@ router.get('/:id', async (req, res) => {
 
 router.post('/', async (req, res) => {
     if (!ALLOWED_ROLES.includes(req.user?.role)) return res.status(403).json({ error: 'Accès refusé' });
-    const { name, code, description } = req.body;
+    const { name, code, description, logoUrl: logoUrlRaw } = req.body;
     if (!name?.trim()) return res.status(400).json({ error: 'Le nom est requis' });
+    const logoUrl = logoUrlRaw !== undefined ? String(logoUrlRaw || '').trim() : null;
     try {
         const project = await req.prisma.project.create({
             data: {
                 name: name.trim(),
                 code: code?.trim() || null,
                 description: description?.trim() || null,
+                ...(logoUrl ? { logoUrl } : {}),
                 status: 'ACTIVE',
                 isActive: true,
                 createdById: req.user?.id || null,
@@ -113,12 +132,16 @@ router.put('/:id', async (req, res) => {
     if (!project) return res.status(404).json({ error: 'Projet introuvable' });
     if (!canManageProject(project, req.user)) return res.status(403).json({ error: 'Accès refusé' });
 
-    const { name, code, description, isActive } = req.body;
+    const { name, code, description, isActive, logoUrl: logoUrlBody } = req.body;
     const data = {};
     if (name !== undefined) data.name = String(name || '').trim();
     if (code !== undefined) data.code = code?.trim() || null;
     if (description !== undefined) data.description = description?.trim() || null;
     if (isActive !== undefined) data.isActive = Boolean(isActive);
+    if (logoUrlBody !== undefined) {
+        const lu = String(logoUrlBody || '').trim();
+        data.logoUrl = lu || '/logo-gp.png';
+    }
 
     try {
         const updated = await req.prisma.project.update({ where: { id: req.params.id }, data });
@@ -148,7 +171,32 @@ router.put('/:id/status', async (req, res) => {
     return res.json(updated);
 });
 
-router.post('/:id/files', uploadProjectFile.single('file'), async (req, res) => {
+router.post('/:id/logo', (req, res, next) => {
+    uploadProjectLogo.single('logo')(req, res, (err) => {
+        if (err) return res.status(400).json({ error: err.message || 'Erreur upload logo' });
+        next();
+    });
+}, async (req, res) => {
+    try {
+        if (!req.file) return res.status(400).json({ error: 'Aucun logo reçu.' });
+        if (req.file.mimetype && !req.file.mimetype.startsWith('image/')) {
+            return res.status(400).json({ error: 'Le logo doit être une image.' });
+        }
+        const project = await req.prisma.project.findUnique({ where: { id: req.params.id } });
+        if (!project) return res.status(404).json({ error: 'Projet introuvable' });
+        if (!canManageProject(project, req.user)) return res.status(403).json({ error: 'Accès refusé' });
+        const logoUrl = `/uploads/project-logos/${req.file.filename}`;
+        const updated = await req.prisma.project.update({
+            where: { id: project.id },
+            data: { logoUrl },
+        });
+        return res.status(201).json({ logoUrl, project: updated });
+    } catch (err) {
+        return res.status(400).json({ error: err.message || 'Erreur upload logo' });
+    }
+});
+
+router.post('/:id/files', wrapMulterUpload(uploadProjectFile.single('file')), async (req, res) => {
     try {
         if (!req.file) return res.status(400).json({ error: 'Aucun fichier envoyé.' });
         const project = await req.prisma.project.findUnique({ where: { id: req.params.id } });

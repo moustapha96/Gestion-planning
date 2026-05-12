@@ -2,7 +2,8 @@ const express = require('express');
 const fs = require('fs');
 const path = require('path');
 const multer = require('multer');
-const { ROLES, isPrivilegedAdmin } = require('../config/roles');
+const roleMiddleware = require('../middlewares/role.middleware');
+const { ROLES, ADMIN_ROUTE_ROLES, isPrivilegedAdmin } = require('../config/roles');
 const { syncDirectionDiscussionMembers } = require('../services/directionDiscussion.service');
 
 const router = express.Router();
@@ -26,7 +27,14 @@ function canManageDirections(role) {
 }
 
 function canViewAllPlannings(role) {
-    return [ROLES.ADMIN, ROLES.SUPER_ADMIN, ROLES.CONSOLIDATEUR, ROLES.DG].includes(role);
+    return [
+        ROLES.ADMIN,
+        ROLES.SUPER_ADMIN,
+        ROLES.CONSOLIDATEUR,
+        ROLES.COORDINATEUR_PROJET,
+        ROLES.SECRETAIRE_GENERAL,
+        ROLES.DG,
+    ].includes(role);
 }
 
 function normalizeDate(value, endOfDay = false) {
@@ -52,6 +60,52 @@ async function ensureDirectionProjectExist(prisma, directionId, projectId) {
         if (!p) throw new Error('Projet introuvable');
         if (p.status !== 'ACTIVE' || !p.isActive) throw new Error('Projet inactif, en pause ou terminé');
     }
+}
+
+/**
+ * Types d'événements par défaut.
+ * Ces lignes sont automatiquement créées si manquantes au démarrage du serveur
+ * et lors d'un appel à GET /events/event-types.
+ *
+ * Le code est utilisé comme clé fonctionnelle (REUNION pour les réunions,
+ * MISSION pour les missions) et NE DOIT PAS être renommé.
+ */
+const DEFAULT_EVENT_TYPES = [
+    { code: 'REUNION',   name: 'Réunion',      color: '#1565C0', sortOrder: 10 },
+    { code: 'MISSION',   name: 'Mission',      color: '#722ed1', sortOrder: 20 },
+    { code: 'ATELIER',   name: 'Atelier',      color: '#13c2c2', sortOrder: 30 },
+    { code: 'FORMATION', name: 'Formation',    color: '#52c41a', sortOrder: 40 },
+    { code: 'AUDIENCE',  name: 'Audience',     color: '#faad14', sortOrder: 50 },
+    { code: 'AUTRE',     name: 'Autre',        color: '#8c8c8c', sortOrder: 99 },
+];
+
+/**
+ * Crée les types d'événements par défaut s'ils n'existent pas.
+ * Idempotent : peut être appelé plusieurs fois sans risque.
+ * @returns {Promise<{created: string[], existed: string[]}>}
+ */
+async function ensureDefaultEventTypes(prisma) {
+    const created = [];
+    const existed = [];
+    for (const def of DEFAULT_EVENT_TYPES) {
+        const found = await prisma.eventType.findUnique({ where: { code: def.code } });
+        if (found) {
+            // Réactive automatiquement si désactivé
+            if (!found.isActive) {
+                await prisma.eventType.update({
+                    where: { id: found.id },
+                    data: { isActive: true },
+                });
+            }
+            existed.push(def.code);
+        } else {
+            await prisma.eventType.create({
+                data: { ...def, isActive: true },
+            });
+            created.push(def.code);
+        }
+    }
+    return { created, existed };
 }
 
 router.get('/unified', async (req, res) => {
@@ -91,6 +145,7 @@ router.get('/unified', async (req, res) => {
                     invitations: { select: { userId: true, status: true } },
                     direction: { select: { id: true, name: true, code: true } },
                     project: { select: { id: true, name: true, code: true } },
+                    eventType: { select: { id: true, name: true, code: true, color: true } },
                 },
                 orderBy: { startTime: 'desc' },
                 take: 500,
@@ -128,6 +183,7 @@ router.get('/unified', async (req, res) => {
                     room: { select: { id: true, name: true, location: true } },
                     direction: { select: { id: true, name: true, code: true } },
                     project: { select: { id: true, name: true, code: true } },
+                    eventType: { select: { id: true, name: true, code: true, color: true } },
                     planning: {
                         include: {
                             user: { select: { id: true, name: true, email: true } },
@@ -156,6 +212,9 @@ router.get('/unified', async (req, res) => {
                 link: `/meetings/${m.id}`,
                 project: m.project || null,
                 direction: m.direction || null,
+                category: m.eventType
+                    ? { id: m.eventType.id, name: m.eventType.name, code: m.eventType.code, color: m.eventType.color }
+                    : null,
             })),
             ...missions.map((m) => ({
                 id: `MISSION:${m.id}`,
@@ -190,6 +249,9 @@ router.get('/unified', async (req, res) => {
                 link: `/planning/${e.planningId}`,
                 project: e.project || null,
                 direction: e.direction || null,
+                category: e.eventType
+                    ? { id: e.eventType.id, name: e.eventType.name, code: e.eventType.code, color: e.eventType.color }
+                    : null,
             })),
         ];
 
@@ -253,8 +315,14 @@ router.get('/filters/meta', async (req, res) => {
             _count: { id: true },
         });
         const planningTypes = (eventTypesRaw || []).map((x) => String(x.type || '').toUpperCase()).filter(Boolean);
+        const dbTypeRows = await req.prisma.eventType.findMany({
+            where: { isActive: true },
+            select: { code: true },
+            orderBy: { sortOrder: 'asc' },
+        });
+        const dbCodes = (dbTypeRows || []).map((x) => String(x.code || '').toUpperCase()).filter(Boolean);
         const [eventTypes, directions, projects] = await Promise.all([
-            Promise.resolve(Array.from(new Set(['MEETING', 'MISSION', ...planningTypes])).sort()),
+            Promise.resolve(Array.from(new Set(['MEETING', 'MISSION', ...planningTypes, ...dbCodes])).sort()),
             req.prisma.direction.findMany({
                 where: { isActive: true },
                 select: { id: true, name: true, code: true },
@@ -364,7 +432,7 @@ router.post('/projects', async (req, res) => {
 router.get('/taxonomy', async (req, res) => {
     try {
         const includeInactive = canManageDirections(req.user?.role) && String(req.query?.all || '') === '1';
-        const [directions, projects] = await Promise.all([
+        const [directions, projects, eventTypes] = await Promise.all([
             req.prisma.direction.findMany({
                 where: includeInactive ? {} : { isActive: true },
                 orderBy: { name: 'asc' },
@@ -373,8 +441,13 @@ router.get('/taxonomy', async (req, res) => {
                 where: includeInactive ? {} : { isActive: true, status: 'ACTIVE' },
                 orderBy: { name: 'asc' },
             }),
+            req.prisma.eventType.findMany({
+                where: includeInactive ? {} : { isActive: true },
+                orderBy: [{ sortOrder: 'asc' }, { name: 'asc' }],
+                select: { id: true, name: true, code: true, color: true, sortOrder: true, isActive: true },
+            }),
         ]);
-        res.json({ directions, projects });
+        res.json({ directions, projects, eventTypes });
     } catch (error) {
         res.status(500).json({ error: error.message });
     }
@@ -489,6 +562,99 @@ router.delete('/directions/:id', async (req, res) => {
     }
 });
 
+router.get('/event-types', async (req, res) => {
+    try {
+        const all = isPrivilegedAdmin(req.user?.role) && String(req.query.all || '') === '1';
+
+        // Seed à la volée si la table est totalement vide ou s'il manque REUNION/MISSION
+        const required = ['REUNION', 'MISSION'];
+        const present = await req.prisma.eventType.findMany({
+            where: { code: { in: required } },
+            select: { code: true },
+        });
+        if (present.length < required.length) {
+            await ensureDefaultEventTypes(req.prisma);
+        }
+
+        const rows = await req.prisma.eventType.findMany({
+            where: all ? {} : { isActive: true },
+            orderBy: [{ sortOrder: 'asc' }, { name: 'asc' }],
+        });
+        res.json(rows);
+    } catch (error) {
+        res.status(500).json({ error: error.message });
+    }
+});
+
+/**
+ * POST /events/event-types/ensure-defaults
+ * Crée (ou réactive) les types d'événements par défaut.
+ * Réservé aux admins. Idempotent.
+ */
+router.post('/event-types/ensure-defaults', roleMiddleware(ADMIN_ROUTE_ROLES), async (req, res) => {
+    try {
+        const result = await ensureDefaultEventTypes(req.prisma);
+        res.json(result);
+    } catch (error) {
+        res.status(500).json({ error: error.message });
+    }
+});
+
+router.post('/event-types', roleMiddleware(ADMIN_ROUTE_ROLES), async (req, res) => {
+    try {
+        const name = String(req.body?.name || '').trim();
+        const code = String(req.body?.code || '').trim().toUpperCase().replace(/\s+/g, '_');
+        const color = String(req.body?.color || '#1565C0').trim() || '#1565C0';
+        const sortOrder = Number.isFinite(Number(req.body?.sortOrder)) ? Number(req.body.sortOrder) : 0;
+        if (!name) return res.status(400).json({ error: 'Le libellé est requis.' });
+        if (!code) return res.status(400).json({ error: 'Le code est requis (ex. ATELIER).' });
+        const created = await req.prisma.eventType.create({
+            data: { name, code, color, sortOrder, isActive: true },
+        });
+        res.status(201).json(created);
+    } catch (error) {
+        if (error.code === 'P2002') return res.status(409).json({ error: 'Ce code existe déjà.' });
+        res.status(400).json({ error: error.message });
+    }
+});
+
+router.put('/event-types/:id', roleMiddleware(ADMIN_ROUTE_ROLES), async (req, res) => {
+    try {
+        const id = req.params.id;
+        const data = {};
+        if (req.body.name !== undefined) {
+            const name = String(req.body.name || '').trim();
+            if (!name) return res.status(400).json({ error: 'Le libellé ne peut pas être vide.' });
+            data.name = name;
+        }
+        if (req.body.code !== undefined) {
+            const code = String(req.body.code || '').trim().toUpperCase().replace(/\s+/g, '_');
+            if (!code) return res.status(400).json({ error: 'Code invalide.' });
+            data.code = code;
+        }
+        if (req.body.color !== undefined) data.color = String(req.body.color || '').trim() || '#1565C0';
+        if (req.body.sortOrder !== undefined) data.sortOrder = Number(req.body.sortOrder) || 0;
+        if (req.body.isActive !== undefined) data.isActive = Boolean(req.body.isActive);
+        const updated = await req.prisma.eventType.update({ where: { id }, data });
+        res.json(updated);
+    } catch (error) {
+        if (error.code === 'P2002') return res.status(409).json({ error: 'Ce code existe déjà.' });
+        res.status(400).json({ error: error.message });
+    }
+});
+
+router.delete('/event-types/:id', roleMiddleware(ADMIN_ROUTE_ROLES), async (req, res) => {
+    try {
+        const updated = await req.prisma.eventType.update({
+            where: { id: req.params.id },
+            data: { isActive: false },
+        });
+        res.json(updated);
+    } catch (error) {
+        res.status(400).json({ error: error.message });
+    }
+});
+
 router.post('/validate-links', async (req, res) => {
     try {
         await ensureDirectionProjectExist(req.prisma, req.body?.directionId || null, req.body?.projectId || null);
@@ -499,3 +665,5 @@ router.post('/validate-links', async (req, res) => {
 });
 
 module.exports = router;
+module.exports.ensureDefaultEventTypes = ensureDefaultEventTypes;
+module.exports.DEFAULT_EVENT_TYPES = DEFAULT_EVENT_TYPES;

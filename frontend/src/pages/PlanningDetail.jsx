@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useState, useCallback } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import {
     Card, Typography, Button, Space, Tag, Spin, Modal, Input,
@@ -9,7 +9,7 @@ import {
     ArrowLeftOutlined, SendOutlined, CheckOutlined, RollbackOutlined,
     CalendarOutlined, UserOutlined, PlusOutlined, EditOutlined,
     DeleteOutlined, FlagOutlined, EnvironmentOutlined, ClockCircleOutlined,
-    InfoCircleOutlined, StopOutlined, ShareAltOutlined,
+    InfoCircleOutlined, StopOutlined, ShareAltOutlined, CopyOutlined,
 } from '@ant-design/icons';
 import dayjs from 'dayjs';
 import api from '../api/client';
@@ -24,6 +24,9 @@ const STATUS_COLORS = {
     DRAFT:            'default',
     SUBMITTED:        'blue',
     IN_CONSOLIDATION: 'purple',
+    CP_PENDING:       'geekblue',
+    SG_PENDING:       'cyan',
+    DG_PENDING:       'gold',
     VALIDATED:        'green',
     RETURNED:         'orange',
     CANCELLED:        'red',
@@ -32,42 +35,48 @@ const STATUS_LABELS = {
     DRAFT:            'Brouillon',
     SUBMITTED:        'Soumis',
     IN_CONSOLIDATION: 'En consolidation',
+    CP_PENDING:       'Att. coordinateur projet',
+    SG_PENDING:       'Att. SG ou direction',
+    DG_PENDING:       'Att. validation finale (SG ou DG)',
     VALIDATED:        'Validé',
     RETURNED:         'Retourné',
     CANCELLED:        'Annulé',
 };
 
-const EVENT_TYPES = [
-    { value: 'REUNION',     label: 'Réunion'      },
-    { value: 'MISSION',     label: 'Mission'      },
-    { value: 'DEPLACEMENT', label: 'Déplacement'  },
-    { value: 'FORMATION',   label: 'Formation'    },
-    { value: 'AUTRE',       label: 'Autre'        },
-];
+const PENDING_VALIDATION = ['CP_PENDING', 'SG_PENDING', 'DG_PENDING', 'IN_CONSOLIDATION'];
 
 const EVENT_STYLES = {
-    REUNION:     { bg: '#e6f4ff', border: '#1677ff', color: '#0958d9', label: 'Réunion'     },
+    REUNION:     { bg: '#EFF6FF', border: '#1565C0', color: '#1D4ED8', label: 'Réunion'     },
     MISSION:     { bg: '#f9f0ff', border: '#722ed1', color: '#531dab', label: 'Mission'     },
     DEPLACEMENT: { bg: '#fff7e6', border: '#fa8c16', color: '#d46b08', label: 'Déplacement' },
     FORMATION:   { bg: '#f6ffed', border: '#52c41a', color: '#389e0d', label: 'Formation'   },
     AUTRE:       { bg: '#f5f5f5', border: '#d9d9d9', color: '#595959', label: 'Autre'       },
 };
 
-// Workflow (sans RETURNED — c'est un état d'erreur)
+// Workflow (sans RETURNED / CANCELLED)
 const WORKFLOW_STEPS = [
-    { key: 'DRAFT',            title: 'Brouillon',        desc: 'En cours de rédaction'      },
-    { key: 'SUBMITTED',        title: 'Soumis',           desc: 'En attente de consolidation' },
-    { key: 'IN_CONSOLIDATION', title: 'En consolidation', desc: 'En attente de validation'   },
-    { key: 'VALIDATED',        title: 'Validé',           desc: 'Approuvé par le DG'         },
+    { key: 'DRAFT',      title: 'Brouillon',              desc: 'En cours de rédaction' },
+    { key: 'SUBMITTED',  title: 'Soumis',                 desc: 'En attente de consolidation' },
+    { key: 'CP_PENDING', title: 'Coordinateur de projet', desc: 'Première validation' },
+    { key: 'SG_PENDING', title: 'SG / Direction',       desc: 'Accord (SG ou DG)' },
+    { key: 'DG_PENDING', title: 'SG / Direction',         desc: 'Validation définitive (SG ou DG)' },
+    { key: 'VALIDATED',  title: 'Validé',                 desc: 'Circuit terminé' },
 ];
 
+function normalizePlanningStatus(status) {
+    if (status === 'IN_CONSOLIDATION') return 'CP_PENDING';
+    return status;
+}
+
 function getWorkflowStep(status) {
-    const idx = WORKFLOW_STEPS.findIndex((s) => s.key === status);
+    if (status === 'RETURNED' || status === 'CANCELLED') return 0;
+    const s = normalizePlanningStatus(status);
+    const idx = WORKFLOW_STEPS.findIndex((step) => step.key === s);
     return idx >= 0 ? idx : 0;
 }
 
 // ── Grille hebdomadaire ──────────────────────────────────────────
-function WeekGrid({ events, weekStart, canEdit, onEdit, onDelete, onView }) {
+function WeekGrid({ events, weekStart, canEdit, onEdit, onDelete, onView, resolveEventStyle }) {
     const monday = new Date(weekStart);
     const days   = Array.from({ length: 7 }, (_, i) => {
         const d = new Date(monday);
@@ -103,7 +112,7 @@ function WeekGrid({ events, weekStart, canEdit, onEdit, onDelete, onView }) {
                             key={dayKey}
                             style={{
                                 borderRadius: 8,
-                                border: `1px solid ${isToday ? '#1677ff60' : '#f0f0f0'}`,
+                                border: `1px solid ${isToday ? '#1565C060' : '#f0f0f0'}`,
                                 background: isWeekend ? '#fafafa' : '#fff',
                                 overflow: 'hidden',
                                 minHeight: 90,
@@ -112,7 +121,7 @@ function WeekGrid({ events, weekStart, canEdit, onEdit, onDelete, onView }) {
                             {/* En-tête du jour */}
                             <div style={{
                                 padding: '5px 8px',
-                                background: isToday ? '#e6f4ff' : isWeekend ? '#f5f5f5' : '#fafafa',
+                                background: isToday ? '#EFF6FF' : isWeekend ? '#f5f5f5' : '#fafafa',
                                 borderBottom: `1px solid ${isToday ? '#91caff' : '#f0f0f0'}`,
                                 display: 'flex', justifyContent: 'space-between', alignItems: 'center',
                             }}>
@@ -120,7 +129,7 @@ function WeekGrid({ events, weekStart, canEdit, onEdit, onDelete, onView }) {
                                     strong={isToday}
                                     style={{
                                         fontSize: 11,
-                                        color: isToday ? '#1677ff' : isWeekend ? '#bfbfbf' : '#595959',
+                                        color: isToday ? '#1565C0' : isWeekend ? '#bfbfbf' : '#595959',
                                     }}
                                 >
                                     {day.toLocaleDateString('fr-FR', { weekday: 'short', day: 'numeric' })}
@@ -129,7 +138,7 @@ function WeekGrid({ events, weekStart, canEdit, onEdit, onDelete, onView }) {
                                     <Badge
                                         count={dayEvs.length}
                                         size="small"
-                                        style={{ backgroundColor: '#1677ff' }}
+                                        style={{ backgroundColor: '#1565C0' }}
                                     />
                                 )}
                             </div>
@@ -137,7 +146,9 @@ function WeekGrid({ events, weekStart, canEdit, onEdit, onDelete, onView }) {
                             {/* Événements du jour */}
                             <div style={{ padding: 4 }}>
                                 {dayEvs.map((ev) => {
-                                    const s = EVENT_STYLES[ev.type] || EVENT_STYLES.AUTRE;
+                                    const s = resolveEventStyle
+                                        ? resolveEventStyle(ev)
+                                        : (EVENT_STYLES[ev.type] || EVENT_STYLES.AUTRE);
                                     const startStr = new Date(ev.startTime).toLocaleTimeString('fr-FR', {
                                         hour: '2-digit', minute: '2-digit',
                                     });
@@ -223,7 +234,7 @@ export default function PlanningDetail() {
     const { id }      = useParams();
     const navigate    = useNavigate();
     const { user }    = useAuth();
-    const { message, modal } = App.useApp();
+    const { message } = App.useApp();
 
     const [planning,      setPlanning]      = useState(null);
     const [loading,       setLoading]       = useState(true);
@@ -239,8 +250,29 @@ export default function PlanningDetail() {
     const [returnLoading, setReturnLoading] = useState(false);
     const [deleteLoading, setDeleteLoading] = useState(false);
     const [eventDetailsOpen, setEventDetailsOpen] = useState(false);
-    const [eventDetails, setEventDetails] = useState(null);
-    const [eventForm]                       = Form.useForm();
+    const [eventDetails,     setEventDetails]     = useState(null);
+    const [shareOpen,        setShareOpen]        = useState(false);
+    const [eventForm]                             = Form.useForm();
+    const [eventTypes, setEventTypes]             = useState([]);
+
+    const resolvePlanningEventStyle = useCallback((ev) => {
+        if (ev.eventType?.color) {
+            const c = ev.eventType.color;
+            return {
+                bg: '#f8fafc',
+                border: c,
+                color: c,
+                label: ev.eventType.name || ev.type,
+            };
+        }
+        return EVENT_STYLES[ev.type] || EVENT_STYLES.AUTRE;
+    }, []);
+
+    useEffect(() => {
+        api.get('/events/taxonomy')
+            .then((r) => setEventTypes(r.data?.eventTypes || []))
+            .catch(() => setEventTypes([]));
+    }, []);
 
     // ── Fetch planning ───────────────────────────────────────────
     const fetchPlanning = async () => {
@@ -281,11 +313,33 @@ export default function PlanningDetail() {
         } finally { setActionLoading(false); }
     };
 
+    const handleApproveCp = async () => {
+        setActionLoading(true);
+        try {
+            await api.put(`/plannings/${id}/approve-cp`);
+            message.success('Validation coordinateur enregistrée');
+            fetchPlanning();
+        } catch (err) {
+            message.error(err.response?.data?.error || 'Erreur');
+        } finally { setActionLoading(false); }
+    };
+
+    const handleApproveSg = async () => {
+        setActionLoading(true);
+        try {
+            await api.put(`/plannings/${id}/approve-sg`);
+            message.success('Accord SG / direction enregistré');
+            fetchPlanning();
+        } catch (err) {
+            message.error(err.response?.data?.error || 'Erreur');
+        } finally { setActionLoading(false); }
+    };
+
     const handleValidate = async () => {
         setActionLoading(true);
         try {
             await api.put(`/plannings/${id}/validate`);
-            message.success('Planning validé ✓');
+            message.success('Planning validé définitivement ✓');
             fetchPlanning();
         } catch (err) {
             message.error(err.response?.data?.error || 'Erreur');
@@ -312,7 +366,7 @@ export default function PlanningDetail() {
         if (event) {
             eventForm.setFieldsValue({
                 title:       event.title,
-                type:        event.type,
+                eventTypeId: event.eventTypeId || event.eventType?.id || undefined,
                 startTime:   event.startTime ? dayjs(event.startTime) : null,
                 endTime:     event.endTime   ? dayjs(event.endTime)   : null,
                 roomId:      event.roomId    || undefined,
@@ -324,12 +378,16 @@ export default function PlanningDetail() {
         } else {
             // Pré-remplir la date avec le lundi de la semaine
             eventForm.resetFields();
+            const defaultTypeId = eventTypes.find((t) => t.code === 'REUNION')?.id || eventTypes[0]?.id;
             if (planning?.weekStart) {
                 const monday = dayjs(planning.weekStart).hour(9).minute(0).second(0);
                 eventForm.setFieldsValue({
                     startTime: monday,
                     endTime:   monday.hour(10),
+                    ...(defaultTypeId ? { eventTypeId: defaultTypeId } : {}),
                 });
+            } else if (defaultTypeId) {
+                eventForm.setFieldsValue({ eventTypeId: defaultTypeId });
             }
         }
         Promise.all([
@@ -360,7 +418,7 @@ export default function PlanningDetail() {
             setEventSaving(true);
             const payload = {
                 title:       values.title,
-                type:        values.type,
+                eventTypeId: values.eventTypeId || null,
                 startTime,
                 endTime,
                 roomId:      values.roomId      || null,
@@ -422,35 +480,81 @@ export default function PlanningDetail() {
         } finally { setActionLoading(false); }
     };
 
-    const handleShare = async () => {
-        try {
-            const baseUrl = window.location?.origin || '';
-            const url = `${baseUrl}/planning/${id}`;
-            const title = `Planning de ${planning.user?.name || ''} — semaine du ${new Date(planning.weekStart).toLocaleDateString('fr-FR')}`;
-            const text = `Voici mon planning pour la semaine du ${weekLabel}.\n\nStatut : ${STATUS_LABELS[planning.status] || planning.status}\nLien : ${url}`;
+    const buildShareText = () => {
+        const events = (planning.events || []).slice().sort(
+            (a, b) => new Date(a.startTime) - new Date(b.startTime),
+        );
 
-            if (navigator.share) {
-                await navigator.share({ title, text, url });
-                return;
-            }
+        const fmtTime = (iso) => {
+            if (!iso) return '';
+            try { return new Date(iso).toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' }); }
+            catch { return ''; }
+        };
 
-            if (navigator.clipboard?.writeText) {
-                await navigator.clipboard.writeText(url);
-                message.success('Lien du planning copié dans le presse-papiers.');
-            } else {
-                modal.info({
-                    title: 'Partager le planning',
-                    content: (
-                        <div>
-                            <p>Copiez ce lien pour partager le planning :</p>
-                            <code style={{ wordBreak: 'break-all' }}>{url}</code>
-                        </div>
-                    ),
-                    okText: 'Fermer',
+        const fmtDay = (iso) => {
+            if (!iso) return '';
+            try {
+                return new Date(iso).toLocaleDateString('fr-FR', {
+                    weekday: 'long', day: 'numeric', month: 'long', year: 'numeric',
                 });
+            } catch { return iso; }
+        };
+
+        const TYPE_LABELS = {
+            REUNION: 'Réunion', MISSION: 'Mission',
+            DEPLACEMENT: 'Déplacement', FORMATION: 'Formation', AUTRE: 'Autre',
+        };
+
+        const lines = [
+            `Planning ADM GP — ${planning.user?.name || ''}`,
+            `Semaine du ${weekLabel}`,
+            `Statut : ${STATUS_LABELS[planning.status] || planning.status}`,
+            planning.user?.direction?.name ? `Direction : ${planning.user.direction.name}` : '',
+            `Généré le ${new Date().toLocaleDateString('fr-FR', { day: 'numeric', month: 'long', year: 'numeric' })}`,
+            '',
+            '═'.repeat(48),
+            '',
+        ].filter((l) => l !== null);
+
+        if (!events.length) {
+            lines.push('   Aucun événement cette semaine.');
+        } else {
+            // Regrouper par jour
+            const byDay = {};
+            events.forEach((ev) => {
+                const day = new Date(ev.startTime).toISOString().split('T')[0];
+                if (!byDay[day]) byDay[day] = [];
+                byDay[day].push(ev);
+            });
+            for (const [day, dayEvs] of Object.entries(byDay)) {
+                lines.push(`📅 ${fmtDay(day + 'T00:00:00')}`);
+                for (const ev of dayEvs) {
+                    const start = fmtTime(ev.startTime);
+                    const end   = fmtTime(ev.endTime);
+                    const time  = end ? `${start} – ${end}` : start;
+                    const type  = ev.eventType?.name || TYPE_LABELS[ev.type] || ev.type || '';
+                    const loc   = ev.room?.name || ev.destination || '';
+                    lines.push(
+                        `   ${time}  [${type}]  ${ev.title || ''}${loc ? `  📍 ${loc}` : ''}`,
+                    );
+                    if (ev.description) {
+                        lines.push(`            ${ev.description}`);
+                    }
+                }
+                lines.push('');
             }
-        } catch (e) {
-            message.error('Impossible de partager le planning.');
+        }
+        return lines.join('\n');
+    };
+
+    const handleShare = () => setShareOpen(true);
+
+    const handleCopyShare = async () => {
+        try {
+            await navigator.clipboard.writeText(buildShareText());
+            message.success('Événements copiés dans le presse-papiers.');
+        } catch {
+            message.error('Impossible de copier — sélectionnez le texte manuellement.');
         }
     };
 
@@ -466,6 +570,8 @@ export default function PlanningDetail() {
 
     const isResponsable   = user?.role === 'RESPONSABLE';
     const isConsolidateur = user?.role === 'CONSOLIDATEUR';
+    const isCoordProjet   = user?.role === 'COORDINATEUR_PROJET';
+    const isSG            = user?.role === 'SECRETAIRE_GENERAL';
     const isDG            = user?.role === 'DG';
     const isAdmin         = isPrivilegedAdmin(user?.role);
     const isOwner         = planning.userId === user?.id;
@@ -473,8 +579,12 @@ export default function PlanningDetail() {
     const canEditEvents  = planning.status !== 'CANCELLED' && (isAdmin || (isOwner && (planning.status === 'DRAFT' || planning.status === 'RETURNED')));
     const canSubmit      = (isOwner || isAdmin) && (planning.status === 'DRAFT' || planning.status === 'RETURNED');
     const canConsolidate = (isConsolidateur || isAdmin) && planning.status === 'SUBMITTED';
-    const canValidate    = (isDG || isAdmin) && planning.status === 'IN_CONSOLIDATION';
-    const canReturnDG    = (isDG || isAdmin) && planning.status === 'IN_CONSOLIDATION';
+    const canApproveCp   = (isCoordProjet || isAdmin)
+        && (planning.status === 'CP_PENDING' || planning.status === 'IN_CONSOLIDATION');
+    const canApproveSg   = (isSG || isDG || isAdmin) && planning.status === 'SG_PENDING';
+    const canValidateFinal = ((isSG || isDG) && planning.status === 'DG_PENDING')
+        || (isAdmin && PENDING_VALIDATION.includes(planning.status));
+    const canReturnDG    = (isSG || isDG || isAdmin) && PENDING_VALIDATION.includes(planning.status);
     const canCancel      = isAdmin && planning.status !== 'CANCELLED';
     const canDelete      = (isOwner && planning.status === 'DRAFT') || isAdmin;
 
@@ -531,13 +641,31 @@ export default function PlanningDetail() {
                     </Button>
                 )}
 
-                {canValidate && (
+                {canApproveCp && (
+                    <Button
+                        type="primary" icon={<CheckOutlined />}
+                        onClick={handleApproveCp} loading={actionLoading}
+                        style={{ background: '#2f54eb', borderColor: '#2f54eb' }}
+                    >
+                        Accord coordinateur
+                    </Button>
+                )}
+                {canApproveSg && (
+                    <Button
+                        type="primary" icon={<CheckOutlined />}
+                        onClick={handleApproveSg} loading={actionLoading}
+                        style={{ background: '#13c2c2', borderColor: '#13c2c2' }}
+                    >
+                        Accord SG ou direction
+                    </Button>
+                )}
+                {canValidateFinal && (
                     <Button
                         type="primary" icon={<CheckOutlined />}
                         onClick={handleValidate} loading={actionLoading}
                         style={{ background: '#52c41a', borderColor: '#52c41a' }}
                     >
-                        Valider
+                        {isAdmin ? 'Valider définitivement (admin)' : 'Valider définitivement'}
                     </Button>
                 )}
 
@@ -599,7 +727,7 @@ export default function PlanningDetail() {
                 }}>
                     <div>
                         <Title level={4} style={{ margin: 0 }}>
-                            <CalendarOutlined style={{ marginRight: 8, color: '#1677ff' }} />
+                            <CalendarOutlined style={{ marginRight: 8, color: '#1565C0' }} />
                             Semaine du {weekLabel}
                         </Title>
                         <Space style={{ marginTop: 6 }}>
@@ -629,11 +757,8 @@ export default function PlanningDetail() {
                         items={WORKFLOW_STEPS.map((s, i) => ({
                             title: s.title,
                             description: i === workflowStep ? s.desc : undefined,
-                            subTitle: i < workflowStep
-                                ? (i === 0 && planning.submittedAt ? undefined
-                                : i === 2 && planning.validatedAt
-                                    ? new Date(planning.validatedAt).toLocaleDateString('fr-FR')
-                                    : undefined)
+                            subTitle: i < workflowStep && s.key === 'VALIDATED' && planning.validatedAt
+                                ? new Date(planning.validatedAt).toLocaleDateString('fr-FR')
                                 : undefined,
                         }))}
                     />
@@ -691,18 +816,23 @@ export default function PlanningDetail() {
                         {planning.events?.length > 0 && (
                             <Badge
                                 count={planning.events.length}
-                                style={{ backgroundColor: '#1677ff', marginLeft: 8 }}
+                                style={{ backgroundColor: '#1565C0', marginLeft: 8 }}
                             />
                         )}
                     </Title>
                     <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
-                        {Object.entries(EVENT_STYLES).map(([, s]) => (
-                            <span key={s.label} style={{ display: 'flex', alignItems: 'center', gap: 3 }}>
+                        {(eventTypes.length
+                            ? eventTypes.filter((t) => t.isActive !== false)
+                            : Object.entries(EVENT_STYLES).map(([code, s]) => ({ id: code, name: s.label, color: s.border }))
+                        ).map((t) => (
+                            <span key={t.id} style={{ display: 'flex', alignItems: 'center', gap: 3 }}>
                                 <span style={{
                                     display: 'inline-block', width: 8, height: 8,
-                                    borderRadius: 2, background: s.bg, border: `2px solid ${s.border}`,
+                                    borderRadius: 2,
+                                    background: t.color || '#ccc',
+                                    border: `2px solid ${t.color || '#ccc'}`,
                                 }} />
-                                <Text type="secondary" style={{ fontSize: 10 }}>{s.label}</Text>
+                                <Text type="secondary" style={{ fontSize: 10 }}>{t.name}</Text>
                             </span>
                         ))}
                     </div>
@@ -729,6 +859,7 @@ export default function PlanningDetail() {
                         onEdit={openEventModal}
                         onDelete={handleDeleteEvent}
                         onView={openEventDetails}
+                        resolveEventStyle={resolvePlanningEventStyle}
                     />
                 )}
 
@@ -743,7 +874,7 @@ export default function PlanningDetail() {
                 )}
 
                 {/* ── Missions croisées ── */}
-                {(isAdmin || isConsolidateur || isDG || isOwner) && (
+                {(isAdmin || isConsolidateur || isCoordProjet || isSG || isDG || isOwner) && (
                     <>
                         <Divider style={{ margin: '24px 0 16px' }} />
                         <div style={{ marginBottom: 12 }}>
@@ -827,8 +958,14 @@ export default function PlanningDetail() {
                             </Form.Item>
                         </Col>
                         <Col xs={24} sm={8}>
-                            <Form.Item name="type" label="Type" rules={[{ required: true }]}>
-                                <Select options={EVENT_TYPES} placeholder="Type" style={{ width: '100%' }} />
+                            <Form.Item name="eventTypeId" label="Type" rules={[{ required: true, message: 'Choisissez un type' }]}>
+                                <Select
+                                    placeholder="Type"
+                                    style={{ width: '100%' }}
+                                    options={(eventTypes || [])
+                                        .filter((t) => t.isActive !== false)
+                                        .map((t) => ({ value: t.id, label: t.name }))}
+                                />
                             </Form.Item>
                         </Col>
                     </Row>
@@ -910,7 +1047,9 @@ export default function PlanningDetail() {
                     <>
                         <Descriptions bordered size="small" column={1}>
                             <Descriptions.Item label="Titre">{eventDetails.title || '-'}</Descriptions.Item>
-                            <Descriptions.Item label="Type">{eventDetails.type || '-'}</Descriptions.Item>
+                            <Descriptions.Item label="Type">
+                                {eventDetails.eventType?.name || eventDetails.type || '-'}
+                            </Descriptions.Item>
                             <Descriptions.Item label="Début">
                                 {eventDetails.startTime ? new Date(eventDetails.startTime).toLocaleString('fr-FR') : '-'}
                             </Descriptions.Item>
@@ -957,6 +1096,35 @@ export default function PlanningDetail() {
                     placeholder="Décrivez les modifications attendues..."
                     showCount
                     maxLength={500}
+                />
+            </Modal>
+
+            {/* ── Modale partage événements ── */}
+            <Modal
+                title={<><ShareAltOutlined style={{ marginRight: 8 }} />Partager les événements</>}
+                open={shareOpen}
+                onCancel={() => setShareOpen(false)}
+                footer={[
+                    <Button
+                        key="copy"
+                        type="primary"
+                        icon={<CopyOutlined />}
+                        onClick={handleCopyShare}
+                    >
+                        Copier
+                    </Button>,
+                    <Button key="close" onClick={() => setShareOpen(false)}>
+                        Fermer
+                    </Button>,
+                ]}
+                width={580}
+                destroyOnClose
+            >
+                <Input.TextArea
+                    value={planning ? buildShareText() : ''}
+                    readOnly
+                    autoSize={{ minRows: 10, maxRows: 22 }}
+                    style={{ fontFamily: 'monospace', fontSize: 12, background: '#fafafa' }}
                 />
             </Modal>
         </div>

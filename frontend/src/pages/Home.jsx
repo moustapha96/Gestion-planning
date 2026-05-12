@@ -1,12 +1,13 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useState, useMemo } from 'react';
 import { useNavigate } from 'react-router-dom';
 import {
-    Layout, Typography, Button, Card, Row, Col, Spin, Tag, Space, Badge, Tooltip,
+    Layout, Typography, Button, Card, Row, Col, Spin, Tag, Space, Badge, Tooltip, Segmented,
+    Input, Empty,
 } from 'antd';
 import {
     HomeOutlined, CalendarOutlined, LoginOutlined, FlagOutlined,
     TeamOutlined, EnvironmentOutlined, ReloadOutlined, ClockCircleOutlined,
-    CheckCircleOutlined,
+    CheckCircleOutlined, SearchOutlined,
 } from '@ant-design/icons';
 import api from '../api/client';
 
@@ -14,6 +15,30 @@ const { Content } = Layout;
 const { Title, Text } = Typography;
 
 const REFRESH_INTERVAL = 5 * 60; // secondes
+
+// ── Normalisation pour recherche (insensible à la casse + accents) ──
+function normalizeSearch(s) {
+    if (s === null || s === undefined) return '';
+    return String(s)
+        .normalize('NFD')
+        .replace(/[\u0300-\u036f]/g, '')
+        .toLowerCase()
+        .trim();
+}
+
+// Découpe la requête en tokens pour matcher chaque mot indépendamment
+function buildSearchTokens(q) {
+    return normalizeSearch(q)
+        .split(/\s+/)
+        .filter(Boolean);
+}
+
+// Vérifie que TOUS les tokens sont présents dans au moins un des champs
+function matchAllTokens(tokens, ...fields) {
+    if (!tokens.length) return true;
+    const haystack = fields.map(normalizeSearch).join(' ');
+    return tokens.every((t) => haystack.includes(t));
+}
 
 // ── Helpers ──────────────────────────────────────────────────────
 function formatTime(dateStr) {
@@ -209,17 +234,42 @@ export default function Home() {
     const [date,      setDate]      = useState(null);
     const [activeTab, setActiveTab] = useState('rooms');
     const [countdown, setCountdown] = useState(REFRESH_INTERVAL);
+    const [horizon,   setHorizon]   = useState('day');
+    const [weekPayload, setWeekPayload] = useState(null);
+
+    // ── Recherche (debounced) ────────────────────────────────────
+    const [searchInput, setSearchInput] = useState('');
+    const [search, setSearch]           = useState('');
+
+    useEffect(() => {
+        const t = setTimeout(() => setSearch(searchInput), 200);
+        return () => clearTimeout(t);
+    }, [searchInput]);
+
+    const searchTokens = useMemo(() => buildSearchTokens(search), [search]);
+    const isSearching  = searchTokens.length > 0;
 
     const load = async () => {
         setLoading(true);
         try {
-            const res = await api.get('/public/day-planning');
-            setRooms(res.data?.rooms      || []);
-            setMeetings(res.data?.meetings || []);
-            setMissions(res.data?.missions || []);
-            setDate(res.data?.date         || null);
+            if (horizon === 'day') {
+                const res = await api.get('/public/day-planning');
+                setWeekPayload(null);
+                setRooms(res.data?.rooms      || []);
+                setMeetings(res.data?.meetings || []);
+                setMissions(res.data?.missions || []);
+                setDate(res.data?.date         || null);
+            } else {
+                const res = await api.get('/public/week-planning');
+                setWeekPayload(res.data || null);
+                setRooms([]);
+                setMeetings([]);
+                setMissions([]);
+                setDate(res.data?.days?.[0]?.date || null);
+            }
             setCountdown(REFRESH_INTERVAL);
         } catch {
+            setWeekPayload(null);
             setRooms([]);
             setMeetings([]);
             setMissions([]);
@@ -232,7 +282,7 @@ export default function Home() {
         load();
         const timer = setInterval(load, REFRESH_INTERVAL * 1000);
         return () => clearInterval(timer);
-    }, []); // eslint-disable-line
+    }, [horizon]); // eslint-disable-line react-hooks/exhaustive-deps
 
     // Décompte visuel
     useEffect(() => {
@@ -246,40 +296,178 @@ export default function Home() {
           })
         : '';
 
-    // Statistiques rapides
-    const totalBookings  = meetings.length;
-    const occupiedRooms  = rooms.filter((r) => r.bookings?.length > 0).length;
+    const weekRangeLabel = useMemo(() => {
+        if (horizon !== 'week' || !weekPayload?.days?.length) return '';
+        const first = weekPayload.days[0];
+        const last = weekPayload.days[weekPayload.days.length - 1];
+        try {
+            const a = new Date(first.date);
+            const b = new Date(last.date);
+            if (a.getMonth() === b.getMonth() && a.getFullYear() === b.getFullYear()) {
+                return `${a.toLocaleDateString('fr-FR', { day: 'numeric' })} – ${b.toLocaleDateString('fr-FR', { day: 'numeric', month: 'long', year: 'numeric' })}`;
+            }
+            return `${a.toLocaleDateString('fr-FR', { day: 'numeric', month: 'short' })} – ${b.toLocaleDateString('fr-FR', { day: 'numeric', month: 'short', year: 'numeric' })}`;
+        } catch {
+            return '';
+        }
+    }, [horizon, weekPayload]);
 
-    // Événements pour la timeline
-    const dateStr = date ? new Date(date).toISOString().split('T')[0] : '';
-    const calendarEvents = [];
-    meetings.forEach((m) => {
-        const start = m.startTime || '';
-        const end = m.endTime || '';
-        calendarEvents.push({
-            id:        `meeting-${m.id}`,
-            type:      'meeting',
-            title:     m.title || 'Réunion',
-            start,
-            end,
-            startSort: start ? new Date(start).getTime() : 0,
-            subtitle:  m.room?.location
+    const rawDayBlocks = useMemo(() => {
+        if (horizon === 'week' && weekPayload?.days?.length) {
+            return weekPayload.days.map((d) => ({
+                key: d.dateKey,
+                dateLabel: new Date(d.date).toLocaleDateString('fr-FR', {
+                    weekday: 'long', day: 'numeric', month: 'long', year: 'numeric',
+                }),
+                dateKey: d.dateKey,
+                rooms: d.rooms || [],
+                meetings: d.meetings || [],
+                missions: d.missions || [],
+            }));
+        }
+        const dateStr = date ? new Date(date).toISOString().split('T')[0] : '';
+        if (date) {
+            return [{
+                key: dateStr,
+                dateLabel: new Date(date).toLocaleDateString('fr-FR', {
+                    weekday: 'long', day: 'numeric', month: 'long', year: 'numeric',
+                }),
+                dateKey: dateStr,
+                rooms,
+                meetings,
+                missions,
+            }];
+        }
+        return [];
+    }, [horizon, weekPayload, date, rooms, meetings, missions]);
+
+    // Application du filtre de recherche sur chaque bloc journalier
+    const dayBlocks = useMemo(() => {
+        if (!isSearching) return rawDayBlocks;
+
+        return rawDayBlocks.map((block) => {
+            // Salles : on garde la salle si son nom/lieu OU une de ses réservations matche
+            const filteredRooms = (block.rooms || [])
+                .map((room) => {
+                    const matchedBookings = (room.bookings || []).filter((b) =>
+                        matchAllTokens(searchTokens, b.meetingTitle, b.startTime, b.endTime)
+                    );
+                    const roomItselfMatches = matchAllTokens(
+                        searchTokens, room.name, room.location, room.capacity
+                    );
+                    if (roomItselfMatches) {
+                        return room; // on garde toutes les réservations
+                    }
+                    if (matchedBookings.length) {
+                        return { ...room, bookings: matchedBookings };
+                    }
+                    return null;
+                })
+                .filter(Boolean);
+
+            const filteredMeetings = (block.meetings || []).filter((m) =>
+                matchAllTokens(
+                    searchTokens,
+                    m.title,
+                    m.room?.name,
+                    m.room?.location,
+                    m.eventType?.name,
+                    m.createdBy?.name,
+                )
+            );
+
+            const filteredMissions = (block.missions || []).filter((m) =>
+                matchAllTokens(
+                    searchTokens,
+                    m.title,
+                    m.location,
+                    m.createdBy?.name,
+                )
+            );
+
+            return {
+                ...block,
+                rooms: filteredRooms,
+                meetings: filteredMeetings,
+                missions: filteredMissions,
+            };
+        });
+    }, [rawDayBlocks, isSearching, searchTokens]);
+
+    function buildCalendarEventsForDay(meetingsList, missionsList) {
+        const list = [];
+        (meetingsList || []).forEach((m) => {
+            const start = m.startTime || '';
+            const end = m.endTime || '';
+            const loc = m.room?.location
                 ? `${m.room?.name || 'Salle'} — ${m.room.location}`
-                : (m.room?.name || ''),
+                : (m.room?.name || '');
+            const subtitle = [m.eventType?.name, loc].filter(Boolean).join(' · ');
+            list.push({
+                id:        `meeting-${m.id}`,
+                type:      'meeting',
+                title:     m.title || 'Réunion',
+                start,
+                end,
+                startSort: start ? new Date(start).getTime() : 0,
+                subtitle,
+            });
         });
-    });
-    missions.forEach((m) => {
-        calendarEvents.push({
-            id:        `mission-${m.id}`,
-            type:      'mission',
-            title:     m.title,
-            start:     m.startTime,
-            end:       m.endTime,
-            startSort: m.startTime ? new Date(m.startTime).getTime() : 0,
-            subtitle:  m.location || '',
+        (missionsList || []).forEach((m) => {
+            list.push({
+                id:        `mission-${m.id}`,
+                type:      'mission',
+                title:     m.title,
+                start:     m.startTime,
+                end:       m.endTime,
+                startSort: m.startTime ? new Date(m.startTime).getTime() : 0,
+                subtitle:  m.location || '',
+            });
         });
-    });
-    calendarEvents.sort((a, b) => (a.startSort || 0) - (b.startSort || 0));
+        list.sort((a, b) => (a.startSort || 0) - (b.startSort || 0));
+        return list;
+    }
+
+    // Statistiques rapides — basées sur dayBlocks (donc filtrées si recherche active)
+    const totalBookings = useMemo(
+        () => dayBlocks.reduce((s, b) => s + (b.meetings?.length || 0), 0),
+        [dayBlocks],
+    );
+    const totalMissionsStat = useMemo(
+        () => dayBlocks.reduce((s, b) => s + (b.missions?.length || 0), 0),
+        [dayBlocks],
+    );
+    const occupiedRooms = useMemo(() => {
+        const ids = new Set();
+        dayBlocks.forEach((b) => {
+            (b.rooms || []).forEach((r) => {
+                if (r.bookings?.length) ids.add(r.id);
+            });
+        });
+        return ids.size;
+    }, [dayBlocks]);
+
+    const roomCount = useMemo(() => {
+        if (!dayBlocks.length) return 0;
+        if (horizon === 'week') {
+            // En semaine, on compte les salles uniques agrégées
+            const ids = new Set();
+            dayBlocks.forEach((b) => (b.rooms || []).forEach((r) => ids.add(r.id)));
+            return ids.size;
+        }
+        return dayBlocks[0].rooms?.length || 0;
+    }, [dayBlocks, horizon]);
+
+    const totalCalendarEvents = useMemo(
+        () => dayBlocks.reduce(
+            (s, b) => s + (b.meetings?.length || 0) + (b.missions?.length || 0),
+            0,
+        ),
+        [dayBlocks],
+    );
+
+    // Total global des résultats (pour le bandeau "X résultats trouvés")
+    const totalSearchResults = roomCount + totalBookings + totalMissionsStat;
 
     const tabs = [
         { key: 'rooms',    label: 'Salles',     icon: <HomeOutlined />     },
@@ -296,16 +484,35 @@ export default function Home() {
                     <div style={{
                         display: 'flex', alignItems: 'flex-start',
                         justifyContent: 'space-between',
-                        marginBottom: 20, gap: 16, flexWrap: 'wrap',
+                        marginBottom: 16, gap: 16, flexWrap: 'wrap',
                     }}>
                         <div>
                             <Title level={2} style={{ color: '#fff', margin: 0, fontWeight: 700 }}>
                                 📅 ADM GP
                             </Title>
-                            {displayDate && (
+                            <Space style={{ marginTop: 8 }} wrap>
+                                <Segmented
+                                    value={horizon}
+                                    onChange={setHorizon}
+                                    options={[
+                                        { label: 'Jour', value: 'day' },
+                                        { label: 'Semaine', value: 'week' },
+                                    ]}
+                                />
+                            </Space>
+                            {horizon === 'week' && weekRangeLabel && (
                                 <Text style={{
                                     color: 'rgba(255,255,255,0.7)', fontSize: 14,
-                                    display: 'block', marginTop: 4,
+                                    display: 'block', marginTop: 8,
+                                }}>
+                                    <CalendarOutlined style={{ marginRight: 6 }} />
+                                    Semaine du {weekRangeLabel}
+                                </Text>
+                            )}
+                            {horizon === 'day' && displayDate && (
+                                <Text style={{
+                                    color: 'rgba(255,255,255,0.7)', fontSize: 14,
+                                    display: 'block', marginTop: 8,
                                 }}>
                                     <CalendarOutlined style={{ marginRight: 6 }} />
                                     {displayDate.charAt(0).toUpperCase() + displayDate.slice(1)}
@@ -338,12 +545,50 @@ export default function Home() {
                         </Space>
                     </div>
 
+                    {/* ── Barre de recherche ── */}
+                    <div style={{ marginBottom: 16 }}>
+                        <Input
+                            allowClear
+                            size="large"
+                            value={searchInput}
+                            onChange={(e) => setSearchInput(e.target.value)}
+                            prefix={<SearchOutlined style={{ color: 'rgba(255,255,255,0.55)' }} />}
+                            placeholder="Rechercher une salle, une réunion, une mission, un lieu, une personne…"
+                            style={{
+                                background: 'rgba(255,255,255,0.12)',
+                                border: '1px solid rgba(255,255,255,0.25)',
+                                color: '#fff',
+                                borderRadius: 10,
+                            }}
+                            styles={{
+                                input: {
+                                    background: 'transparent',
+                                    color: '#fff',
+                                },
+                            }}
+                        />
+                        {isSearching && (
+                            <Text
+                                style={{
+                                    display: 'block',
+                                    marginTop: 6,
+                                    color: 'rgba(255,255,255,0.7)',
+                                    fontSize: 12,
+                                }}
+                            >
+                                {totalSearchResults > 0
+                                    ? `${totalSearchResults} résultat(s) trouvé(s) pour « ${search} »`
+                                    : `Aucun résultat pour « ${search} »`}
+                            </Text>
+                        )}
+                    </div>
+
                     {/* ── Cartes statistiques ── */}
                     <Row gutter={[12, 12]} style={{ marginBottom: 16 }}>
                         {[
                             {
                                 label: 'Salles',
-                                value: rooms.length,
+                                value: roomCount,
                                 sub:   `${occupiedRooms} occupée(s)`,
                                 icon:  <HomeOutlined />,
                                 color: '#60AEFF',
@@ -351,14 +596,14 @@ export default function Home() {
                             {
                                 label: 'Réunions',
                                 value: totalBookings,
-                                sub:   "aujourd'hui",
+                                sub:   horizon === 'week' ? 'cette semaine' : "aujourd'hui",
                                 icon:  <TeamOutlined />,
                                 color: '#52c41a',
                             },
                             {
                                 label: 'Missions',
-                                value: missions.length,
-                                sub:   'en cours',
+                                value: totalMissionsStat,
+                                sub:   horizon === 'week' ? 'cette semaine' : "aujourd'hui",
                                 icon:  <FlagOutlined />,
                                 color: '#722ed1',
                             },
@@ -417,9 +662,9 @@ export default function Home() {
                                     }}
                                 >
                                     {t.icon} {t.label}
-                                    {t.key === 'rooms'    && <Tag style={{ marginLeft: 4, fontSize: 11 }}>{rooms.length}</Tag>}
-                                    {t.key === 'missions' && missions.length > 0 && (
-                                        <Badge count={missions.length} size="small" style={{ backgroundColor: '#722ed1' }} />
+                                    {t.key === 'rooms'    && <Tag style={{ marginLeft: 4, fontSize: 11 }}>{roomCount}</Tag>}
+                                    {t.key === 'missions' && totalMissionsStat > 0 && (
+                                        <Badge count={totalMissionsStat} size="small" style={{ backgroundColor: '#722ed1' }} />
                                     )}
                                 </button>
                             ))}
@@ -431,102 +676,131 @@ export default function Home() {
                                 {/* ── ONGLET SALLES ── */}
                                 {activeTab === 'rooms' && (
                                     <>
-                                        {rooms.length === 0 ? (
-                                            <Text type="secondary">Aucune salle disponible.</Text>
+                                        {dayBlocks.length === 0 || (isSearching && roomCount === 0) ? (
+                                            <Empty
+                                                image={Empty.PRESENTED_IMAGE_SIMPLE}
+                                                description={
+                                                    isSearching
+                                                        ? `Aucune salle ne correspond à « ${search} »`
+                                                        : 'Aucune donnée.'
+                                                }
+                                            />
                                         ) : (
-                                            <Row gutter={[16, 16]}>
-                                                {rooms.map((room) => {
-                                                    const hasBookings = room.bookings?.length > 0;
+                                            dayBlocks.map((block) => (
+                                                <div
+                                                    key={block.key}
+                                                    style={{ marginBottom: horizon === 'week' ? 28 : 0 }}
+                                                >
+                                                    {horizon === 'week' && (
+                                                        <Text
+                                                            strong
+                                                            style={{
+                                                                display: 'block',
+                                                                marginBottom: 14,
+                                                                fontSize: 15,
+                                                                textTransform: 'capitalize',
+                                                            }}
+                                                        >
+                                                            {block.dateLabel}
+                                                        </Text>
+                                                    )}
+                                                    {block.rooms.length === 0 ? (
+                                                        <Text type="secondary">Aucune salle disponible.</Text>
+                                                    ) : (
+                                                        <Row gutter={[16, 16]}>
+                                                            {block.rooms.map((room) => {
+                                                                const hasBookings = room.bookings?.length > 0;
+                                                                const dk = block.dateKey;
 
-                                                    // Vérifier si une réunion est en cours maintenant
-                                                    const isCurrentlyBooked = room.bookings?.some((b) => {
-                                                        const nowMs  = Date.now();
-                                                        const startMs = dateStr && b.startTime
-                                                            ? new Date(`${dateStr}T${b.startTime}`).getTime() : 0;
-                                                        const endMs   = dateStr && b.endTime
-                                                            ? new Date(`${dateStr}T${b.endTime}`).getTime() : 0;
-                                                        return nowMs >= startMs && nowMs <= endMs;
-                                                    });
+                                                                const isCurrentlyBooked = room.bookings?.some((b) => {
+                                                                    const nowMs = Date.now();
+                                                                    const startMs = dk && b.startTime
+                                                                        ? new Date(`${dk}T${b.startTime}`).getTime() : 0;
+                                                                    const endMs = dk && b.endTime
+                                                                        ? new Date(`${dk}T${b.endTime}`).getTime() : 0;
+                                                                    return nowMs >= startMs && nowMs <= endMs;
+                                                                });
 
-                                                    return (
-                                                        <Col key={room.id} xs={24} md={12} xl={8}>
-                                                            <Card
-                                                                size="small"
-                                                                style={{
-                                                                    borderRadius: 10,
-                                                                    border: isCurrentlyBooked
-                                                                        ? '1px solid #ffa940'
-                                                                        : '1px solid #f0f0f0',
-                                                                }}
-                                                                title={
-                                                                    <Space>
-                                                                        <HomeOutlined style={{ color: '#1565C0' }} />
-                                                                        <Text strong>{room.name}</Text>
-                                                                        {isCurrentlyBooked ? (
-                                                                            <Badge status="warning" text={
-                                                                                <Text style={{ fontSize: 11, color: '#fa8c16' }}>En cours</Text>
-                                                                            } />
-                                                                        ) : hasBookings ? (
-                                                                            <Badge status="processing" text={
-                                                                                <Text style={{ fontSize: 11 }}>Occupée</Text>
-                                                                            } />
-                                                                        ) : (
-                                                                            <Badge status="success" text={
-                                                                                <Text style={{ fontSize: 11, color: '#52c41a' }}>Libre</Text>
-                                                                            } />
-                                                                        )}
-                                                                    </Space>
-                                                                }
-                                                            >
-                                                                {(room.location || room.capacity) && (
-                                                                    <Text type="secondary" style={{ fontSize: 12, display: 'block', marginBottom: 6 }}>
-                                                                        {room.location && (
-                                                                            <><EnvironmentOutlined style={{ marginRight: 4 }} />{room.location}</>
-                                                                        )}
-                                                                        {room.capacity && (
-                                                                            <span style={{ marginLeft: 8 }}>· {room.capacity} pers.</span>
-                                                                        )}
-                                                                    </Text>
-                                                                )}
-
-                                                                {/* Barre d'occupation */}
-                                                                <OccupancyBar bookings={room.bookings || []} />
-
-                                                                {/* Détail des créneaux */}
-                                                                {hasBookings ? (
-                                                                    <div style={{ marginTop: 10 }}>
-                                                                        {room.bookings.map((b, i) => (
-                                                                            <div
-                                                                                key={i}
-                                                                                style={{
-                                                                                    display: 'flex', alignItems: 'center', gap: 8,
-                                                                                    padding: '4px 0',
-                                                                                    borderTop: i > 0 ? '1px solid #f5f5f5' : 'none',
-                                                                                }}
-                                                                            >
-                                                                                <ClockCircleOutlined style={{ color: '#8c8c8c', fontSize: 11, flexShrink: 0 }} />
-                                                                                <Text style={{ fontSize: 12, fontWeight: 500, whiteSpace: 'nowrap' }}>
-                                                                                    {b.startTime} – {b.endTime}
+                                                                return (
+                                                                    <Col key={`${block.key}-${room.id}`} xs={24} md={12} xl={8}>
+                                                                        <Card
+                                                                            size="small"
+                                                                            style={{
+                                                                                borderRadius: 10,
+                                                                                border: isCurrentlyBooked
+                                                                                    ? '1px solid #ffa940'
+                                                                                    : '1px solid #f0f0f0',
+                                                                            }}
+                                                                            title={
+                                                                                <Space>
+                                                                                    <HomeOutlined style={{ color: '#1565C0' }} />
+                                                                                    <Text strong>{room.name}</Text>
+                                                                                    {isCurrentlyBooked ? (
+                                                                                        <Badge status="warning" text={
+                                                                                            <Text style={{ fontSize: 11, color: '#fa8c16' }}>En cours</Text>
+                                                                                        } />
+                                                                                    ) : hasBookings ? (
+                                                                                        <Badge status="processing" text={
+                                                                                            <Text style={{ fontSize: 11 }}>Occupée</Text>
+                                                                                        } />
+                                                                                    ) : (
+                                                                                        <Badge status="success" text={
+                                                                                            <Text style={{ fontSize: 11, color: '#52c41a' }}>Libre</Text>
+                                                                                        } />
+                                                                                    )}
+                                                                                </Space>
+                                                                            }
+                                                                        >
+                                                                            {(room.location || room.capacity) && (
+                                                                                <Text type="secondary" style={{ fontSize: 12, display: 'block', marginBottom: 6 }}>
+                                                                                    {room.location && (
+                                                                                        <><EnvironmentOutlined style={{ marginRight: 4 }} />{room.location}</>
+                                                                                    )}
+                                                                                    {room.capacity && (
+                                                                                        <span style={{ marginLeft: 8 }}>· {room.capacity} pers.</span>
+                                                                                    )}
                                                                                 </Text>
-                                                                                {b.meetingTitle && (
-                                                                                    <Text type="secondary" style={{ fontSize: 12, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                                                                                        {b.meetingTitle}
-                                                                                    </Text>
-                                                                                )}
-                                                                            </div>
-                                                                        ))}
-                                                                    </div>
-                                                                ) : (
-                                                                    <Text type="success" style={{ fontSize: 12, marginTop: 8, display: 'block' }}>
-                                                                        <CheckCircleOutlined style={{ marginRight: 4 }} />
-                                                                        Disponible toute la journée
-                                                                    </Text>
-                                                                )}
-                                                            </Card>
-                                                        </Col>
-                                                    );
-                                                })}
-                                            </Row>
+                                                                            )}
+
+                                                                            <OccupancyBar bookings={room.bookings || []} />
+
+                                                                            {hasBookings ? (
+                                                                                <div style={{ marginTop: 10 }}>
+                                                                                    {room.bookings.map((b, i) => (
+                                                                                        <div
+                                                                                            key={i}
+                                                                                            style={{
+                                                                                                display: 'flex', alignItems: 'center', gap: 8,
+                                                                                                padding: '4px 0',
+                                                                                                borderTop: i > 0 ? '1px solid #f5f5f5' : 'none',
+                                                                                            }}
+                                                                                        >
+                                                                                            <ClockCircleOutlined style={{ color: '#8c8c8c', fontSize: 11, flexShrink: 0 }} />
+                                                                                            <Text style={{ fontSize: 12, fontWeight: 500, whiteSpace: 'nowrap' }}>
+                                                                                                {b.startTime} – {b.endTime}
+                                                                                            </Text>
+                                                                                            {b.meetingTitle && (
+                                                                                                <Text type="secondary" style={{ fontSize: 12, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                                                                                                    {b.meetingTitle}
+                                                                                                </Text>
+                                                                                            )}
+                                                                                        </div>
+                                                                                    ))}
+                                                                                </div>
+                                                                            ) : (
+                                                                                <Text type="success" style={{ fontSize: 12, marginTop: 8, display: 'block' }}>
+                                                                                    <CheckCircleOutlined style={{ marginRight: 4 }} />
+                                                                                    Disponible toute la journée
+                                                                                </Text>
+                                                                            )}
+                                                                        </Card>
+                                                                    </Col>
+                                                                );
+                                                            })}
+                                                        </Row>
+                                                    )}
+                                                </div>
+                                            ))
                                         )}
                                     </>
                                 )}
@@ -534,46 +808,81 @@ export default function Home() {
                                 {/* ── ONGLET MISSIONS ── */}
                                 {activeTab === 'missions' && (
                                     <>
-                                        {missions.length === 0 ? (
-                                            <Text type="secondary">Aucune mission prévue aujourd&apos;hui.</Text>
+                                        {dayBlocks.length === 0 || (isSearching && totalMissionsStat === 0) ? (
+                                            <Empty
+                                                image={Empty.PRESENTED_IMAGE_SIMPLE}
+                                                description={
+                                                    isSearching
+                                                        ? `Aucune mission ne correspond à « ${search} »`
+                                                        : 'Aucune donnée.'
+                                                }
+                                            />
                                         ) : (
-                                            <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
-                                                {missions.map((m) => (
-                                                    <div
-                                                        key={m.id}
-                                                        style={{
-                                                            display: 'flex', gap: 12,
-                                                            padding: '12px 16px', borderRadius: 10,
-                                                            background: '#f9f0ff',
-                                                            borderLeft: '4px solid #722ed1',
-                                                        }}
-                                                    >
-                                                        <FlagOutlined style={{ color: '#722ed1', fontSize: 18, flexShrink: 0, paddingTop: 2 }} />
-                                                        <div style={{ flex: 1, minWidth: 0 }}>
-                                                            <Text strong style={{ display: 'block', fontSize: 14 }}>{m.title}</Text>
-                                                            <Space size={16} style={{ marginTop: 4, flexWrap: 'wrap' }}>
-                                                                {m.location && (
-                                                                    <Text type="secondary" style={{ fontSize: 12 }}>
-                                                                        <EnvironmentOutlined style={{ marginRight: 4 }} />
-                                                                        {m.location}
-                                                                    </Text>
-                                                                )}
-                                                                {(m.startTime || m.endTime) && (
-                                                                    <Text type="secondary" style={{ fontSize: 12 }}>
-                                                                        <ClockCircleOutlined style={{ marginRight: 4 }} />
-                                                                        {formatTime(m.startTime)} – {formatTime(m.endTime)}
-                                                                    </Text>
-                                                                )}
-                                                                {m.createdBy?.name && (
-                                                                    <Text type="secondary" style={{ fontSize: 12 }}>
-                                                                        Par {m.createdBy.name}
-                                                                    </Text>
-                                                                )}
-                                                            </Space>
+                                            dayBlocks.map((block) => (
+                                                <div
+                                                    key={block.key}
+                                                    style={{ marginBottom: horizon === 'week' ? 20 : 0 }}
+                                                >
+                                                    {horizon === 'week' && (
+                                                        <Text
+                                                            strong
+                                                            style={{
+                                                                display: 'block',
+                                                                marginBottom: 10,
+                                                                fontSize: 15,
+                                                                textTransform: 'capitalize',
+                                                            }}
+                                                        >
+                                                            {block.dateLabel}
+                                                        </Text>
+                                                    )}
+                                                    {block.missions.length === 0 ? (
+                                                        <Text type="secondary">
+                                                            {horizon === 'week'
+                                                                ? 'Aucune mission ce jour.'
+                                                                : 'Aucune mission prévue aujourd&apos;hui.'}
+                                                        </Text>
+                                                    ) : (
+                                                        <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+                                                            {block.missions.map((m) => (
+                                                                <div
+                                                                    key={`${block.key}-${m.id}`}
+                                                                    style={{
+                                                                        display: 'flex', gap: 12,
+                                                                        padding: '12px 16px', borderRadius: 10,
+                                                                        background: '#f9f0ff',
+                                                                        borderLeft: '4px solid #722ed1',
+                                                                    }}
+                                                                >
+                                                                    <FlagOutlined style={{ color: '#722ed1', fontSize: 18, flexShrink: 0, paddingTop: 2 }} />
+                                                                    <div style={{ flex: 1, minWidth: 0 }}>
+                                                                        <Text strong style={{ display: 'block', fontSize: 14 }}>{m.title}</Text>
+                                                                        <Space size={16} style={{ marginTop: 4, flexWrap: 'wrap' }}>
+                                                                            {m.location && (
+                                                                                <Text type="secondary" style={{ fontSize: 12 }}>
+                                                                                    <EnvironmentOutlined style={{ marginRight: 4 }} />
+                                                                                    {m.location}
+                                                                                </Text>
+                                                                            )}
+                                                                            {(m.startTime || m.endTime) && (
+                                                                                <Text type="secondary" style={{ fontSize: 12 }}>
+                                                                                    <ClockCircleOutlined style={{ marginRight: 4 }} />
+                                                                                    {formatTime(m.startTime)} – {formatTime(m.endTime)}
+                                                                                </Text>
+                                                                            )}
+                                                                            {m.createdBy?.name && (
+                                                                                <Text type="secondary" style={{ fontSize: 12 }}>
+                                                                                    Par {m.createdBy.name}
+                                                                                </Text>
+                                                                            )}
+                                                                        </Space>
+                                                                    </div>
+                                                                </div>
+                                                            ))}
                                                         </div>
-                                                    </div>
-                                                ))}
-                                            </div>
+                                                    )}
+                                                </div>
+                                            ))
                                         )}
                                     </>
                                 )}
@@ -591,13 +900,51 @@ export default function Home() {
                                                 <Text type="secondary" style={{ fontSize: 11 }}>Mission</Text>
                                             </span>
                                             <Text type="secondary" style={{ fontSize: 11, marginLeft: 'auto' }}>
-                                                {calendarEvents.length} événement(s)
+                                                {totalCalendarEvents} événement(s)
                                             </Text>
                                         </div>
-                                        {calendarEvents.length === 0 ? (
-                                            <Text type="secondary">Aucun événement prévu aujourd&apos;hui.</Text>
+                                        {dayBlocks.length === 0 || (isSearching && totalCalendarEvents === 0) ? (
+                                            <Empty
+                                                image={Empty.PRESENTED_IMAGE_SIMPLE}
+                                                description={
+                                                    isSearching
+                                                        ? `Aucun événement ne correspond à « ${search} »`
+                                                        : 'Aucune donnée.'
+                                                }
+                                            />
                                         ) : (
-                                            <DayTimeline events={calendarEvents} />
+                                            dayBlocks.map((block) => {
+                                                const dayEvents = buildCalendarEventsForDay(block.meetings, block.missions);
+                                                return (
+                                                    <div
+                                                        key={block.key}
+                                                        style={{ marginBottom: horizon === 'week' ? 24 : 0 }}
+                                                    >
+                                                        {horizon === 'week' && (
+                                                            <Text
+                                                                strong
+                                                                style={{
+                                                                    display: 'block',
+                                                                    marginBottom: 10,
+                                                                    fontSize: 15,
+                                                                    textTransform: 'capitalize',
+                                                                }}
+                                                            >
+                                                                {block.dateLabel}
+                                                            </Text>
+                                                        )}
+                                                        {dayEvents.length === 0 ? (
+                                                            <Text type="secondary">
+                                                                {horizon === 'week'
+                                                                    ? 'Aucun événement ce jour.'
+                                                                    : 'Aucun événement prévu aujourd&apos;hui.'}
+                                                            </Text>
+                                                        ) : (
+                                                            <DayTimeline events={dayEvents} />
+                                                        )}
+                                                    </div>
+                                                );
+                                            })
                                         )}
                                     </>
                                 )}

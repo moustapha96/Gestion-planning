@@ -61,6 +61,25 @@ function parseExpiryToMs(expiry) {
     return num * (multipliers[unit.toLowerCase()] || 86400000);
 }
 
+/** Objet utilisateur renvoyé au client après login / 2FA (hors secrets). */
+function toAuthClientUser(u) {
+    if (!u) return null;
+    return {
+        id: u.id,
+        name: u.name,
+        email: u.email,
+        role: u.role,
+        avatarUrl: u.avatarUrl,
+        directionId: u.directionId || null,
+        projectId: u.projectId || null,
+        phone: u.phone || null,
+        jobTitle: u.jobTitle || null,
+        cellUnit: u.cellUnit || null,
+        direction: u.direction || null,
+        project: u.project || null,
+    };
+}
+
 const loginSchema = z.object({
     email: z.string().email(),
     password: z.string().min(6),
@@ -105,7 +124,13 @@ router.post('/login', async (req, res) => {
     try {
         const { email, password } = loginSchema.parse(req.body);
 
-        const user = await req.prisma.user.findUnique({ where: { email } });
+        const user = await req.prisma.user.findUnique({
+            where: { email },
+            include: {
+                direction: { select: { id: true, name: true, code: true, logoUrl: true } },
+                project: { select: { id: true, name: true, code: true, logoUrl: true } },
+            },
+        });
 
         if (!user || !(await bcrypt.compare(password, user.passwordHash))) {
             logger.warn('LOGIN_FAILED', `Tentative échouée pour ${email}`, { email, ip: req.ip });
@@ -159,14 +184,7 @@ router.post('/login', async (req, res) => {
         res.json({
             accessToken,
             refreshToken,
-            user: {
-                id: user.id,
-                name: user.name,
-                email: user.email,
-                role: user.role,
-                avatarUrl: user.avatarUrl,
-                directionId: user.directionId || null,
-            },
+            user: toAuthClientUser(user),
         });
 
         req.prisma.auditLog.create({
@@ -212,7 +230,13 @@ router.post('/2fa-login', async (req, res) => {
             return res.status(401).json({ error: 'Token invalide.' });
         }
 
-        const user = await req.prisma.user.findUnique({ where: { id: payload.id } });
+        const user = await req.prisma.user.findUnique({
+            where: { id: payload.id },
+            include: {
+                direction: { select: { id: true, name: true, code: true, logoUrl: true } },
+                project: { select: { id: true, name: true, code: true, logoUrl: true } },
+            },
+        });
         if (!user || !user.isActive || !user.twoFactorEnabled || !user.twoFactorSecret) {
             return res.status(401).json({ error: '2FA non configurée.' });
         }
@@ -274,14 +298,7 @@ router.post('/2fa-login', async (req, res) => {
         res.json({
             accessToken,
             refreshToken,
-            user: {
-                id: user.id,
-                name: user.name,
-                email: user.email,
-                role: user.role,
-                avatarUrl: user.avatarUrl,
-                directionId: user.directionId || null,
-            },
+            user: toAuthClientUser(user),
         });
     } catch (error) {
         logger.error('2FA_LOGIN', error.message);
@@ -449,6 +466,11 @@ router.get('/me', authMiddleware, async (req, res) => {
                 createdAt: true,
                 directionId: true,
                 direction: { select: { id: true, name: true, code: true, logoUrl: true } },
+                projectId: true,
+                project: { select: { id: true, name: true, code: true, logoUrl: true } },
+                phone: true,
+                jobTitle: true,
+                cellUnit: true,
             },
         });
         if (!user) return res.status(404).json({ error: 'Utilisateur non trouvé' });
@@ -490,7 +512,21 @@ router.post('/me/avatar', authMiddleware, uploadAvatar.single('avatar'), async (
         const updated = await req.prisma.user.update({
             where: { id: req.user.id },
             data: { avatarUrl },
-            select: { id: true, name: true, email: true, role: true, avatarUrl: true, updatedAt: true },
+            select: {
+                id: true,
+                name: true,
+                email: true,
+                role: true,
+                avatarUrl: true,
+                updatedAt: true,
+                phone: true,
+                jobTitle: true,
+                cellUnit: true,
+                directionId: true,
+                direction: { select: { id: true, name: true, code: true, logoUrl: true } },
+                projectId: true,
+                project: { select: { id: true, name: true, code: true, logoUrl: true } },
+            },
         });
         auditLogger.info('AVATAR_UPDATED', `Photo de profil mise à jour`, { userId: req.user.id });
         res.json({ avatarUrl, user: updated });
@@ -526,7 +562,21 @@ router.delete('/me/avatar', authMiddleware, async (req, res) => {
         const updated = await req.prisma.user.update({
             where: { id: req.user.id },
             data: { avatarUrl: null },
-            select: { id: true, name: true, email: true, role: true, avatarUrl: true, updatedAt: true },
+            select: {
+                id: true,
+                name: true,
+                email: true,
+                role: true,
+                avatarUrl: true,
+                updatedAt: true,
+                phone: true,
+                jobTitle: true,
+                cellUnit: true,
+                directionId: true,
+                direction: { select: { id: true, name: true, code: true, logoUrl: true } },
+                projectId: true,
+                project: { select: { id: true, name: true, code: true, logoUrl: true } },
+            },
         });
         auditLogger.info('AVATAR_DELETED', 'Photo de profil supprimée', { userId: req.user.id });
         res.json({ avatarUrl: null, user: updated });

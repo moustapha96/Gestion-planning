@@ -57,7 +57,11 @@ router.get('/admin-stats', roleMiddleware(ADMIN_ROUTE_ROLES), async (req, res) =
         const planningsTotal = (planningsByStatus || []).reduce((s, x) => s + (x._count?.id ?? 0), 0);
         const planningsMap = {};
         (planningsByStatus || []).forEach((x) => { planningsMap[x.status] = x._count?.id ?? 0; });
-        const pendingPlannings = (planningsMap['SUBMITTED'] || 0) + (planningsMap['IN_CONSOLIDATION'] || 0);
+        const pendingPlannings = (planningsMap['SUBMITTED'] || 0)
+            + (planningsMap['IN_CONSOLIDATION'] || 0)
+            + (planningsMap['CP_PENDING'] || 0)
+            + (planningsMap['SG_PENDING'] || 0)
+            + (planningsMap['DG_PENDING'] || 0);
         // Taux de validation CDC §3.7.3: VALIDATED / (tout sauf DRAFT) * 100
         const nonDraftTotal = planningsTotal - (planningsMap['DRAFT'] || 0);
         const validationRate = nonDraftTotal > 0
@@ -158,7 +162,7 @@ router.get('/today', async (req, res) => {
 
         const pendingPlannings = await req.prisma.planning.count({
             where: {
-                status: { in: ['SUBMITTED', 'IN_CONSOLIDATION'] },
+                status: { in: ['SUBMITTED', 'IN_CONSOLIDATION', 'CP_PENDING', 'SG_PENDING', 'DG_PENDING'] },
             },
         });
 

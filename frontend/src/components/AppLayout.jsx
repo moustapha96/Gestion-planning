@@ -31,6 +31,8 @@ const { Text } = Typography;
 const ROLE_LABELS = {
     RESPONSABLE:   'Responsable',
     CONSOLIDATEUR: 'Consolidateur',
+    COORDINATEUR_PROJET: 'Coord. projet',
+    SECRETAIRE_GENERAL: 'Secr. général',
     DG:            'Dir. Général',
     ADMIN:         'Administrateur',
     SUPER_ADMIN:   'Super administrateur',
@@ -38,6 +40,8 @@ const ROLE_LABELS = {
 const ROLE_COLORS = {
     RESPONSABLE:   'blue',
     CONSOLIDATEUR: 'purple',
+    COORDINATEUR_PROJET: 'geekblue',
+    SECRETAIRE_GENERAL: 'cyan',
     DG:            'gold',
     ADMIN:         'red',
     SUPER_ADMIN:   'magenta',
@@ -81,6 +85,7 @@ export default function AppLayout() {
     const seenNotifIdsRef = useRef(new Set());
     const seenDmPopupIdsRef = useRef(new Set());
     const seenDirectionPopupIdsRef = useRef(new Set());
+    const seenProjectPopupIdsRef = useRef(new Set());
 
     // ── Démarrer / arrêter le polling des notifications ──────────
     useEffect(() => {
@@ -115,7 +120,7 @@ export default function AppLayout() {
     const socketShortLabel = !rtSocket.browserOnline
         ? 'Réseau off'
         : rtSocket.state === 'connected'
-          ? (isTablet ? 'En ligne' : 'Temps réel connecté')
+          ? (isTablet ? 'En ligne' : 'Connecté')
           : rtSocket.state === 'connecting'
             ? (isTablet ? '…' : 'Connexion…')
             : rtSocket.state === 'reconnecting'
@@ -256,7 +261,7 @@ export default function AppLayout() {
         };
     }, [user?.id, location.pathname, notification, navigate]);
 
-    // ── Popup instantané des messages de direction (hors page Discussions)
+    // ── Popup instantané des messages du canal direction (hors page Discussions)
     useEffect(() => {
         if (!user?.id) return;
         const token = localStorage.getItem('accessToken');
@@ -290,6 +295,42 @@ export default function AppLayout() {
         socket?.on('direction:message:new', onDirectionMessage);
         return () => {
             socket?.off('direction:message:new', onDirectionMessage);
+        };
+    }, [user?.id, location.pathname, notification, navigate]);
+
+    useEffect(() => {
+        if (!user?.id) return;
+        const token = localStorage.getItem('accessToken');
+        const socket = getSocket(token);
+        const onProjectMessage = (payload) => {
+            const msg = payload?.message;
+            if (!msg?.id) return;
+            if (msg.senderId === user.id) return;
+            if (seenProjectPopupIdsRef.current.has(msg.id)) return;
+            if (location.pathname.startsWith('/discussions')) return;
+
+            seenProjectPopupIdsRef.current.add(msg.id);
+            if (seenProjectPopupIdsRef.current.size > 400) {
+                seenProjectPopupIdsRef.current.clear();
+                seenProjectPopupIdsRef.current.add(msg.id);
+            }
+
+            const senderName = msg.sender?.name || 'Utilisateur';
+            const preview = (msg.body || msg.fileName || 'Nouveau message').slice(0, 180);
+            const projectName = payload?.projectName || 'votre projet';
+            notification.open({
+                key: `project-popup-${msg.id}`,
+                message: `Nouveau message (projet ${projectName})`,
+                description: `${senderName}: ${preview}`,
+                placement: 'topRight',
+                duration: 6,
+                onClick: () => navigate('/discussions?channel=project'),
+            });
+        };
+
+        socket?.on('project:message:new', onProjectMessage);
+        return () => {
+            socket?.off('project:message:new', onProjectMessage);
         };
     }, [user?.id, location.pathname, notification, navigate]);
 
@@ -507,6 +548,11 @@ export default function AppLayout() {
                     <UserAvatar user={user} size={40} />
                     <div>
                         <Text strong style={{ display: 'block', fontSize: 14 }}>{user?.name}</Text>
+                        {user?.jobTitle ? (
+                            <Text type="secondary" style={{ display: 'block', fontSize: 11, marginTop: 2 }}>
+                                {user.jobTitle}
+                            </Text>
+                        ) : null}
                         <Text type="secondary" style={{ fontSize: 12 }}>{user?.email}</Text>
                         <div style={{ marginTop: 3 }}>
                             <Tag color={ROLE_COLORS[user?.role]} style={{ fontSize: 11, margin: 0 }}>
@@ -887,7 +933,7 @@ export default function AppLayout() {
                                         flexShrink: 0,
                                         background:
                                             rtSocket.state === 'connected' && rtSocket.browserOnline ? '#52c41a'
-                                            : rtSocket.state === 'connecting' ? '#1677ff'
+                                            : rtSocket.state === 'connecting' ? '#1565C0'
                                             : (rtSocket.state === 'reconnecting' ? '#fa8c16'
                                                 : (rtSocket.state === 'unauthorized' ? '#ff4d4f' : '#bfbfbf')),
                                         boxShadow: rtSocket.state === 'connected' && rtSocket.browserOnline
@@ -909,11 +955,8 @@ export default function AppLayout() {
                                     padding: isXs ? '4px 6px' : '6px 10px',
                                     borderRadius: 8,
                                     minHeight: 44,
-                                    transition: 'background 0.15s',
                                     maxWidth: showHeaderUserDetails ? 220 : 52,
                                 }}
-                                onMouseEnter={(e) => { e.currentTarget.style.background = isDark ? '#2a2f36' : '#f5f5f5'; }}
-                                onMouseLeave={(e) => { e.currentTarget.style.background = 'transparent'; }}
                             >
                                 <UserAvatar user={user} size={isXs ? 26 : 28} />
                                 {showHeaderUserDetails && (

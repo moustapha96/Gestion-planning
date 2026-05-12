@@ -14,9 +14,9 @@
     /* Hauteur header (utilisée pour le sticky + offset de scroll) */
     --header-height:  56px;
 
-    /* Couleur primaire app */
-    --color-primary:  #3e7cbc;
-    --color-primary-light: #5a94cc;
+    /* Couleur primaire app — bleu cobalt ADM */
+    --color-primary:  #1565C0;
+    --color-primary-light: #1976D2;
 }
 
 /* ══════════════════════════════════════════════════════════════
@@ -187,7 +187,7 @@ body.keyboard-open {
    ADM SIDEBAR — bleu cobalt du logo ADM
    ══════════════════════════════════════════════════════════════ */
 .ant-layout-sider {
-    background: linear-gradient(180deg, #1565C0 0%, #0D47A1 100%) !important;
+    background: linear-gradient(180deg, #1565C0 0%, #0C3A87 100%) !important;
 }
 .ant-layout-sider .ant-menu-dark {
     background: transparent !important;

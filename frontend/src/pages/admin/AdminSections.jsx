@@ -14,8 +14,19 @@ import api, { API_BASE } from '../../api/client';
 import { useAuth } from '../../context/AuthContext';
 
 const { Title, Text } = Typography;
-export const ROLE_COLORS = { RESPONSABLE: 'blue', CONSOLIDATEUR: 'purple', DG: 'gold', ADMIN: 'red', SUPER_ADMIN: 'magenta' };
-export const ROLE_LABELS = { RESPONSABLE: 'Responsable', CONSOLIDATEUR: 'Consolidateur', DG: 'Dir. Général', ADMIN: 'Administrateur', SUPER_ADMIN: 'Super administrateur' };
+export const ROLE_COLORS = {
+    RESPONSABLE: 'blue', CONSOLIDATEUR: 'purple', COORDINATEUR_PROJET: 'geekblue', SECRETAIRE_GENERAL: 'cyan',
+    DG: 'gold', ADMIN: 'red', SUPER_ADMIN: 'magenta',
+};
+export const ROLE_LABELS = {
+    RESPONSABLE: 'Responsable',
+    CONSOLIDATEUR: 'Consolidateur',
+    COORDINATEUR_PROJET: 'Coordinateur de projet',
+    SECRETAIRE_GENERAL: 'Secrétaire général',
+    DG: 'Dir. Général',
+    ADMIN: 'Administrateur',
+    SUPER_ADMIN: 'Super administrateur',
+};
 
 // ════════════════════════════════════════════════════════════════════
 // ONGLET UTILISATEURS
@@ -40,6 +51,7 @@ export function UsersTab() {
     const [resetLoading, setResetLoading] = useState(false);
     const [toggleLoadingId, setToggleLoadingId] = useState(null);
     const [directions, setDirections] = useState([]);
+    const [projects, setProjects] = useState([]);
     const [form] = Form.useForm();
     const [editForm] = Form.useForm();
     const [resetForm] = Form.useForm();
@@ -59,8 +71,10 @@ export function UsersTab() {
         try {
             const res = await api.get('/events/taxonomy');
             setDirections(res.data?.directions || []);
+            setProjects(res.data?.projects || []);
         } catch {
             setDirections([]);
+            setProjects([]);
         }
     };
 
@@ -129,6 +143,7 @@ export function UsersTab() {
             email: record.email,
             role: record.role,
             directionId: record.directionId || null,
+            projectId: record.projectId || null,
         });
     };
 
@@ -142,6 +157,7 @@ export function UsersTab() {
                 email: values.email,
                 role: values.role,
                 directionId: values.directionId || null,
+                projectId: values.projectId || null,
             });
             message.success('Utilisateur modifié');
             setEditModal({ open: false, user: null });
@@ -203,9 +219,14 @@ export function UsersTab() {
             render: (role) => <Tag color={ROLE_COLORS[role]}>{ROLE_LABELS[role] || role}</Tag>,
         },
         {
-            title: 'Direction',
-            key: 'direction',
-            render: (_, r) => r.direction?.name || '-',
+            title: 'Direction / projet',
+            key: 'directionProjet',
+            render: (_, r) => (
+                <div style={{ fontSize: 12, lineHeight: 1.5 }}>
+                    <div>{r.direction?.name ? <span>Dir. : {r.direction.name}</span> : <Text type="secondary">Dir. : —</Text>}</div>
+                    <div>{r.project?.name ? <span>Proj. : {r.project.name}</span> : <Text type="secondary">Proj. : —</Text>}</div>
+                </div>
+            ),
         },
         {
             title: 'Statut',
@@ -439,13 +460,23 @@ export function UsersTab() {
                     <Form.Item name="email" label="Email" rules={[{ required: true, type: 'email' }]}>
                         <Input />
                     </Form.Item>
-                    <Form.Item name="directionId" label="Direction">
+                    <Form.Item name="directionId" label="Direction (canal équipe)">
                         <Select
                             allowClear
                             placeholder="Aucune direction"
                             options={directions.map((d) => ({
                                 value: d.id,
                                 label: d.code ? `${d.name} (${d.code})` : d.name,
+                            }))}
+                        />
+                    </Form.Item>
+                    <Form.Item name="projectId" label="Projet (canal équipe)">
+                        <Select
+                            allowClear
+                            placeholder="Aucun projet"
+                            options={projects.map((p) => ({
+                                value: p.id,
+                                label: p.code ? `${p.name} (${p.code})` : p.name,
                             }))}
                         />
                     </Form.Item>
@@ -485,13 +516,23 @@ export function UsersTab() {
                     <Form.Item name="role" label="Rôle" rules={[{ required: true }]}>
                         <Select options={Object.entries(ROLE_LABELS).map(([v, l]) => ({ value: v, label: l }))} />
                     </Form.Item>
-                    <Form.Item name="directionId" label="Direction">
+                    <Form.Item name="directionId" label="Direction (canal équipe)">
                         <Select
                             allowClear
                             placeholder="Aucune direction"
                             options={directions.map((d) => ({
                                 value: d.id,
                                 label: d.code ? `${d.name} (${d.code})` : d.name,
+                            }))}
+                        />
+                    </Form.Item>
+                    <Form.Item name="projectId" label="Projet (canal équipe)">
+                        <Select
+                            allowClear
+                            placeholder="Aucun projet"
+                            options={projects.map((p) => ({
+                                value: p.id,
+                                label: p.code ? `${p.name} (${p.code})` : p.name,
                             }))}
                         />
                     </Form.Item>
@@ -862,7 +903,7 @@ export function RolesPermissionsTab() {
             .finally(() => setLoading(false));
     }, []);
 
-    const roleOrder = ['RESPONSABLE', 'CONSOLIDATEUR', 'DG', 'ADMIN', 'SUPER_ADMIN'];
+    const roleOrder = ['RESPONSABLE', 'CONSOLIDATEUR', 'COORDINATEUR_PROJET', 'SECRETAIRE_GENERAL', 'DG', 'ADMIN', 'SUPER_ADMIN'];
 
     if (loading) return <div style={{ textAlign: 'center', padding: 24 }}><Spin /></div>;
 

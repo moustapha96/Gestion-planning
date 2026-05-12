@@ -24,10 +24,15 @@ import { useAuth } from '../context/AuthContext';
 import { isPrivilegedAdmin } from '../utils/roles';
 
 const { Title, Text } = Typography;
-const ROLE_COLORS = { RESPONSABLE: 'blue', CONSOLIDATEUR: 'purple', DG: 'gold', ADMIN: 'red', SUPER_ADMIN: 'magenta' };
+const ROLE_COLORS = {
+    RESPONSABLE: 'blue', CONSOLIDATEUR: 'purple', COORDINATEUR_PROJET: 'geekblue', SECRETAIRE_GENERAL: 'cyan',
+    DG: 'gold', ADMIN: 'red', SUPER_ADMIN: 'magenta',
+};
 const ROLE_LABELS = {
     RESPONSABLE: 'Responsable',
     CONSOLIDATEUR: 'Consolidateur',
+    COORDINATEUR_PROJET: 'Coordinateur de projet',
+    SECRETAIRE_GENERAL: 'Secrétaire général',
     DG: 'Directeur Général',
     ADMIN: 'Administrateur',
     SUPER_ADMIN: 'Super administrateur',
@@ -50,6 +55,8 @@ export default function Users() {
     const [form] = Form.useForm();
     const [editForm] = Form.useForm();
     const [resetForm] = Form.useForm();
+    const [directions, setDirections] = useState([]);
+    const [projectsList, setProjectsList] = useState([]);
 
     useEffect(() => {
         if (!isPrivilegedAdmin(currentUser?.role)) {
@@ -57,6 +64,22 @@ export default function Users() {
             return;
         }
         fetchUsers();
+    }, [currentUser?.role]);
+
+    useEffect(() => {
+        if (!isPrivilegedAdmin(currentUser?.role)) return;
+        (async () => {
+            try {
+                const [dRes, pRes] = await Promise.all([
+                    api.get('/repertoire/directions'),
+                    api.get('/projects'),
+                ]);
+                setDirections(dRes.data || []);
+                setProjectsList(pRes.data || []);
+            } catch {
+                /* selects vides si erreur */
+            }
+        })();
     }, [currentUser?.role]);
 
     const fetchUsers = async () => {
@@ -88,7 +111,16 @@ export default function Users() {
 
     const openEdit = (record) => {
         setEditModal({ open: true, user: record });
-        editForm.setFieldsValue({ name: record.name, email: record.email, role: record.role });
+        editForm.setFieldsValue({
+            name: record.name,
+            email: record.email,
+            role: record.role,
+            directionId: record.directionId || undefined,
+            projectId: record.projectId || undefined,
+            jobTitle: record.jobTitle || '',
+            cellUnit: record.cellUnit || '',
+            phone: record.phone || '',
+        });
     };
 
     const handleEditSubmit = async () => {
@@ -97,7 +129,16 @@ export default function Users() {
         setEditLoading(true);
         try {
             const values = await editForm.validateFields();
-            await api.put(`/users/${u.id}`, { name: values.name, email: values.email, role: values.role });
+            await api.put(`/users/${u.id}`, {
+                name: values.name,
+                email: values.email,
+                role: values.role,
+                directionId: values.directionId || null,
+                projectId: values.projectId || null,
+                jobTitle: values.jobTitle,
+                cellUnit: values.cellUnit,
+                phone: values.phone,
+            });
             message.success('Utilisateur modifié');
             setEditModal({ open: false, user: null });
             editForm.resetFields();
@@ -178,8 +219,41 @@ export default function Users() {
                 </Avatar>
             ),
         },
-        { title: 'Nom', dataIndex: 'name', key: 'name' },
-        { title: 'Email', dataIndex: 'email', key: 'email', ellipsis: true },
+        { title: 'Nom', dataIndex: 'name', key: 'name', width: 160 },
+        { title: 'Email', dataIndex: 'email', key: 'email', ellipsis: true, width: 200 },
+        {
+            title: 'Direction',
+            key: 'direction',
+            ellipsis: true,
+            width: 160,
+            render: (_, r) =>
+                r.direction?.name
+                    ? `${r.direction.name}${r.direction.code ? ` (${r.direction.code})` : ''}`
+                    : '—',
+        },
+        {
+            title: 'Cellule',
+            dataIndex: 'cellUnit',
+            key: 'cellUnit',
+            ellipsis: true,
+            width: 120,
+            render: (v) => v || '—',
+        },
+        {
+            title: 'Poste',
+            dataIndex: 'jobTitle',
+            key: 'jobTitle',
+            ellipsis: true,
+            width: 140,
+            render: (v) => v || '—',
+        },
+        {
+            title: 'Tél.',
+            dataIndex: 'phone',
+            key: 'phone',
+            width: 120,
+            render: (v) => v || '—',
+        },
         {
             title: 'Rôle',
             dataIndex: 'role',
@@ -207,7 +281,7 @@ export default function Users() {
             width: 220,
             render: (_, record) => (
                 <Space wrap>
-                    <Tooltip title="Modifier (nom, email, rôle)">
+                    <Tooltip title="Modifier fiche (nom, email, rôle, direction, projet, poste, cellule, téléphone)">
                         <Button size="small" icon={<EditOutlined />} onClick={() => openEdit(record)} />
                     </Tooltip>
                     <Tooltip title="Définir un nouveau mot de passe (envoyé par email)">
@@ -357,6 +431,8 @@ export default function Users() {
                                 <Select>
                                     <Select.Option value="RESPONSABLE">Responsable</Select.Option>
                                     <Select.Option value="CONSOLIDATEUR">Consolidateur</Select.Option>
+                                    <Select.Option value="COORDINATEUR_PROJET">Coordinateur de projet</Select.Option>
+                                    <Select.Option value="SECRETAIRE_GENERAL">Secrétaire général</Select.Option>
                                     <Select.Option value="DG">Directeur Général</Select.Option>
                                     <Select.Option value="ADMIN">Administrateur</Select.Option>
                                     <Select.Option value="SUPER_ADMIN">Super administrateur</Select.Option>
@@ -371,6 +447,47 @@ export default function Users() {
                     >
                         <Input />
                     </Form.Item>
+                    <Row gutter={16}>
+                        <Col xs={24} sm={12}>
+                            <Form.Item name="directionId" label="Direction">
+                                <Select allowClear placeholder="Choisir une direction" showSearch optionFilterProp="children">
+                                    {directions.map((d) => (
+                                        <Select.Option key={d.id} value={d.id}>
+                                            {d.name}{d.code ? ` (${d.code})` : ''}
+                                        </Select.Option>
+                                    ))}
+                                </Select>
+                            </Form.Item>
+                        </Col>
+                        <Col xs={24} sm={12}>
+                            <Form.Item name="projectId" label="Projet (équipe)">
+                                <Select allowClear placeholder="Choisir un projet" showSearch optionFilterProp="children">
+                                    {projectsList.map((p) => (
+                                        <Select.Option key={p.id} value={p.id}>
+                                            {p.name}{p.code ? ` (${p.code})` : ''}
+                                        </Select.Option>
+                                    ))}
+                                </Select>
+                            </Form.Item>
+                        </Col>
+                    </Row>
+                    <Row gutter={16}>
+                        <Col xs={24} sm={8}>
+                            <Form.Item name="jobTitle" label="Poste / fonction">
+                                <Input maxLength={120} placeholder="Ex. Chargé de mission" />
+                            </Form.Item>
+                        </Col>
+                        <Col xs={24} sm={8}>
+                            <Form.Item name="cellUnit" label="Cellule ou service">
+                                <Input maxLength={120} placeholder="Ex. Cellule suivi" />
+                            </Form.Item>
+                        </Col>
+                        <Col xs={24} sm={8}>
+                            <Form.Item name="phone" label="Téléphone">
+                                <Input maxLength={40} placeholder="Ex. +221 …" />
+                            </Form.Item>
+                        </Col>
+                    </Row>
                     <Form.Item
                         name="password"
                         label="Mot de passe initial"
@@ -408,11 +525,54 @@ export default function Users() {
                         <Select>
                             <Select.Option value="RESPONSABLE">Responsable</Select.Option>
                             <Select.Option value="CONSOLIDATEUR">Consolidateur</Select.Option>
+                            <Select.Option value="COORDINATEUR_PROJET">Coordinateur de projet</Select.Option>
+                            <Select.Option value="SECRETAIRE_GENERAL">Secrétaire général</Select.Option>
                             <Select.Option value="DG">Directeur Général</Select.Option>
                             <Select.Option value="ADMIN">Administrateur</Select.Option>
                             <Select.Option value="SUPER_ADMIN">Super administrateur</Select.Option>
                         </Select>
                     </Form.Item>
+                    <Row gutter={16}>
+                        <Col xs={24} sm={12}>
+                            <Form.Item name="directionId" label="Direction">
+                                <Select allowClear placeholder="Choisir une direction" showSearch optionFilterProp="children">
+                                    {directions.map((d) => (
+                                        <Select.Option key={d.id} value={d.id}>
+                                            {d.name}{d.code ? ` (${d.code})` : ''}
+                                        </Select.Option>
+                                    ))}
+                                </Select>
+                            </Form.Item>
+                        </Col>
+                        <Col xs={24} sm={12}>
+                            <Form.Item name="projectId" label="Projet (équipe)">
+                                <Select allowClear placeholder="Choisir un projet" showSearch optionFilterProp="children">
+                                    {projectsList.map((p) => (
+                                        <Select.Option key={p.id} value={p.id}>
+                                            {p.name}{p.code ? ` (${p.code})` : ''}
+                                        </Select.Option>
+                                    ))}
+                                </Select>
+                            </Form.Item>
+                        </Col>
+                    </Row>
+                    <Row gutter={16}>
+                        <Col xs={24} sm={8}>
+                            <Form.Item name="jobTitle" label="Poste / fonction">
+                                <Input maxLength={120} placeholder="Ex. Chargé de mission" />
+                            </Form.Item>
+                        </Col>
+                        <Col xs={24} sm={8}>
+                            <Form.Item name="cellUnit" label="Cellule ou service">
+                                <Input maxLength={120} placeholder="Ex. Cellule suivi" />
+                            </Form.Item>
+                        </Col>
+                        <Col xs={24} sm={8}>
+                            <Form.Item name="phone" label="Téléphone">
+                                <Input maxLength={40} placeholder="Ex. +221 …" />
+                            </Form.Item>
+                        </Col>
+                    </Row>
                 </Form>
             </Modal>
 

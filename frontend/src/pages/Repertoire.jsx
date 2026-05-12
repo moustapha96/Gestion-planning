@@ -2,26 +2,42 @@ import { useState, useEffect, useCallback, useMemo } from 'react';
 import {
   Table, Button, Input, Space, Typography, Tag, Modal, Form,
   App, Tooltip, Divider, Select, Card, Row, Col, Statistic,
-  Popconfirm, Badge, Drawer, Avatar,
+  Popconfirm, Badge, Drawer, Avatar, Alert,
 } from 'antd';
 import {
   PlusOutlined, SearchOutlined, EditOutlined, DeleteOutlined,
   FileWordOutlined, FilePdfOutlined, PhoneOutlined, MobileOutlined,
-  UserOutlined, ApartmentOutlined, ReloadOutlined,
+  UserOutlined, ApartmentOutlined, ReloadOutlined, MailOutlined,
+  UserAddOutlined,
 } from '@ant-design/icons';
 import { useAuth } from '../context/AuthContext';
 import api from '../api/client';
+import { isPrivilegedAdmin } from '../utils/roles';
 import jsPDF from 'jspdf';
 import autoTable from 'jspdf-autotable';
 
 const { Title, Text } = Typography;
 
-const ADM_BLUE  = '#3e7cbc';
+const ADM_BLUE  = '#1565C0';
 const ADM_DARK  = '#0A2744';
 const ADM_LIGHT = '#e8f0f9';
 
 const EDIT_ROLES   = ['ADMIN', 'SUPER_ADMIN', 'DG', 'CONSOLIDATEUR'];
 const DELETE_ROLES = ['ADMIN', 'SUPER_ADMIN', 'DG'];
+
+const PASSWORD_RULES = [
+  { required: true, message: 'Mot de passe requis' },
+  {
+    validator: (_, v) => {
+      const s = String(v || '');
+      if (s.length < 8) return Promise.reject(new Error('Au moins 8 caractères'));
+      if (!/[A-Z]/.test(s)) return Promise.reject(new Error('Au moins une majuscule'));
+      if (!/[0-9]/.test(s)) return Promise.reject(new Error('Au moins un chiffre'));
+      if (!/[^A-Za-z0-9]/.test(s)) return Promise.reject(new Error('Au moins un caractère spécial'));
+      return Promise.resolve();
+    },
+  },
+];
 
 export default function Repertoire() {
   const { user } = useAuth();
@@ -39,10 +55,15 @@ export default function Repertoire() {
   const [drawerContact, setDrawerContact] = useState(null);
   const [exportingDocx, setExportingDocx] = useState(false);
   const [exportingPdf,  setExportingPdf]  = useState(false);
+  const [accountModalOpen, setAccountModalOpen] = useState(false);
+  const [accountTarget, setAccountTarget] = useState(null);
+  const [accountSaving, setAccountSaving] = useState(false);
   const [form] = Form.useForm();
+  const [accountForm] = Form.useForm();
 
   const canEdit   = EDIT_ROLES.includes(user?.role);
   const canDelete = DELETE_ROLES.includes(user?.role);
+  const canCreateAppAccount = isPrivilegedAdmin(user?.role);
 
   // ── Map name→direction pour enrichissement visuel ─────────────────────────
   const orgDirByName = useMemo(() => {
@@ -120,6 +141,7 @@ export default function Repertoire() {
       poste:         record.poste,
       directe:       record.directe,
       portable:      record.portable,
+      email:         record.email,
       ordre:         record.ordre,
     });
     setModalOpen(true);
@@ -137,6 +159,7 @@ export default function Repertoire() {
         poste:         values.poste      || null,
         directe:       values.directe    || null,
         portable:      values.portable   || null,
+        email:         values.email?.trim() || null,
         ordre:         values.ordre,
       };
       if (editTarget) {
@@ -164,6 +187,37 @@ export default function Repertoire() {
     } catch (err) {
       msg.error(err.response?.data?.error || 'Erreur suppression');
     }
+  };
+
+  const openCreateAccount = (record) => {
+    setAccountTarget(record);
+    accountForm.resetFields();
+    accountForm.setFieldsValue({ role: 'RESPONSABLE' });
+    setAccountModalOpen(true);
+  };
+
+  const handleCreateAccount = async () => {
+    if (!accountTarget?.id) return;
+    try {
+      const values = await accountForm.validateFields();
+      setAccountSaving(true);
+      await api.post(`/repertoire/${accountTarget.id}/create-account`, {
+        password: values.password,
+        role: values.role,
+      });
+      msg.success('Compte créé — e-mail d\'activation envoyé à l\'adresse du répertoire');
+      setAccountModalOpen(false);
+      setAccountTarget(null);
+      accountForm.resetFields();
+    } catch (err) {
+      if (err?.errorFields) {
+        return Promise.reject(err);
+      }
+      msg.error(err.response?.data?.error || 'Erreur lors de la création du compte');
+    } finally {
+      setAccountSaving(false);
+    }
+    return undefined;
   };
 
   // ── Export DOCX ───────────────────────────────────────────────────────────
@@ -213,26 +267,31 @@ export default function Repertoire() {
           const orgDir = getOrgDir(dir);
           const header = orgDir?.code ? `${dir.toUpperCase()}  (${orgDir.code})` : dir.toUpperCase();
           tableBody.push([{
-            content: header, colSpan: 6,
+            content: header, colSpan: 7,
             styles: { fillColor: [62, 124, 188], textColor: [255, 255, 255], fontStyle: 'bold', fontSize: 9 },
           }]);
           for (const c of members) {
             tableBody.push([
               { content: c.numero ? String(c.numero).padStart(2, '0') : '', styles: { halign: 'center' } },
-              c.prenomNom || '', c.fonction || '', c.poste || '', c.directe || '', c.portable || '',
+              c.prenomNom || '', c.fonction || '', c.poste || '', c.directe || '', c.portable || '', c.email || '',
             ]);
           }
         }
 
         autoTable(doc, {
           startY: 28,
-          head: [['N°', 'Prénoms et Nom', 'Fonction', 'Poste', 'Directe', 'Portable']],
+          head: [['N°', 'Prénoms et Nom', 'Fonction', 'Poste', 'Directe', 'Portable', 'E-mail']],
           body: tableBody, theme: 'grid',
-          styles: { fontSize: 8, cellPadding: 2, font: 'helvetica' },
-          headStyles: { fillColor: [10, 39, 68], textColor: [255, 255, 255], fontStyle: 'bold', fontSize: 9 },
+          styles: { fontSize: 7, cellPadding: 1.5, font: 'helvetica' },
+          headStyles: { fillColor: [10, 39, 68], textColor: [255, 255, 255], fontStyle: 'bold', fontSize: 8 },
           columnStyles: {
-            0: { cellWidth: 12, halign: 'center' }, 1: { cellWidth: 55 }, 2: { cellWidth: 65 },
-            3: { cellWidth: 18, halign: 'center' }, 4: { cellWidth: 30, halign: 'center' }, 5: { cellWidth: 30, halign: 'center' },
+            0: { cellWidth: 10, halign: 'center' },
+            1: { cellWidth: 42 },
+            2: { cellWidth: 52 },
+            3: { cellWidth: 14, halign: 'center' },
+            4: { cellWidth: 24, halign: 'center' },
+            5: { cellWidth: 24, halign: 'center' },
+            6: { cellWidth: 48 },
           },
           alternateRowStyles: { fillColor: [232, 240, 249] },
           margin: { top: 28, left: 5, right: 5 },
@@ -267,7 +326,8 @@ export default function Repertoire() {
       c.directionLabel?.toLowerCase().includes(q)||
       c.poste?.toLowerCase().includes(q)         ||
       c.portable?.toLowerCase().includes(q)      ||
-      c.directe?.toLowerCase().includes(q)
+      c.directe?.toLowerCase().includes(q)       ||
+      c.email?.toLowerCase().includes(q)
     );
   });
 
@@ -322,14 +382,34 @@ export default function Repertoire() {
         ? <a href={`tel:${v.replace(/\s/g, '')}`} style={{ color: ADM_DARK, fontWeight: 500 }}><MobileOutlined /> {v}</a>
         : <Text type="secondary">–</Text>,
     },
-    ...(canEdit ? [{
-      title: '', key: 'actions', width: 72, align: 'center',
+    {
+      title: 'E-mail', dataIndex: 'email', width: 200, ellipsis: true,
+      render: (v) => v
+        ? <a href={`mailto:${v.trim()}`} style={{ color: ADM_BLUE }}><MailOutlined /> {v}</a>
+        : <Text type="secondary">–</Text>,
+    },
+    ...((canEdit || canCreateAppAccount) ? [{
+      title: '', key: 'actions', width: canCreateAppAccount ? 108 : 72, align: 'center',
       render: (_, r) => (
         <Space size={4}>
-          <Tooltip title="Modifier">
-            <Button size="small" type="text" icon={<EditOutlined />}
-              onClick={() => openEdit(r)} style={{ color: ADM_BLUE }} />
-          </Tooltip>
+          {canCreateAppAccount && (
+            <Tooltip title={r.email?.trim() ? 'Créer un compte application (e-mail d\'activation)' : 'Ajoutez un e-mail sur la fiche du contact'}>
+              <Button
+                size="small"
+                type="text"
+                icon={<UserAddOutlined />}
+                disabled={!r.email?.trim()}
+                onClick={() => openCreateAccount(r)}
+                style={{ color: '#52c41a' }}
+              />
+            </Tooltip>
+          )}
+          {canEdit && (
+            <Tooltip title="Modifier">
+              <Button size="small" type="text" icon={<EditOutlined />}
+                onClick={() => openEdit(r)} style={{ color: ADM_BLUE }} />
+            </Tooltip>
+          )}
           {canDelete && (
             <Popconfirm title="Supprimer ce contact ?" description="Cette action est irréversible."
               onConfirm={() => handleDelete(r.id)} okText="Supprimer" cancelText="Annuler"
@@ -421,7 +501,7 @@ export default function Repertoire() {
         <Space wrap style={{ width: '100%' }}>
           <Input
             prefix={<SearchOutlined style={{ color: ADM_BLUE }} />}
-            placeholder="Rechercher nom, fonction, poste…"
+            placeholder="Rechercher nom, fonction, poste, e-mail…"
             value={search} onChange={(e) => setSearch(e.target.value)}
             allowClear style={{ width: 300 }}
           />
@@ -452,7 +532,7 @@ export default function Repertoire() {
             pageSizeOptions: ['50', '100', '200'],
             showTotal: (total, range) => `${range[0]}-${range[1]} / ${total}`,
           }}
-          scroll={{ x: 780 }}
+          scroll={{ x: 980 }}
           onRow={(record) => {
             if (record._isGroupHeader) return { style: { cursor: 'default' } };
             return { style: { background: record._rowIndex % 2 === 1 ? ADM_LIGHT : '#fff' } };
@@ -611,6 +691,23 @@ export default function Repertoire() {
               </Form.Item>
             </Col>
           </Row>
+          <Form.Item
+            name="email"
+            label="E-mail professionnel"
+            rules={[
+              {
+                validator: (_, v) => {
+                  const s = String(v || '').trim();
+                  if (!s) return Promise.resolve();
+                  return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(s)
+                    ? Promise.resolve()
+                    : Promise.reject(new Error('Format e-mail invalide'));
+                },
+              },
+            ]}
+          >
+            <Input type="email" placeholder="prenom.nom@adm.sn" prefix={<MailOutlined style={{ color: '#bbb' }} />} allowClear />
+          </Form.Item>
           <Form.Item name="ordre" label="Ordre d'affichage" style={{ marginBottom: 0 }}>
             <Input type="number" min={0} placeholder="0 — plus petit = affiché en premier" style={{ width: 260 }} />
           </Form.Item>
@@ -723,6 +820,28 @@ export default function Repertoire() {
                     </span>}
               </div>
 
+              <div style={{ background: '#fafafa', borderRadius: 8, padding: '12px 16px' }}>
+                <Text type="secondary" style={{ fontSize: 11, display: 'block', marginBottom: 4 }}>
+                  <MailOutlined style={{ marginRight: 6 }} />E-MAIL
+                </Text>
+                {drawerContact.email
+                  ? <a href={`mailto:${drawerContact.email.trim()}`} style={{ color: ADM_BLUE, fontWeight: 600, wordBreak: 'break-all' }}>
+                      {drawerContact.email}
+                    </a>
+                  : <Text type="secondary">Non renseigné</Text>}
+              </div>
+
+              {canCreateAppAccount && (
+                <Button
+                  block
+                  icon={<UserAddOutlined />}
+                  disabled={!drawerContact.email?.trim()}
+                  onClick={() => { setDrawerOpen(false); openCreateAccount(drawerContact); }}
+                  style={{ borderColor: '#52c41a', color: '#52c41a', fontWeight: 600 }}
+                >
+                  Créer le compte application
+                </Button>
+              )}
               {canEdit && (
                 <Button block icon={<EditOutlined />}
                   onClick={() => { setDrawerOpen(false); openEdit(drawerContact); }}
@@ -734,6 +853,72 @@ export default function Repertoire() {
           );
         })()}
       </Drawer>
+
+      <Modal
+        title={
+          <Space>
+            <UserAddOutlined style={{ color: '#52c41a' }} />
+            <span>Créer le compte application</span>
+          </Space>
+        }
+        open={accountModalOpen}
+        onOk={handleCreateAccount}
+        onCancel={() => { setAccountModalOpen(false); setAccountTarget(null); accountForm.resetFields(); }}
+        okText="Créer et envoyer l’e-mail"
+        cancelText="Annuler"
+        confirmLoading={accountSaving}
+        destroyOnClose
+        width={480}
+      >
+        {accountTarget && (
+          <div style={{ marginTop: 8 }}>
+            <Alert
+              type="info"
+              showIcon
+              style={{ marginBottom: 16 }}
+              message="Un compte sera créé avec le nom et l’e-mail de cette ligne du répertoire. La direction sera rattachée automatiquement si son libellé correspond à une direction organisationnelle."
+            />
+            <Text type="secondary" style={{ display: 'block', marginBottom: 12 }}>
+              <strong>{accountTarget.prenomNom}</strong>
+              {accountTarget.email ? (
+                <> · <MailOutlined style={{ margin: '0 4px' }} />{accountTarget.email}</>
+              ) : null}
+            </Text>
+            <Form form={accountForm} layout="vertical">
+              <Form.Item name="role" label="Rôle dans l’application" rules={[{ required: true }]} initialValue="RESPONSABLE">
+                <Select>
+                  <Select.Option value="RESPONSABLE">Responsable</Select.Option>
+                  <Select.Option value="CONSOLIDATEUR">Consolidateur</Select.Option>
+                  <Select.Option value="COORDINATEUR_PROJET">Coordinateur de projet</Select.Option>
+                  <Select.Option value="SECRETAIRE_GENERAL">Secrétaire général</Select.Option>
+                  <Select.Option value="DG">Directeur général</Select.Option>
+                  <Select.Option value="ADMIN">Administrateur</Select.Option>
+                  <Select.Option value="SUPER_ADMIN">Super administrateur</Select.Option>
+                </Select>
+              </Form.Item>
+              <Form.Item name="password" label="Mot de passe initial" rules={PASSWORD_RULES} hasFeedback>
+                <Input.Password placeholder="8+ caractères, majuscule, chiffre, caractère spécial" autoComplete="new-password" />
+              </Form.Item>
+              <Form.Item
+                name="confirmPassword"
+                label="Confirmer le mot de passe"
+                dependencies={['password']}
+                rules={[
+                  { required: true, message: 'Confirmation requise' },
+                  ({ getFieldValue }) => ({
+                    validator(_, value) {
+                      if (!value || getFieldValue('password') === value) return Promise.resolve();
+                      return Promise.reject(new Error('Les mots de passe ne correspondent pas'));
+                    },
+                  }),
+                ]}
+              >
+                <Input.Password autoComplete="new-password" />
+              </Form.Item>
+            </Form>
+          </div>
+        )}
+      </Modal>
     </div>
   );
 }

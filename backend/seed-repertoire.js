@@ -149,6 +149,7 @@ async function main() {
       poste:         c.poste      || null,
       directe:       c.directe    || null,
       portable:      c.portable   || null,
+      email:         c.email      || null,
       ordre:         c.ordre,
     })),
   });

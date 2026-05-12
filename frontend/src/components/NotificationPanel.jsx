@@ -17,12 +17,12 @@ const { Text } = Typography;
 // ── Métadonnées par type de notification ──────────────────────────
 const TYPE_META = {
     DIRECT_MESSAGE:        { color: 'geekblue', label: 'Message',              dot: '#2f54eb' },
-    PLANNING_SUBMITTED:    { color: 'blue',    label: 'Planning soumis',      dot: '#1677ff' },
+    PLANNING_SUBMITTED:    { color: 'blue',    label: 'Planning soumis',      dot: '#1565C0' },
     PLANNING_CONSOLIDATED: { color: 'purple',  label: 'Planning consolidé',   dot: '#722ed1' },
     PLANNING_VALIDATED:    { color: 'green',   label: 'Planning validé',      dot: '#52c41a' },
     PLANNING_RETURNED:     { color: 'orange',  label: 'Planning retourné',    dot: '#fa8c16' },
     PLANNING_REMINDER:     { color: 'gold',    label: 'Rappel planning',      dot: '#d4b106' },
-    MEETING_CONVOCATION:   { color: 'blue',    label: 'Convocation',          dot: '#1677ff' },
+    MEETING_CONVOCATION:   { color: 'blue',    label: 'Convocation',          dot: '#1565C0' },
     MEETING_REMINDER:      { color: 'cyan',    label: 'Rappel réunion',       dot: '#13c2c2' },
     MEETING_CANCELLED:     { color: 'red',     label: 'Réunion annulée',      dot: '#ff4d4f' },
     MISSION_ASSIGNED:      { color: 'volcano', label: 'Mission assignée',     dot: '#fa541c' },
@@ -30,7 +30,7 @@ const TYPE_META = {
     ROLE_CHANGED:          { color: 'purple',  label: 'Rôle modifié',         dot: '#722ed1' },
     ACCOUNT_ACTIVATED:     { color: 'green',   label: 'Compte activé',        dot: '#52c41a' },
     ACCOUNT_DEACTIVATED:   { color: 'red',     label: 'Compte désactivé',     dot: '#ff4d4f' },
-    ADMIN_BROADCAST:       { color: 'blue',    label: 'Message admin',        dot: '#1677ff' },
+    ADMIN_BROADCAST:       { color: 'blue',    label: 'Message admin',        dot: '#1565C0' },
 };
 const DEFAULT_META = { color: 'default', label: 'Notification', dot: '#8c8c8c' };
 const getMeta = (type) => TYPE_META[type] || DEFAULT_META;
@@ -80,7 +80,7 @@ function NotifItem({ n, onRead, onDelete, onNavigate }) {
                 cursor: n.link ? 'pointer' : 'default',
                 transition: 'background 0.15s',
             }}
-            onMouseEnter={(e) => { e.currentTarget.style.background = n.isRead ? '#fafafa' : '#e6f4ff'; }}
+            onMouseEnter={(e) => { e.currentTarget.style.background = n.isRead ? '#fafafa' : '#EFF6FF'; }}
             onMouseLeave={(e) => { e.currentTarget.style.background = n.isRead ? 'transparent' : '#f0f7ff'; }}
         >
             {/* Indicateur non-lu */}
@@ -120,7 +120,7 @@ function NotifItem({ n, onRead, onDelete, onNavigate }) {
                     {n.body}
                 </Text>
                 {n.link && (
-                    <Text style={{ fontSize: 11, color: '#1677ff', marginTop: 3, display: 'block' }}>
+                    <Text style={{ fontSize: 11, color: '#1565C0', marginTop: 3, display: 'block' }}>
                         Voir les détails <ArrowRightOutlined />
                     </Text>
                 )}
@@ -134,7 +134,7 @@ function NotifItem({ n, onRead, onDelete, onNavigate }) {
                             type="text" size="small"
                             icon={<CheckOutlined style={{ fontSize: 11 }} />}
                             onClick={(e) => { e.stopPropagation(); onRead(n.id); }}
-                            style={{ width: 24, height: 24, minWidth: 24, padding: 0, color: '#1677ff' }}
+                            style={{ width: 24, height: 24, minWidth: 24, padding: 0, color: '#1565C0' }}
                         />
                     </Tooltip>
                 )}
@@ -249,7 +249,7 @@ export default function NotificationPanel({ onClose }) {
                 <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
                     <Text strong style={{ fontSize: 15 }}>Notifications</Text>
                     {unreadCount > 0 && (
-                        <Badge count={unreadCount} style={{ backgroundColor: '#1677ff' }} />
+                        <Badge count={unreadCount} style={{ backgroundColor: '#1565C0' }} />
                     )}
                 </div>
                 <div style={{ display: 'flex', gap: 4 }}>
@@ -259,7 +259,7 @@ export default function NotificationPanel({ onClose }) {
                                 type="text" size="small"
                                 icon={<CheckCircleOutlined />}
                                 onClick={markAllAsRead}
-                                style={{ fontSize: 12, color: '#1677ff' }}
+                                style={{ fontSize: 12, color: '#1565C0' }}
                             >
                                 Tout lire
                             </Button>
@@ -289,19 +289,19 @@ export default function NotificationPanel({ onClose }) {
                             onClick={() => {
                                 document.getElementById('notif-list-unread').style.display = key === 'unread' ? 'block' : 'none';
                                 document.getElementById('notif-list-all').style.display = key === 'all' ? 'block' : 'none';
-                                document.getElementById(`tab-unread`).style.borderBottom = key === 'unread' ? '2px solid #1677ff' : '2px solid transparent';
-                                document.getElementById(`tab-all`).style.borderBottom = key === 'all' ? '2px solid #1677ff' : '2px solid transparent';
-                                document.getElementById(`tab-unread`).style.color = key === 'unread' ? '#1677ff' : 'rgba(0,0,0,0.45)';
-                                document.getElementById(`tab-all`).style.color = key === 'all' ? '#1677ff' : 'rgba(0,0,0,0.45)';
+                                document.getElementById(`tab-unread`).style.borderBottom = key === 'unread' ? '2px solid #1565C0' : '2px solid transparent';
+                                document.getElementById(`tab-all`).style.borderBottom = key === 'all' ? '2px solid #1565C0' : '2px solid transparent';
+                                document.getElementById(`tab-unread`).style.color = key === 'unread' ? '#1565C0' : 'rgba(0,0,0,0.45)';
+                                document.getElementById(`tab-all`).style.color = key === 'all' ? '#1565C0' : 'rgba(0,0,0,0.45)';
                             }}
                             style={{
                                 padding: '8px 12px',
                                 border: 'none',
-                                borderBottom: key === 'unread' ? '2px solid #1677ff' : '2px solid transparent',
+                                borderBottom: key === 'unread' ? '2px solid #1565C0' : '2px solid transparent',
                                 background: 'transparent',
                                 cursor: 'pointer',
                                 fontSize: 13,
-                                color: key === 'unread' ? '#1677ff' : 'rgba(0,0,0,0.45)',
+                                color: key === 'unread' ? '#1565C0' : 'rgba(0,0,0,0.45)',
                                 display: 'flex',
                                 alignItems: 'center',
                                 gap: 6,

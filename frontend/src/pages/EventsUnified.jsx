@@ -1,7 +1,9 @@
 import { useEffect, useMemo, useState } from 'react';
-import { Card, Col, Empty, Input, Row, Select, Space, Spin, Table, Tag, Typography, Drawer, Descriptions, Button, Grid, Segmented } from 'antd';
-import { Link } from 'react-router-dom';
+import { Card, Col, Empty, Input, Row, Select, Space, Spin, Table, Tag, Typography, Drawer, Descriptions, Button, Grid, Segmented, Dropdown } from 'antd';
+import { Link, useNavigate } from 'react-router-dom';
+import { PlusOutlined, CalendarOutlined, DownOutlined, FlagOutlined, TeamOutlined, AppstoreOutlined } from '@ant-design/icons';
 import api from '../api/client';
+import { useAuth } from '../context/AuthContext';
 
 const { Title, Text } = Typography;
 const { useBreakpoint } = Grid;
@@ -20,12 +22,17 @@ const STATUS_LABELS = {
     CANCELLED: 'Annulé',
     VALIDATED: 'Validé',
     IN_CONSOLIDATION: 'En consolidation',
+    CP_PENDING: 'Att. coordinateur',
+    SG_PENDING: 'Att. SG ou direction',
+    DG_PENDING: 'Att. DG',
     ACTIVE: 'Actif',
     PAUSED: 'En pause',
     SUBMITTED: 'Soumis',
 };
 
 export default function EventsUnified() {
+    const { user } = useAuth();
+    const navigate = useNavigate();
     const [loading, setLoading] = useState(false);
     const [items, setItems] = useState([]);
     const [total, setTotal] = useState(0);
@@ -45,6 +52,7 @@ export default function EventsUnified() {
 
     const [detailsOpen, setDetailsOpen] = useState(false);
     const [detailsItem, setDetailsItem] = useState(null);
+    const [createTypes, setCreateTypes] = useState([]); // types d'événement actifs pour le menu "Créer"
 
     const openDetails = (row) => {
         setDetailsItem(row);
@@ -61,6 +69,9 @@ export default function EventsUnified() {
         CONFIRMED: 'green',
         SUBMITTED: 'blue',
         IN_CONSOLIDATION: 'purple',
+        CP_PENDING: 'geekblue',
+        SG_PENDING: 'cyan',
+        DG_PENDING: 'gold',
         VALIDATED: 'green',
         COMPLETED: 'default',
         RETURNED: 'orange',
@@ -158,6 +169,20 @@ export default function EventsUnified() {
         load();
     }, [q, sourceType, eventType, directionId, projectId, from, to, page, pageSize]);
 
+    // Charge les types d'événement (pour le menu "Créer un événement")
+    useEffect(() => {
+        let active = true;
+        (async () => {
+            try {
+                const { data } = await api.get('/events/event-types');
+                if (active) setCreateTypes(Array.isArray(data) ? data.filter((t) => t.isActive !== false) : []);
+            } catch {
+                if (active) setCreateTypes([]);
+            }
+        })();
+        return () => { active = false; };
+    }, []);
+
     const columns = useMemo(() => ([
         {
             title: 'Type',
@@ -177,10 +202,17 @@ export default function EventsUnified() {
             title: 'Événement',
             key: 'title',
             render: (_, row) => (
-                <Space orientation="vertical" size={0}>
-                    <Link to={row.link}>
-                        <Text strong>{row.title}</Text>
-                    </Link>
+                    <Space orientation="vertical" size={0}>
+                    <Space size={6} wrap align="center">
+                        <Link to={row.link}>
+                            <Text strong>{row.title}</Text>
+                        </Link>
+                        {row.category?.name && (
+                            <Tag style={{ margin: 0, borderColor: row.category.color, color: row.category.color }}>
+                                {row.category.name}
+                            </Tag>
+                        )}
+                    </Space>
                     <Text
                         type="secondary"
                         style={{
@@ -226,9 +258,88 @@ export default function EventsUnified() {
         },
     ]), [statusColorMap]);
 
+    const todayParam = useMemo(() => new Date().toISOString().split('T')[0], []);
+
+    /**
+     * Construit le routage approprié pour la création d'un événement à partir d'un type.
+     * - MISSION → page de création de mission
+     * - REUNION (et tout autre type) → formulaire de réunion avec eventTypeId pré-sélectionné
+     */
+    const handleCreateByType = (eventTypeRecord) => {
+        if (!eventTypeRecord) return;
+        const code = String(eventTypeRecord.code || '').toUpperCase();
+        if (code === 'MISSION') {
+            navigate(`/missions/new?date=${todayParam}`);
+            return;
+        }
+        // Pour REUNION et tous les autres codes (ATELIER, FORMATION, AUDIENCE, AUTRE…)
+        // on utilise le formulaire de réunion avec eventTypeId pré-sélectionné.
+        const params = new URLSearchParams({ date: todayParam, eventTypeId: eventTypeRecord.id });
+        navigate(`/meetings/new?${params.toString()}`);
+    };
+
+    const iconForTypeCode = (code) => {
+        const c = String(code || '').toUpperCase();
+        if (c === 'REUNION') return <TeamOutlined />;
+        if (c === 'MISSION') return <FlagOutlined />;
+        return <AppstoreOutlined />;
+    };
+
+    const createMenu = useMemo(() => {
+        const items = (createTypes || [])
+            .slice()
+            .sort((a, b) => (a.sortOrder ?? 0) - (b.sortOrder ?? 0))
+            .map((t) => ({
+                key: t.id,
+                icon: iconForTypeCode(t.code),
+                label: (
+                    <Space>
+                        <span>{t.name}</span>
+                        {t.color && (
+                            <span
+                                title={t.code}
+                                style={{
+                                    display: 'inline-block', width: 8, height: 8,
+                                    borderRadius: '50%', background: t.color,
+                                }}
+                            />
+                        )}
+                    </Space>
+                ),
+            }));
+        if (!items.length) {
+            items.push({ key: 'no-types', label: 'Aucun type configuré', disabled: true });
+        }
+        return {
+            items,
+            onClick: ({ key }) => {
+                const t = createTypes.find((x) => x.id === key);
+                handleCreateByType(t);
+            },
+        };
+    }, [createTypes, todayParam]);
+
     return (
         <div>
-            <Title level={3} style={{ marginTop: 0 }}>Événements unifiés</Title>
+            <div style={{
+                display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start',
+                flexWrap: 'wrap', gap: 12, marginBottom: 16,
+            }}>
+                <Title level={3} style={{ margin: 0 }}>Événements unifiés</Title>
+                {user && (
+                    <Space wrap>
+                        <Dropdown menu={createMenu} trigger={['click']} placement="bottomRight">
+                            <Button type="primary" icon={<PlusOutlined />}>
+                                Créer un événement <DownOutlined />
+                            </Button>
+                        </Dropdown>
+                        <Button icon={<CalendarOutlined />} onClick={() => navigate('/calendar')}>
+                            Calendrier
+                        </Button>
+                        <Button onClick={() => navigate('/planning')}>Planning hebdomadaire</Button>
+                    </Space>
+                )}
+            </div>
             <Card style={{ marginBottom: 16 }}>
                 <Row gutter={[12, 12]} style={{ marginBottom: 8 }}>
                     <Col xs={24}>
@@ -334,8 +445,13 @@ export default function EventsUnified() {
                                             size="small"
                                             style={{ borderRadius: 12 }}
                                             title={(
-                                                <Space>
+                                                <Space wrap>
                                                     <Tag>{SOURCE_LABELS[row.sourceType] || row.sourceType}</Tag>
+                                                    {row.category?.name && (
+                                                        <Tag style={{ borderColor: row.category.color, color: row.category.color }}>
+                                                            {row.category.name}
+                                                        </Tag>
+                                                    )}
                                                     <Tag color={statusColorMap[row.status] || 'default'}>{STATUS_LABELS[row.status] || row.status || '-'}</Tag>
                                                 </Space>
                                             )}
@@ -404,6 +520,13 @@ export default function EventsUnified() {
                         >
                             <Descriptions.Item label="Type">
                                 {SOURCE_LABELS[detailsItem.sourceType] || detailsItem.sourceType || '-'}
+                            </Descriptions.Item>
+                            <Descriptions.Item label="Catégorie">
+                                {detailsItem.category?.name ? (
+                                    <Tag style={{ borderColor: detailsItem.category.color, color: detailsItem.category.color }}>
+                                        {detailsItem.category.name}
+                                    </Tag>
+                                ) : '—'}
                             </Descriptions.Item>
                             <Descriptions.Item label="Statut">
                                 <Tag color={statusColorMap[detailsItem.status] || 'default'}>

@@ -1,22 +1,28 @@
-import { useState, useRef, useEffect } from 'react';
+import { useState, useRef, useEffect, useMemo } from 'react';
 import {
     Card, Form, Input, Button, Typography, App, Row, Col,
-    Tag, Divider, Progress, Modal, Popconfirm, Spin, Space, Switch, Alert,
+    Tag, Progress, Modal, Popconfirm, Spin, Space, Alert,
+    AutoComplete, Descriptions,
 } from 'antd';
 import {
     LockOutlined, CameraOutlined, UserOutlined, MailOutlined,
     SaveOutlined, DeleteOutlined, CheckCircleOutlined, CloseCircleOutlined,
-    SafetyOutlined, QrcodeOutlined, StopOutlined,
+    SafetyOutlined, QrcodeOutlined, StopOutlined, EditOutlined,
+    PhoneOutlined, IdcardOutlined, ApartmentOutlined, ProjectOutlined,
+    TeamOutlined, BankOutlined, CrownOutlined, CalendarOutlined, InfoCircleOutlined,
 } from '@ant-design/icons';
 import { useAuth } from '../context/AuthContext';
 import UserAvatar from '../components/UserAvatar';
 import api from '../api/client';
+import { resolveImageSrc } from '../utils/mediaUrl';
 
 const { Title, Text, Paragraph } = Typography;
 
 const ROLE_LABELS = {
     RESPONSABLE:   'Responsable',
     CONSOLIDATEUR: 'Consolidateur',
+    COORDINATEUR_PROJET: 'Coordinateur de projet',
+    SECRETAIRE_GENERAL: 'Secrétaire général',
     DG:            'Directeur Général',
     ADMIN:         'Administrateur',
     SUPER_ADMIN:   'Super administrateur',
@@ -24,6 +30,8 @@ const ROLE_LABELS = {
 const ROLE_COLORS = {
     RESPONSABLE:   'blue',
     CONSOLIDATEUR: 'purple',
+    COORDINATEUR_PROJET: 'geekblue',
+    SECRETAIRE_GENERAL: 'cyan',
     DG:            'gold',
     ADMIN:         'red',
     SUPER_ADMIN:   'magenta',
@@ -83,6 +91,11 @@ export default function Profile() {
     const [profileForm]    = Form.useForm();
     const [profileLoading, setProfileLoading] = useState(false);
     const [editingProfile, setEditingProfile] = useState(false);
+
+    // ── Suggestions Cellule / Service ───────────────────────────
+    const [cellUnitOptions, setCellUnitOptions]   = useState([]); // [{ value, count }]
+    const [cellUnitScope,   setCellUnitScope]     = useState('global'); // 'direction' | 'global'
+    const [cellUnitQuery,   setCellUnitQuery]     = useState('');
 
     // ── État mot de passe ────────────────────────────────────────
     const [pwForm]      = Form.useForm();
@@ -165,16 +178,64 @@ export default function Profile() {
         }
     };
 
+    // ── Chargement des suggestions de cellules / services ────────
+    const loadCellUnitSuggestions = async () => {
+        try {
+            const { data } = await api.get('/profile/cell-units');
+            setCellUnitOptions(Array.isArray(data?.suggestions) ? data.suggestions : []);
+            setCellUnitScope(data?.scope || 'global');
+        } catch {
+            setCellUnitOptions([]);
+            setCellUnitScope('global');
+        }
+    };
+
     // ── Modification du profil (nom) ─────────────────────────────
     const startEditProfile = () => {
-        profileForm.setFieldsValue({ name: user?.name, email: user?.email });
+        profileForm.setFieldsValue({
+            name: user?.name,
+            email: user?.email,
+            phone: user?.phone || '',
+            jobTitle: user?.jobTitle || '',
+            cellUnit: user?.cellUnit || '',
+        });
+        setCellUnitQuery(user?.cellUnit || '');
         setEditingProfile(true);
+        loadCellUnitSuggestions();
     };
+
+    // ── Options filtrées (insensible à la casse / accents partiels) ─
+    const filteredCellUnitOptions = useMemo(() => {
+        const q = (cellUnitQuery || '').trim().toLowerCase();
+        const base = q
+            ? cellUnitOptions.filter((o) => o.value.toLowerCase().includes(q))
+            : cellUnitOptions;
+        return base.slice(0, 20).map((o) => ({
+            value: o.value,
+            label: (
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 8 }}>
+                    <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                        {o.value}
+                    </span>
+                    {o.count > 1 && (
+                        <Tag color="blue" style={{ margin: 0, fontSize: 10, lineHeight: '16px', padding: '0 6px' }}>
+                            <TeamOutlined style={{ marginRight: 2 }} />{o.count}
+                        </Tag>
+                    )}
+                </div>
+            ),
+        }));
+    }, [cellUnitOptions, cellUnitQuery]);
 
     const handleSaveProfile = async (values) => {
         setProfileLoading(true);
         try {
-            const { data } = await api.put('/profile', { name: values.name });
+            const { data } = await api.put('/profile', {
+                name: values.name,
+                phone: values.phone,
+                jobTitle: values.jobTitle,
+                cellUnit: values.cellUnit,
+            });
             updateUser({ ...user, ...data });
             setEditingProfile(false);
             message.success('Profil mis à jour !');
@@ -304,16 +365,24 @@ export default function Profile() {
                 onChange={handleFileSelect}
             />
 
-            <Title level={3} style={{ marginBottom: 24 }}>
-                <UserOutlined style={{ marginRight: 8 }} />Mon profil
-            </Title>
+            <div style={{ marginBottom: 24 }}>
+                <Title level={3} style={{ margin: 0 }}>
+                    <UserOutlined style={{ marginRight: 8 }} />Mon profil
+                </Title>
+                <Text type="secondary">
+                    Gérez vos informations personnelles, votre photo, votre mot de passe et la double authentification.
+                </Text>
+            </div>
 
             <Row gutter={[24, 24]}>
                 {/* ── Colonne gauche : photo + infos ── */}
                 <Col xs={24} md={10} lg={9}>
 
                     {/* Carte avatar */}
-                    <Card style={{ borderRadius: 12, marginBottom: 16 }}>
+                    <Card
+                        title={<><CameraOutlined style={{ marginRight: 8 }} />Photo de profil</>}
+                        style={{ borderRadius: 12, marginBottom: 16 }}
+                    >
                         <div style={{ textAlign: 'center' }}>
                             {/* Avatar cliquable avec overlay hover */}
                             <div style={{ display: 'inline-block', position: 'relative', marginBottom: 12 }}>
@@ -411,10 +480,19 @@ export default function Profile() {
 
                     {/* Carte infos profil */}
                     <Card
-                        title="Informations"
+                        title={<><IdcardOutlined style={{ marginRight: 8 }} />Informations</>}
                         extra={
                             !editingProfile
-                                ? <Button size="small" type="link" onClick={startEditProfile}>Modifier</Button>
+                                ? (
+                                    <Button
+                                        size="small"
+                                        type="link"
+                                        icon={<EditOutlined />}
+                                        onClick={startEditProfile}
+                                    >
+                                        Modifier
+                                    </Button>
+                                )
                                 : null
                         }
                         style={{ borderRadius: 12 }}
@@ -439,6 +517,64 @@ export default function Profile() {
                                         style={{ color: '#595959' }}
                                     />
                                 </Form.Item>
+                                <Form.Item name="jobTitle" label="Poste / fonction">
+                                    <Input prefix={<IdcardOutlined />} placeholder="Ex. Chargé de mission" maxLength={120} />
+                                </Form.Item>
+                                <Form.Item
+                                    name="cellUnit"
+                                    label={
+                                        <Space size={6}>
+                                            <span>Cellule ou service</span>
+                                            {cellUnitOptions.length > 0 && (
+                                                <Tag
+                                                    color={cellUnitScope === 'direction' ? 'blue' : 'default'}
+                                                    style={{ margin: 0, fontSize: 10, lineHeight: '16px', padding: '0 6px' }}
+                                                >
+                                                    {cellUnitScope === 'direction'
+                                                        ? `${cellUnitOptions.length} dans votre direction`
+                                                        : `${cellUnitOptions.length} suggestions`}
+                                                </Tag>
+                                            )}
+                                        </Space>
+                                    }
+                                    extra={
+                                        <Text type="secondary" style={{ fontSize: 11 }}>
+                                            {user?.direction?.name
+                                                ? `Choisissez une cellule existante de la direction « ${user.direction.name} » ou saisissez la vôtre.`
+                                                : 'Choisissez une cellule existante ou saisissez la vôtre.'}
+                                        </Text>
+                                    }
+                                >
+                                    <AutoComplete
+                                        options={filteredCellUnitOptions}
+                                        onSearch={(v) => setCellUnitQuery(v)}
+                                        onSelect={(v) => setCellUnitQuery(v)}
+                                        onChange={(v) => setCellUnitQuery(v || '')}
+                                        allowClear
+                                        filterOption={false}
+                                        placeholder="Ex. Cellule suivi budgétaire"
+                                        maxLength={120}
+                                        notFoundContent={
+                                            <Text type="secondary" style={{ fontSize: 12 }}>
+                                                Aucune correspondance — votre saisie sera enregistrée telle quelle.
+                                            </Text>
+                                        }
+                                    >
+                                        <Input prefix={<ApartmentOutlined />} maxLength={120} />
+                                    </AutoComplete>
+                                </Form.Item>
+                                <Form.Item name="phone" label="Téléphone">
+                                    <Input prefix={<PhoneOutlined />} placeholder="Ex. +221 33 …" maxLength={40} />
+                                </Form.Item>
+
+                                <Alert
+                                    type="info"
+                                    showIcon
+                                    icon={<InfoCircleOutlined />}
+                                    title="La direction et le projet d’équipe sont gérés par l’administrateur."
+                                    style={{ marginBottom: 16 }}
+                                />
+
                                 <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end' }}>
                                     <Button onClick={() => setEditingProfile(false)}>
                                         Annuler
@@ -454,43 +590,88 @@ export default function Profile() {
                                 </div>
                             </Form>
                         ) : (
-                            <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
-                                <div>
-                                    <Text type="secondary" style={{ fontSize: 11, display: 'block', marginBottom: 2 }}>
-                                        Nom complet
-                                    </Text>
-                                    <Text strong>{user?.name}</Text>
-                                </div>
-                                <Divider style={{ margin: '4px 0' }} />
-                                <div>
-                                    <Text type="secondary" style={{ fontSize: 11, display: 'block', marginBottom: 2 }}>
-                                        Adresse email
-                                    </Text>
-                                    <Text>{user?.email}</Text>
-                                </div>
-                                <Divider style={{ margin: '4px 0' }} />
-                                <div>
-                                    <Text type="secondary" style={{ fontSize: 11, display: 'block', marginBottom: 2 }}>
-                                        Rôle
-                                    </Text>
-                                    <Tag color={ROLE_COLORS[user?.role]}>
+                            <Descriptions
+                                column={1}
+                                size="small"
+                                colon={false}
+                                labelStyle={{
+                                    fontSize: 12,
+                                    color: '#8c8c8c',
+                                    width: 150,
+                                    paddingBottom: 6,
+                                }}
+                                contentStyle={{ fontSize: 13, paddingBottom: 6 }}
+                            >
+                                <Descriptions.Item
+                                    label={<Space size={6}><UserOutlined />Nom complet</Space>}
+                                >
+                                    <Text strong>{user?.name || '—'}</Text>
+                                </Descriptions.Item>
+
+                                <Descriptions.Item
+                                    label={<Space size={6}><MailOutlined />Adresse email</Space>}
+                                >
+                                    <Text copyable={!!user?.email}>{user?.email || '—'}</Text>
+                                </Descriptions.Item>
+
+                                <Descriptions.Item
+                                    label={<Space size={6}><IdcardOutlined />Poste / fonction</Space>}
+                                >
+                                    {user?.jobTitle
+                                        ? <Text>{user.jobTitle}</Text>
+                                        : <Text type="secondary">Non renseigné</Text>}
+                                </Descriptions.Item>
+
+                                <Descriptions.Item
+                                    label={<Space size={6}><ApartmentOutlined />Cellule ou service</Space>}
+                                >
+                                    {user?.cellUnit ? (
+                                        <Tag
+                                            icon={<ApartmentOutlined />}
+                                            color="geekblue"
+                                            style={{ margin: 0, fontSize: 12, padding: '2px 8px' }}
+                                        >
+                                            {user.cellUnit}
+                                        </Tag>
+                                    ) : (
+                                        <Text type="secondary">Non renseignée</Text>
+                                    )}
+                                </Descriptions.Item>
+
+                                <Descriptions.Item
+                                    label={<Space size={6}><PhoneOutlined />Téléphone</Space>}
+                                >
+                                    {user?.phone
+                                        ? <Text copyable>{user.phone}</Text>
+                                        : <Text type="secondary">Non renseigné</Text>}
+                                </Descriptions.Item>
+
+                                <Descriptions.Item
+                                    label={<Space size={6}><CrownOutlined />Rôle</Space>}
+                                >
+                                    <Tag color={ROLE_COLORS[user?.role]} style={{ margin: 0 }}>
                                         {ROLE_LABELS[user?.role] || user?.role}
                                     </Tag>
-                                </div>
-                                <Divider style={{ margin: '4px 0' }} />
-                                <div>
-                                    <Text type="secondary" style={{ fontSize: 11, display: 'block', marginBottom: 2 }}>
-                                        Direction
-                                    </Text>
+                                </Descriptions.Item>
+
+                                <Descriptions.Item
+                                    label={<Space size={6}><BankOutlined />Direction</Space>}
+                                >
                                     {directionLoading ? (
                                         <Spin size="small" />
                                     ) : user?.direction?.name ? (
-                                        <Space size={8} align="center">
+                                        <Space size={6} align="center">
                                             {user?.direction?.logoUrl ? (
                                                 <img
                                                     src={user.direction.logoUrl}
                                                     alt={`Logo ${user.direction.name}`}
-                                                    style={{ width: 22, height: 22, borderRadius: 4, objectFit: 'cover', border: '1px solid #f0f0f0' }}
+                                                    style={{
+                                                        width: 22,
+                                                        height: 22,
+                                                        borderRadius: 4,
+                                                        objectFit: 'cover',
+                                                        border: '1px solid #f0f0f0',
+                                                    }}
                                                 />
                                             ) : null}
                                             <Text>
@@ -501,23 +682,50 @@ export default function Profile() {
                                     ) : (
                                         <Text type="secondary">Aucune direction assignée</Text>
                                     )}
-                                </div>
+                                </Descriptions.Item>
+
+                                <Descriptions.Item
+                                    label={<Space size={6}><ProjectOutlined />Projet (équipe)</Space>}
+                                >
+                                    {user?.project?.name ? (
+                                        <Space size={6} align="center">
+                                            {resolveImageSrc(user.project.logoUrl) ? (
+                                                <img
+                                                    src={resolveImageSrc(user.project.logoUrl) || ''}
+                                                    alt=""
+                                                    style={{
+                                                        width: 22,
+                                                        height: 22,
+                                                        borderRadius: 4,
+                                                        objectFit: 'cover',
+                                                        border: '1px solid #f0f0f0',
+                                                    }}
+                                                />
+                                            ) : (
+                                                <ProjectOutlined style={{ color: '#1565C0' }} />
+                                            )}
+                                            <Text>
+                                                {user.project.name}
+                                                {user.project.code ? ` (${user.project.code})` : ''}
+                                            </Text>
+                                        </Space>
+                                    ) : (
+                                        <Text type="secondary">Aucun projet assigné</Text>
+                                    )}
+                                </Descriptions.Item>
+
                                 {user?.createdAt && (
-                                    <>
-                                        <Divider style={{ margin: '4px 0' }} />
-                                        <div>
-                                            <Text type="secondary" style={{ fontSize: 11, display: 'block', marginBottom: 2 }}>
-                                                Membre depuis
-                                            </Text>
-                                            <Text style={{ fontSize: 13 }}>
-                                                {new Date(user.createdAt).toLocaleDateString('fr-FR', {
-                                                    day: 'numeric', month: 'long', year: 'numeric',
-                                                })}
-                                            </Text>
-                                        </div>
-                                    </>
+                                    <Descriptions.Item
+                                        label={<Space size={6}><CalendarOutlined />Membre depuis</Space>}
+                                    >
+                                        <Text>
+                                            {new Date(user.createdAt).toLocaleDateString('fr-FR', {
+                                                day: 'numeric', month: 'long', year: 'numeric',
+                                            })}
+                                        </Text>
+                                    </Descriptions.Item>
                                 )}
-                            </div>
+                            </Descriptions>
                         )}
                     </Card>
                 </Col>
@@ -617,13 +825,15 @@ export default function Profile() {
                         style={{ borderRadius: 12, marginTop: 16 }}
                     >
                         {twoFA.loading ? (
-                            <Spin />
+                            <div style={{ textAlign: 'center', padding: '24px 0' }}>
+                                <Spin />
+                            </div>
                         ) : !twoFA.globallyEnabled ? (
                             <Alert
                                 type="warning"
                                 showIcon
-                                title="La 2FA est désactivée globalement par l'administrateur."
-                                description="Demandez à un administrateur d'activer la fonctionnalité dans l'administration."
+                                title="La 2FA est désactivée globalement."
+                                description="Demandez à un administrateur de l'activer dans l'administration pour pouvoir l'utiliser sur votre compte."
                             />
                         ) : twoFA.userEnabled ? (
                             <>
@@ -631,11 +841,17 @@ export default function Profile() {
                                     type="success"
                                     showIcon
                                     title="La double authentification est activée sur votre compte."
+                                    description="Vous devez fournir un code à 6 chiffres à chaque connexion."
                                     style={{ marginBottom: 16 }}
                                 />
+
+                                <Text type="secondary" style={{ display: 'block', marginBottom: 8, fontSize: 12 }}>
+                                    Pour désactiver la 2FA, saisissez votre mot de passe et un code valide :
+                                </Text>
                                 <Row gutter={[12, 12]}>
                                     <Col xs={24} sm={12}>
                                         <Input.Password
+                                            prefix={<LockOutlined />}
                                             placeholder="Mot de passe actuel"
                                             value={disablePwd}
                                             onChange={(e) => setDisablePwd(e.target.value)}
@@ -643,7 +859,8 @@ export default function Profile() {
                                     </Col>
                                     <Col xs={16} sm={8}>
                                         <Input
-                                            placeholder="Code 2FA"
+                                            prefix={<SafetyOutlined />}
+                                            placeholder="Code 2FA (6 chiffres)"
                                             maxLength={6}
                                             value={disableCode}
                                             onChange={(e) => setDisableCode(e.target.value)}
@@ -657,7 +874,7 @@ export default function Profile() {
                                             onClick={disable2FA}
                                             block
                                         >
-                                            Stop
+                                            Désactiver
                                         </Button>
                                     </Col>
                                 </Row>
@@ -665,35 +882,73 @@ export default function Profile() {
                         ) : (
                             <>
                                 {!twoFA.qrCode ? (
-                                    <Button
-                                        type="primary"
-                                        icon={<QrcodeOutlined />}
-                                        loading={twoFALoading}
-                                        onClick={start2FASetup}
-                                    >
-                                        Configurer la 2FA
-                                    </Button>
+                                    <>
+                                        <Paragraph type="secondary" style={{ marginBottom: 16 }}>
+                                            Renforcez la sécurité de votre compte en ajoutant une étape de
+                                            vérification supplémentaire à la connexion (Google Authenticator, Authy…).
+                                        </Paragraph>
+                                        <Button
+                                            type="primary"
+                                            icon={<QrcodeOutlined />}
+                                            loading={twoFALoading}
+                                            onClick={start2FASetup}
+                                        >
+                                            Configurer la 2FA
+                                        </Button>
+                                    </>
                                 ) : (
                                     <>
                                         <Alert
                                             type="info"
                                             showIcon
-                                            title="Scannez le QR code avec Google Authenticator / Authy, puis saisissez le code."
-                                            style={{ marginBottom: 12 }}
+                                            title="Étapes de configuration"
+                                            description={
+                                                <ol style={{ margin: '4px 0 0 16px', padding: 0 }}>
+                                                    <li>Ouvrez Google Authenticator, Authy ou équivalent.</li>
+                                                    <li>Scannez le QR code ci-dessous.</li>
+                                                    <li>Saisissez le code à 6 chiffres généré, puis validez.</li>
+                                                </ol>
+                                            }
+                                            style={{ marginBottom: 16 }}
                                         />
-                                        <div style={{ textAlign: 'center', marginBottom: 12 }}>
-                                            <img src={twoFA.qrCode} alt="QR 2FA" style={{ width: 180, height: 180 }} />
+                                        <div
+                                            style={{
+                                                textAlign: 'center',
+                                                marginBottom: 16,
+                                                padding: 12,
+                                                background: '#fafafa',
+                                                borderRadius: 8,
+                                                border: '1px solid #f0f0f0',
+                                            }}
+                                        >
+                                            <img
+                                                src={twoFA.qrCode}
+                                                alt="QR 2FA"
+                                                style={{ width: 180, height: 180 }}
+                                            />
                                         </div>
-                                        <Input
-                                            placeholder="Code à 6 chiffres"
-                                            maxLength={6}
-                                            value={twoFACode}
-                                            onChange={(e) => setTwoFACode(e.target.value)}
-                                            style={{ marginBottom: 12 }}
-                                        />
-                                        <Button type="primary" loading={twoFALoading} onClick={enable2FA}>
-                                            Activer maintenant
-                                        </Button>
+                                        <Row gutter={[12, 12]}>
+                                            <Col xs={24} sm={16}>
+                                                <Input
+                                                    prefix={<SafetyOutlined />}
+                                                    placeholder="Code à 6 chiffres"
+                                                    maxLength={6}
+                                                    value={twoFACode}
+                                                    onChange={(e) => setTwoFACode(e.target.value)}
+                                                />
+                                            </Col>
+                                            <Col xs={24} sm={8}>
+                                                <Button
+                                                    type="primary"
+                                                    loading={twoFALoading}
+                                                    onClick={enable2FA}
+                                                    icon={<CheckCircleOutlined />}
+                                                    block
+                                                >
+                                                    Activer
+                                                </Button>
+                                            </Col>
+                                        </Row>
                                     </>
                                 )}
                             </>

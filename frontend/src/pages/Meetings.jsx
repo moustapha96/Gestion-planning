@@ -31,6 +31,7 @@ export default function Meetings() {
     const [pendingRoomId, setPendingRoomId] = useState(null);
     const [directions, setDirections] = useState([]);
     const [projects, setProjects] = useState([]);
+    const [eventTypes, setEventTypes] = useState([]);
     const [searchText, setSearchText] = useState('');
     const [directionFilter, setDirectionFilter] = useState(undefined);
     const [projectFilter, setProjectFilter] = useState(undefined);
@@ -124,6 +125,7 @@ export default function Meetings() {
             setUsers(userRes.data || []);
             setDirections(taxonomyRes?.data?.directions || []);
             setProjects(taxonomyRes?.data?.projects || []);
+            setEventTypes(taxonomyRes?.data?.eventTypes || []);
         } catch {
             message.error('Impossible de charger les données');
         }
@@ -190,6 +192,7 @@ export default function Meetings() {
                 roomId: values.roomId || undefined,
                 directionId: values.directionId || undefined,
                 projectId: values.projectId || undefined,
+                eventTypeId: values.eventTypeId || undefined,
                 meetingLink: link || undefined,
                 startTime: (start && start.toISOString) ? start.toISOString() : new Date(start).toISOString(),
                 endTime: (end && end.toISOString) ? end.toISOString() : new Date(end).toISOString(),
@@ -282,6 +285,11 @@ export default function Meetings() {
                         )}
                     </Space>
                     <Space size={6} wrap>
+                        {record.eventType?.name && (
+                            <Tag style={{ borderColor: record.eventType.color, color: record.eventType.color }}>
+                                {record.eventType.name}
+                            </Tag>
+                        )}
                         {record.direction?.name && <Tag color="purple">Direction: {record.direction.name}</Tag>}
                         {record.project?.name && <Tag color="blue">Projet: {record.project.name}</Tag>}
                     </Space>
@@ -409,6 +417,15 @@ export default function Meetings() {
                     <Form.Item name="agenda" label="Ordre du jour">
                         <Input.TextArea rows={3} />
                     </Form.Item>
+                    <Form.Item name="eventTypeId" label="Type d'événement">
+                        <Select
+                            allowClear
+                            placeholder="Optionnel"
+                            options={(eventTypes || [])
+                                .filter((t) => t.isActive !== false)
+                                .map((t) => ({ value: t.id, label: t.name }))}
+                        />
+                    </Form.Item>
                     <Row gutter={16}>
                         <Col xs={24} sm={12}>
                             <Form.Item name="directionId" label="Direction (optionnel)">
@@ -503,8 +520,13 @@ export default function Meetings() {
                     {users.length > 0 && (
                         <Form.Item name="participantIds" label="Participants supplémentaires">
                             <Select mode="multiple" placeholder="Sélectionner des participants" optionFilterProp="children">
-                                {users.filter(u => u.id !== user?.id).map(u => (
-                                    <Select.Option key={u.id} value={u.id}>{u.name} — {u.email}</Select.Option>
+                                {users.filter(u => u.id !== user?.id).map((u) => (
+                                    <Select.Option key={u.id} value={u.id}>
+                                        {u.name}
+                                        {u.jobTitle ? ` — ${u.jobTitle}` : ''}
+                                        {' '}
+                                        <span style={{ color: '#888' }}>({u.email})</span>
+                                    </Select.Option>
                                 ))}
                             </Select>
                         </Form.Item>

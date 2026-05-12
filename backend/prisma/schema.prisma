@@ -45,10 +45,22 @@ model User {
   projectFiles       ProjectFile[]
   directionId        String?
   direction          Direction? @relation("DirectionMembers", fields: [directionId], references: [id], onDelete: SetNull)
+  projectId          String?
+  project            Project?   @relation("ProjectMembers", fields: [projectId], references: [id], onDelete: SetNull)
+
+  /// Téléphone professionnel (affichage annuaire interne)
+  phone              String?
+  /// Intitulé de poste / fonction
+  jobTitle           String?
+  /// Cellule ou service au sein de la direction (texte libre)
+  cellUnit           String?
   directionMessages  DirectionMessage[]
   directionDiscussionMemberships DirectionDiscussionMember[]
+  projectMessages    ProjectMessage[]
+  projectDiscussionMemberships ProjectDiscussionMember[]
 
   @@index([directionId])
+  @@index([projectId])
 }
 
 /// Sauvegardes PostgreSQL (pg_dump) — super admin
@@ -123,6 +135,23 @@ model Room {
   bookings           RoomBooking[]
 }
 
+/// Types d'événements configurables (réunions, lignes de planning, etc.)
+model EventType {
+  id           String   @id @default(cuid())
+  name         String
+  code         String   @unique
+  color        String   @default("#1565C0")
+  sortOrder    Int      @default(0)
+  isActive     Boolean  @default(true)
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  meetings         Meeting[]
+  planningEvents   PlanningEvent[]
+
+  @@index([isActive, sortOrder])
+}
+
 model Planning {
   id                 String    @id @default(cuid())
   userId             String
@@ -147,6 +176,7 @@ model PlanningEvent {
   planningId         String
   title              String
   type               String
+  eventTypeId        String?
   startTime          DateTime
   endTime            DateTime
   roomId             String?
@@ -160,9 +190,11 @@ model PlanningEvent {
   room               Room?     @relation(fields: [roomId], references: [id])
   direction          Direction? @relation(fields: [directionId], references: [id])
   project            Project?   @relation(fields: [projectId], references: [id])
+  eventType          EventType? @relation(fields: [eventTypeId], references: [id], onDelete: SetNull)
 
   @@index([directionId])
   @@index([projectId])
+  @@index([eventTypeId])
 }
 
 model Meeting {
@@ -173,6 +205,7 @@ model Meeting {
   roomId             String?
   directionId        String?
   projectId          String?
+  eventTypeId        String?
   meetingLink        String?
   startTime          DateTime
   endTime            DateTime
@@ -186,6 +219,7 @@ model Meeting {
   room               Room?     @relation(fields: [roomId], references: [id])
   direction          Direction? @relation(fields: [directionId], references: [id])
   project            Project?   @relation(fields: [projectId], references: [id])
+  eventType          EventType? @relation(fields: [eventTypeId], references: [id], onDelete: SetNull)
   invitations        Invitation[]
   booking            RoomBooking?
   files              MeetingFile[]
@@ -193,6 +227,7 @@ model Meeting {
 
   @@index([directionId])
   @@index([projectId])
+  @@index([eventTypeId])
 }
 
 model MeetingFile {
@@ -427,6 +462,7 @@ model Project {
   name          String
   code          String?        @unique
   description   String?
+  logoUrl       String         @default("/logo-gp.png")
   isActive      Boolean        @default(true)
   status        String         @default("ACTIVE") // ACTIVE | PAUSED | COMPLETED
   createdById   String?
@@ -438,10 +474,58 @@ model Project {
   missions      Mission[]
   planningEvents PlanningEvent[]
   files         ProjectFile[]
+  users         User[]           @relation("ProjectMembers")
+  messages      ProjectMessage[]
+  discussion    ProjectDiscussion?
 
   @@unique([name])
   @@index([status])
   @@index([createdById])
+}
+
+model ProjectMessage {
+  id        String    @id @default(cuid())
+  projectId String
+  senderId  String
+  parentId  String?
+  body      String?
+  fileName  String?
+  fileUrl   String?
+  mimeType  String?
+  size      Int?
+  createdAt DateTime  @default(now())
+
+  project   Project  @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  sender    User     @relation(fields: [senderId], references: [id], onDelete: Cascade)
+  parent    ProjectMessage?  @relation("ProjectMessageReplies", fields: [parentId], references: [id], onDelete: SetNull)
+  replies   ProjectMessage[] @relation("ProjectMessageReplies")
+
+  @@index([projectId, createdAt])
+  @@index([senderId, createdAt])
+  @@index([parentId])
+}
+
+model ProjectDiscussion {
+  id        String   @id @default(cuid())
+  projectId String   @unique
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  project   Project  @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  members   ProjectDiscussionMember[]
+}
+
+model ProjectDiscussionMember {
+  id           String   @id @default(cuid())
+  discussionId String
+  userId       String
+  joinedAt     DateTime @default(now())
+
+  discussion   ProjectDiscussion @relation(fields: [discussionId], references: [id], onDelete: Cascade)
+  user         User              @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([discussionId, userId])
+  @@index([userId, joinedAt])
 }
 
 model ProjectFile {
@@ -481,6 +565,8 @@ model RepertoireContact {
   poste          String?
   directe        String?
   portable       String?
+  /// Adresse e-mail professionnelle (optionnelle)
+  email          String?
   ordre          Int      @default(0)
   createdAt      DateTime @default(now())
   updatedAt      DateTime @updatedAt
