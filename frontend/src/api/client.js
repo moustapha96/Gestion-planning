@@ -46,7 +46,9 @@ api.interceptors.response.use(
     async (error) => {
         const originalRequest = error.config;
 
-        if (error.response?.status !== 401 || originalRequest._retry) {
+        const url = originalRequest?.url || '';
+        const isPublicAuth = /\/auth\/(forgot-password|reset-password|login|activate|refresh)(\?|$)/.test(url);
+        if (error.response?.status !== 401 || originalRequest._retry || isPublicAuth) {
             return Promise.reject(error);
         }
 

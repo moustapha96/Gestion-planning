@@ -1,0 +1,24 @@
+# Unité de référence pour /var/www/gpadm — préférez install-gpadm.sh qui injecte le chemin Node.
+# Après copie manuelle : sudo systemctl daemon-reload && sudo systemctl enable --now gestion-planning-backend
+
+[Unit]
+Description=GPADM — API backend (127.0.0.1:3001)
+After=network-online.target postgresql.service
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=www-data
+Group=www-data
+WorkingDirectory=/var/www/gpadm/backend
+Environment=PATH=/usr/bin:/bin
+Environment=HOST=127.0.0.1
+Environment=PORT=3001
+ExecStart=/usr/bin/node server.js
+Restart=on-failure
+RestartSec=5
+TimeoutStopSec=30
+NoNewPrivileges=true
+
+[Install]
+WantedBy=multi-user.target

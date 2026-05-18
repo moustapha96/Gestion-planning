@@ -16,3 +16,13 @@ export function isPrivilegedAdmin(role) {
 export function isSuperAdmin(role) {
     return role === ROLES.SUPER_ADMIN;
 }
+
+/** Suppression définitive / forcée (API avec ?force=1 ou ?permanent=1). */
+export function canSuperAdminForceDelete(role) {
+    return isSuperAdmin(role);
+}
+
+/** Répertoire : liste, édition, création de comptes (admin, super admin, DG). */
+export function canManageRepertoire(role) {
+    return role === ROLES.ADMIN || role === ROLES.SUPER_ADMIN || role === ROLES.DG;
+}

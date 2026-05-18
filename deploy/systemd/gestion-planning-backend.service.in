@@ -12,7 +12,10 @@ Group=__RUN_GROUP__
 WorkingDirectory=__ROOT__/backend
 # NODE_ENV : laisser backend/.env ou ajoutez Environment=NODE_ENV=production
 Environment=PATH=__NODE_DIR__:/usr/local/bin:/usr/bin:/bin
-# Charge les variables (DATABASE_URL, JWT_SECRET, FRONTEND_URL, PORT, …) depuis backend/.env via dotenv au démarrage
+# API uniquement en local : le frontend (Vite :9000) proxy /api, /uploads, /socket.io
+Environment=HOST=127.0.0.1
+Environment=PORT=3001
+# Charge DATABASE_URL, JWT_SECRET, FRONTEND_URL, … depuis backend/.env via dotenv au démarrage
 ExecStart=__NODE_BIN__ server.js
 Restart=on-failure
 RestartSec=5

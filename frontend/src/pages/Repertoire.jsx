@@ -10,9 +10,10 @@ import {
   UserOutlined, ApartmentOutlined, ReloadOutlined, MailOutlined,
   UserAddOutlined,
 } from '@ant-design/icons';
+import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
 import api from '../api/client';
-import { isPrivilegedAdmin } from '../utils/roles';
+import { canManageRepertoire } from '../utils/roles';
 import jsPDF from 'jspdf';
 import autoTable from 'jspdf-autotable';
 
@@ -21,9 +22,6 @@ const { Title, Text } = Typography;
 const ADM_BLUE  = '#1565C0';
 const ADM_DARK  = '#0A2744';
 const ADM_LIGHT = '#e8f0f9';
-
-const EDIT_ROLES   = ['ADMIN', 'SUPER_ADMIN', 'DG', 'CONSOLIDATEUR'];
-const DELETE_ROLES = ['ADMIN', 'SUPER_ADMIN', 'DG'];
 
 const PASSWORD_RULES = [
   { required: true, message: 'Mot de passe requis' },
@@ -40,6 +38,7 @@ const PASSWORD_RULES = [
 ];
 
 export default function Repertoire() {
+  const navigate = useNavigate();
   const { user } = useAuth();
   const { message: msg } = App.useApp();
 
@@ -61,9 +60,16 @@ export default function Repertoire() {
   const [form] = Form.useForm();
   const [accountForm] = Form.useForm();
 
-  const canEdit   = EDIT_ROLES.includes(user?.role);
-  const canDelete = DELETE_ROLES.includes(user?.role);
-  const canCreateAppAccount = isPrivilegedAdmin(user?.role);
+  const canManage = canManageRepertoire(user?.role);
+  const canEdit = canManage;
+  const canDelete = canManage;
+  const canCreateAppAccount = canManage;
+
+  useEffect(() => {
+    if (user && !canManage) {
+      navigate('/dashboard', { replace: true });
+    }
+  }, [user, canManage, navigate]);
 
   // ── Map name→direction pour enrichissement visuel ─────────────────────────
   const orgDirByName = useMemo(() => {

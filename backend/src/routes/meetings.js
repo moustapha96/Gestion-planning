@@ -9,7 +9,7 @@ const { autoCloseExpiredMeetings } = require('../services/meeting.service');
 const { logger } = require('../utils/logger');
 const { isRoomAvailableForSlot, isRoomActive } = require('../utils/availability');
 const { createAuditLog } = require('../utils/audit');
-const { ROLES, isPrivilegedAdmin } = require('../config/roles');
+const { ROLES, isPrivilegedAdmin, isSuperAdmin } = require('../config/roles');
 const { emitToUsers, emitToMeetingRoom } = require('../realtime/socket');
 const { pdfOnlyMulterFileFilter, wrapMulterUpload } = require('../utils/pdfUpload');
 const { resolveMeetingEventTypeId } = require('../services/eventType.service');
@@ -508,7 +508,7 @@ router.delete('/:id/files/:fileId', async (req, res) => {
         if (file.meeting.status === 'CANCELLED' || file.meeting.status === 'COMPLETED') {
             return res.status(400).json({ error: 'Réunion finalisée : suppression de fichier impossible.' });
         }
-        if (file.uploadedById !== req.user.id) {
+        if (file.uploadedById !== req.user.id && !isSuperAdmin(req.user.role)) {
             return res.status(403).json({ error: 'Seul l\'utilisateur ayant ajouté ce fichier peut le supprimer.' });
         }
 
@@ -947,6 +947,31 @@ router.post('/', async (req, res) => {
         });
 
         await createAuditLog(req, 'MEETING_CREATED', 'Meeting', meeting.id, `Réunion "${title}" créée`);
+
+        try {
+            const organizer = await req.prisma.user.findUnique({
+                where: { id: req.user.id },
+                select: { id: true, name: true, email: true },
+            });
+            const room = roomId
+                ? await req.prisma.room.findUnique({ where: { id: roomId }, select: { name: true } })
+                : null;
+            if (organizer?.email) {
+                await notificationService.sendFullNotification(
+                    req.prisma,
+                    organizer.id,
+                    organizer.email,
+                    'MEETING_CREATED_CONFIRMATION',
+                    'MEETING_CREATED_CONFIRMATION',
+                    [organizer, meeting, room, participantList.length],
+                    'Réunion créée',
+                    `Votre réunion « ${meeting.title} » a été enregistrée.`,
+                    `/meetings/${meeting.id}`,
+                );
+            }
+        } catch (notifyErr) {
+            logger.warn('MEETING_CREATOR_NOTIFY_FAILED', notifyErr.message, { meetingId: meeting.id });
+        }
 
         res.json(meeting);
     } catch (error) {
@@ -1497,6 +1522,35 @@ router.post('/:id/participants', async (req, res) => {
             meetingId: req.params.id,
             error: error.message,
         });
+        res.status(400).json({ error: error.message });
+    }
+});
+
+/**
+ * DELETE /api/meetings/:id — Suppression définitive (super administrateur uniquement)
+ */
+router.delete('/:id', async (req, res) => {
+    try {
+        if (!isSuperAdmin(req.user?.role)) {
+            return res.status(403).json({ error: 'Suppression définitive réservée au super administrateur.' });
+        }
+        const meeting = await req.prisma.meeting.findUnique({ where: { id: req.params.id } });
+        if (!meeting) return res.status(404).json({ error: 'Réunion introuvable' });
+
+        await req.prisma.$transaction([
+            req.prisma.roomBooking.deleteMany({ where: { meetingId: meeting.id } }),
+            req.prisma.meeting.delete({ where: { id: meeting.id } }),
+        ]);
+
+        await createAuditLog(req, 'MEETING_DELETED', 'Meeting', meeting.id, `Réunion "${meeting.title}" supprimée définitivement`);
+
+        logger.info('MEETING_DELETED', `Réunion supprimée par super admin ${req.user.id}`, {
+            meetingId: meeting.id,
+        });
+
+        res.json({ success: true });
+    } catch (error) {
+        logger.error('DELETE_MEETING', error.message, { meetingId: req.params.id });
         res.status(400).json({ error: error.message });
     }
 });

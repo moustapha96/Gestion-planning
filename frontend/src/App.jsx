@@ -49,7 +49,7 @@ import NotFound from './pages/NotFound';
 import Home from './pages/Home';
 import PWAInstallPrompt from './components/PWAInstallPrompt';
 import MobileInit from './components/MobileInit';
-import { isPrivilegedAdmin, ROLES } from './utils/roles';
+import { isPrivilegedAdmin, canManageRepertoire, ROLES } from './utils/roles';
 
 function ProtectedRoute() {
     const { user } = useAuth();
@@ -61,6 +61,12 @@ function AdminRoute() {
     const { user } = useAuth();
     if (!isPrivilegedAdmin(user?.role)) return <Navigate to="/dashboard" replace />;
     return <Outlet />;
+}
+
+function RepertoireRoute() {
+    const { user } = useAuth();
+    if (!canManageRepertoire(user?.role)) return <Navigate to="/dashboard" replace />;
+    return <Repertoire />;
 }
 
 export default function App() {
@@ -92,7 +98,7 @@ export default function App() {
                         <Route path="/rooms" element={<Rooms />} />
                         <Route path="/projects" element={<Projects />} />
                         <Route path="/projects/:id" element={<ProjectDetail />} />
-                        <Route path="/repertoire" element={<Repertoire />} />
+                        <Route path="/repertoire" element={<RepertoireRoute />} />
                         <Route path="/calendar" element={<Calendar />} />
                         <Route path="/notifications" element={<Notifications />} />
                         <Route path="/discussions" element={<Discussions />} />

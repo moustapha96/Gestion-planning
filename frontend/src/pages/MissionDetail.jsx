@@ -29,7 +29,9 @@ import {
 import dayjs from 'dayjs';
 import api, { API_BASE } from '../api/client';
 import { useAuth } from '../context/AuthContext';
-import { isPrivilegedAdmin } from '../utils/roles';
+import { isPrivilegedAdmin, canSuperAdminForceDelete } from '../utils/roles';
+import { forceDeleteDescription, forceDeleteTitle } from '../utils/deleteConfirm';
+import ForceDeletePopconfirm from '../components/ForceDeletePopconfirm';
 import { PDF_ACCEPT, isAcceptedPdfFile } from '../utils/pdfAttachment';
 
 const { Text } = Typography;
@@ -43,6 +45,7 @@ export default function MissionDetail() {
     const [mission, setMission] = useState(null);
     const [loading, setLoading] = useState(true);
     const [cancelLoading, setCancelLoading] = useState(false);
+    const [permanentDeleteLoading, setPermanentDeleteLoading] = useState(false);
     const [uploadLoading, setUploadLoading] = useState(false);
 
     const fetchMission = async () => {
@@ -63,6 +66,7 @@ export default function MissionDetail() {
 
     const isCreator = mission?.createdById === user?.id;
     const isAdmin = isPrivilegedAdmin(user?.role);
+    const isSuperAdmin = canSuperAdminForceDelete(user?.role);
     const canEdit = (isCreator || isAdmin) && mission?.status !== 'CANCELLED';
     const canUpload = mission?.status !== 'CANCELLED' && (
         isCreator ||
@@ -80,6 +84,19 @@ export default function MissionDetail() {
             message.error(err.response?.data?.error || 'Erreur');
         } finally {
             setCancelLoading(false);
+        }
+    };
+
+    const handlePermanentDelete = async () => {
+        setPermanentDeleteLoading(true);
+        try {
+            await api.delete(`/missions/${id}?permanent=1`);
+            message.success('Mission supprimée définitivement');
+            navigate('/missions');
+        } catch (err) {
+            message.error(err.response?.data?.error || 'Erreur');
+        } finally {
+            setPermanentDeleteLoading(false);
         }
     };
 
@@ -150,7 +167,7 @@ export default function MissionDetail() {
                     </Space>
                 }
                 extra={
-                    canEdit && (
+                    (canEdit || isSuperAdmin) && (
                         <Space>
                             <Button icon={<EditOutlined />} onClick={() => navigate(`/missions/${id}/edit`)}>
                                 Modifier
@@ -166,6 +183,18 @@ export default function MissionDetail() {
                                     Annuler la mission
                                 </Button>
                             </Popconfirm>
+                            {isSuperAdmin && (
+                                <ForceDeletePopconfirm
+                                    title={forceDeleteTitle('cette mission')}
+                                    description={forceDeleteDescription({ entityLabel: 'cette mission' })}
+                                    loading={permanentDeleteLoading}
+                                    onConfirm={handlePermanentDelete}
+                                >
+                                    <Button danger type="primary" icon={<DeleteOutlined />} loading={permanentDeleteLoading}>
+                                        Supprimer définitivement
+                                    </Button>
+                                </ForceDeletePopconfirm>
+                            )}
                         </Space>
                     )
                 }

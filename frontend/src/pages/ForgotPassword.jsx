@@ -35,10 +35,14 @@ export default function ForgotPassword() {
         setError('');
         setLoading(true);
         try {
-            await api.post('/auth/forgot-password', { email: values.email });
+            const email = String(values.email || '').trim().toLowerCase();
+            await api.post('/auth/forgot-password', { email });
             setSuccess(true);
-        } catch {
-            setError('Une erreur est survenue. Veuillez réessayer.');
+        } catch (err) {
+            setError(
+                err.response?.data?.error
+                || 'Une erreur est survenue. Veuillez réessayer.',
+            );
         } finally {
             setLoading(false);
         }

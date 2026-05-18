@@ -1,9 +1,10 @@
-import { useState } from 'react';
+import { useState, useMemo } from 'react';
 import { useNavigate, useSearchParams, Link } from 'react-router-dom';
 import { Form, Input, Button, Typography, Alert, Result, Divider, Space } from 'antd';
 import { LockOutlined, ArrowLeftOutlined } from '@ant-design/icons';
 import api from '../api/client';
 import logo from '../assets/logo-adm.png';
+import { PASSWORD_FORM_RULES, PASSWORD_HINT } from '../utils/passwordRules';
 
 const { Text } = Typography;
 
@@ -32,11 +33,22 @@ export default function ResetPassword() {
     const [error, setError] = useState('');
     const [searchParams] = useSearchParams();
     const navigate = useNavigate();
-    const token = searchParams.get('token');
+
+    const token = useMemo(() => {
+        const raw = searchParams.get('token');
+        if (!raw) return '';
+        try {
+            return decodeURIComponent(raw).trim();
+        } catch {
+            return raw.trim();
+        }
+    }, [searchParams]);
+
+    const tokenMissing = !token;
 
     const handleSubmit = async (values) => {
         if (!token) {
-            setError('Token manquant. Veuillez refaire une demande de réinitialisation.');
+            setError('Lien invalide. Refaites une demande de réinitialisation.');
             return;
         }
         setError('');
@@ -55,15 +67,14 @@ export default function ResetPassword() {
         <div className="auth-page" style={pageStyle}>
             <div style={cardStyle}>
 
-                {/* Header logo */}
                 <div style={{ textAlign: 'center' }}>
                     <img src={logo} alt="ADM GP logo" style={{ height: 200, display: 'block', margin: '0 auto 5px' }} />
                     <Text style={{ color: '#5A7BA8', display: 'block', marginTop: 6 }}>
                         {success ? 'Réinitialisation du mot de passe' : 'Nouveau mot de passe'}
                     </Text>
-                    {!success && (
+                    {!success && !tokenMissing && (
                         <Text style={{ color: '#9CA3AF', fontSize: 12, display: 'block', marginTop: 4 }}>
-                            Choisissez un mot de passe sécurisé (minimum 8 caractères).
+                            {PASSWORD_HINT}
                         </Text>
                     )}
                 </div>
@@ -74,12 +85,12 @@ export default function ResetPassword() {
                     <Result
                         status="success"
                         title={<span style={{ color: '#0D2F63' }}>Mot de passe réinitialisé</span>}
-                        subTitle={
+                        subTitle={(
                             <span style={{ color: '#5A7BA8' }}>
                                 Vous pouvez maintenant vous connecter avec votre nouveau mot de passe.
                             </span>
-                        }
-                        extra={
+                        )}
+                        extra={(
                             <Button
                                 type="primary"
                                 onClick={() => navigate('/login')}
@@ -87,7 +98,25 @@ export default function ResetPassword() {
                             >
                                 Se connecter
                             </Button>
-                        }
+                        )}
+                    />
+                ) : tokenMissing ? (
+                    <Result
+                        status="warning"
+                        title="Lien invalide"
+                        subTitle="Ce lien de réinitialisation est incomplet ou a expiré."
+                        extra={(
+                            <Space direction="vertical" style={{ width: '100%' }}>
+                                <Link to="/forgot-password">
+                                    <Button type="primary" block style={{ background: '#1565C0', borderColor: '#1565C0' }}>
+                                        Demander un nouveau lien
+                                    </Button>
+                                </Link>
+                                <Link to="/login">
+                                    <Button type="link" block>Retour à la connexion</Button>
+                                </Link>
+                            </Space>
+                        )}
                     />
                 ) : (
                     <>
@@ -104,24 +133,29 @@ export default function ResetPassword() {
                             <Form.Item
                                 name="newPassword"
                                 label={<span style={{ color: '#1A2B4A', fontWeight: 500 }}>Nouveau mot de passe</span>}
-                                rules={[{ required: true, min: 8, message: 'Minimum 8 caractères' }]}
+                                rules={PASSWORD_FORM_RULES}
+                                hasFeedback
                             >
                                 <Input.Password
                                     prefix={<LockOutlined style={{ color: '#90A8C8' }} />}
                                     size="large"
                                     placeholder="••••••••"
+                                    autoComplete="new-password"
                                 />
                             </Form.Item>
                             <Form.Item
                                 name="confirm"
                                 label={<span style={{ color: '#1A2B4A', fontWeight: 500 }}>Confirmer le mot de passe</span>}
                                 dependencies={['newPassword']}
+                                hasFeedback
                                 rules={[
                                     { required: true, message: 'Confirmation requise' },
                                     ({ getFieldValue }) => ({
                                         validator(_, value) {
-                                            if (!value || getFieldValue('newPassword') === value) return Promise.resolve();
-                                            return Promise.reject('Les mots de passe ne correspondent pas');
+                                            if (!value || getFieldValue('newPassword') === value) {
+                                                return Promise.resolve();
+                                            }
+                                            return Promise.reject(new Error('Les mots de passe ne correspondent pas'));
                                         },
                                     }),
                                 ]}
@@ -130,21 +164,20 @@ export default function ResetPassword() {
                                     prefix={<LockOutlined style={{ color: '#90A8C8' }} />}
                                     size="large"
                                     placeholder="••••••••"
+                                    autoComplete="new-password"
                                 />
                             </Form.Item>
                             <Form.Item>
-                                <Space direction="vertical" style={{ width: '100%' }} size="middle">
-                                    <Button
-                                        type="primary"
-                                        htmlType="submit"
-                                        size="large"
-                                        loading={loading}
-                                        block
-                                        style={{ background: '#1565C0', borderColor: '#48BB78', borderWidth: 1.5 }}
-                                    >
-                                        Réinitialiser le mot de passe
-                                    </Button>
-                                </Space>
+                                <Button
+                                    type="primary"
+                                    htmlType="submit"
+                                    size="large"
+                                    loading={loading}
+                                    block
+                                    style={{ background: '#1565C0', borderColor: '#48BB78', borderWidth: 1.5 }}
+                                >
+                                    Réinitialiser le mot de passe
+                                </Button>
                             </Form.Item>
                         </Form>
                     </>

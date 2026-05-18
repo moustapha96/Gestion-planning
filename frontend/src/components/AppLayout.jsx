@@ -20,7 +20,7 @@ import api, { API_BASE } from '../api/client';
 import {
     getSocket, subscribeSocketStatus, getSocketStatusSnapshot, getSocketStatusLabel, getSocketStatusDetail,
 } from '../realtime/socket';
-import { isPrivilegedAdmin, isSuperAdmin } from '../utils/roles';
+import { isPrivilegedAdmin, isSuperAdmin, canManageRepertoire } from '../utils/roles';
 import { getAdminNavForRole } from '../pages/admin/adminNavConfig';
 import { useThemeMode } from '../context/ThemeModeContext';
 
@@ -490,11 +490,11 @@ export default function AppLayout() {
             icon: <ProjectOutlined />,
             label: 'Projets',
         },
-        {
+        ...(canManageRepertoire(user?.role) ? [{
             key: '/repertoire',
             icon: <ContactsOutlined />,
             label: 'Répertoire',
-        },
+        }] : []),
         {
             key: '/notifications',
             icon: <BellOutlined />,

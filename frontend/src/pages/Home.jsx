@@ -7,7 +7,7 @@ import {
 import {
     HomeOutlined, CalendarOutlined, LoginOutlined, FlagOutlined,
     TeamOutlined, EnvironmentOutlined, ReloadOutlined, ClockCircleOutlined,
-    CheckCircleOutlined, SearchOutlined,
+    CheckCircleOutlined, SearchOutlined, PhoneOutlined, MobileOutlined, MailOutlined,
 } from '@ant-design/icons';
 import api from '../api/client';
 
@@ -236,6 +236,9 @@ export default function Home() {
     const [countdown, setCountdown] = useState(REFRESH_INTERVAL);
     const [horizon,   setHorizon]   = useState('day');
     const [weekPayload, setWeekPayload] = useState(null);
+    const [repertoireContacts, setRepertoireContacts] = useState([]);
+    const [repertoireTotal, setRepertoireTotal] = useState(0);
+    const [repertoireLoading, setRepertoireLoading] = useState(false);
 
     // ── Recherche (debounced) ────────────────────────────────────
     const [searchInput, setSearchInput] = useState('');
@@ -248,6 +251,43 @@ export default function Home() {
 
     const searchTokens = useMemo(() => buildSearchTokens(search), [search]);
     const isSearching  = searchTokens.length > 0;
+
+    // Total contacts (badge onglet) — chargé au démarrage
+    useEffect(() => {
+        let cancelled = false;
+        api.get('/public/repertoire')
+            .then((res) => {
+                if (!cancelled) setRepertoireTotal((res.data || []).length);
+            })
+            .catch(() => {
+                if (!cancelled) setRepertoireTotal(0);
+            });
+        return () => { cancelled = true; };
+    }, []);
+
+    // Liste filtrée lorsque l’onglet Répertoire est actif
+    useEffect(() => {
+        if (activeTab !== 'repertoire') return undefined;
+        let cancelled = false;
+        (async () => {
+            setRepertoireLoading(true);
+            try {
+                const params = {};
+                if (search) params.search = search;
+                const res = await api.get('/public/repertoire', { params });
+                if (!cancelled) {
+                    const list = res.data || [];
+                    setRepertoireContacts(list);
+                    if (!search) setRepertoireTotal(list.length);
+                }
+            } catch {
+                if (!cancelled) setRepertoireContacts([]);
+            } finally {
+                if (!cancelled) setRepertoireLoading(false);
+            }
+        })();
+        return () => { cancelled = true; };
+    }, [activeTab, search]);
 
     const load = async () => {
         setLoading(true);
@@ -467,12 +507,31 @@ export default function Home() {
     );
 
     // Total global des résultats (pour le bandeau "X résultats trouvés")
-    const totalSearchResults = roomCount + totalBookings + totalMissionsStat;
+    const totalSearchResults = activeTab === 'repertoire'
+        ? repertoireContacts.length
+        : roomCount + totalBookings + totalMissionsStat;
+
+    const repertoireGrouped = useMemo(() => {
+        const groups = {};
+        for (const c of repertoireContacts) {
+            const label = c.directionLabel || '(Sans direction)';
+            if (!groups[label]) groups[label] = [];
+            groups[label].push(c);
+        }
+        return Object.entries(groups).sort(([a], [b]) =>
+            a.localeCompare(b, 'fr', { sensitivity: 'base' }),
+        );
+    }, [repertoireContacts]);
+
+    const searchPlaceholder = activeTab === 'repertoire'
+        ? 'Rechercher un nom, une direction, un poste, un numéro…'
+        : 'Rechercher une salle, une réunion, une mission, un lieu, une personne…';
 
     const tabs = [
-        { key: 'rooms',    label: 'Salles',     icon: <HomeOutlined />     },
-        { key: 'missions', label: 'Missions',   icon: <FlagOutlined />     },
-        { key: 'timeline', label: 'Calendrier', icon: <CalendarOutlined /> },
+        { key: 'rooms',      label: 'Salles',      icon: <HomeOutlined />     },
+        { key: 'repertoire', label: 'Répertoire',  icon: <PhoneOutlined />    },
+        { key: 'missions',   label: 'Missions',    icon: <FlagOutlined />     },
+        { key: 'timeline',   label: 'Calendrier',  icon: <CalendarOutlined /> },
     ];
 
     return (
@@ -490,16 +549,27 @@ export default function Home() {
                             <Title level={2} style={{ color: '#fff', margin: 0, fontWeight: 700 }}>
                                 📅 ADM GP
                             </Title>
-                            <Space style={{ marginTop: 8 }} wrap>
-                                <Segmented
-                                    value={horizon}
-                                    onChange={setHorizon}
-                                    options={[
-                                        { label: 'Jour', value: 'day' },
-                                        { label: 'Semaine', value: 'week' },
-                                    ]}
-                                />
-                            </Space>
+                            {activeTab !== 'repertoire' && (
+                                <Space style={{ marginTop: 8 }} wrap>
+                                    <Segmented
+                                        value={horizon}
+                                        onChange={setHorizon}
+                                        options={[
+                                            { label: 'Jour', value: 'day' },
+                                            { label: 'Semaine', value: 'week' },
+                                        ]}
+                                    />
+                                </Space>
+                            )}
+                            {activeTab === 'repertoire' && (
+                                <Text style={{
+                                    color: 'rgba(255,255,255,0.75)', fontSize: 14,
+                                    display: 'block', marginTop: 8,
+                                }}>
+                                    <PhoneOutlined style={{ marginRight: 6 }} />
+                                    Annuaire téléphonique ADM — consultation publique
+                                </Text>
+                            )}
                             {horizon === 'week' && weekRangeLabel && (
                                 <Text style={{
                                     color: 'rgba(255,255,255,0.7)', fontSize: 14,
@@ -553,7 +623,7 @@ export default function Home() {
                             value={searchInput}
                             onChange={(e) => setSearchInput(e.target.value)}
                             prefix={<SearchOutlined style={{ color: 'rgba(255,255,255,0.55)' }} />}
-                            placeholder="Rechercher une salle, une réunion, une mission, un lieu, une personne…"
+                            placeholder={searchPlaceholder}
                             style={{
                                 background: 'rgba(255,255,255,0.12)',
                                 border: '1px solid rgba(255,255,255,0.25)',
@@ -585,7 +655,15 @@ export default function Home() {
 
                     {/* ── Cartes statistiques ── */}
                     <Row gutter={[12, 12]} style={{ marginBottom: 16 }}>
-                        {[
+                        {(activeTab === 'repertoire'
+                            ? [{
+                                label: 'Contacts',
+                                value: repertoireContacts.length,
+                                sub: `${repertoireGrouped.length} direction(s)`,
+                                icon: <PhoneOutlined />,
+                                color: '#60AEFF',
+                            }]
+                            : [
                             {
                                 label: 'Salles',
                                 value: roomCount,
@@ -607,8 +685,8 @@ export default function Home() {
                                 icon:  <FlagOutlined />,
                                 color: '#722ed1',
                             },
-                        ].map((s) => (
-                            <Col key={s.label} xs={8}>
+                        ]).map((s) => (
+                            <Col key={s.label} xs={activeTab === 'repertoire' ? 24 : 8}>
                                 <Card
                                     style={{
                                         background: 'rgba(255,255,255,0.08)',
@@ -666,11 +744,14 @@ export default function Home() {
                                     {t.key === 'missions' && totalMissionsStat > 0 && (
                                         <Badge count={totalMissionsStat} size="small" style={{ backgroundColor: '#722ed1' }} />
                                     )}
+                                    {t.key === 'repertoire' && repertoireTotal > 0 && (
+                                        <Tag style={{ marginLeft: 4, fontSize: 11 }}>{repertoireTotal}</Tag>
+                                    )}
                                 </button>
                             ))}
                         </div>
 
-                        <Spin spinning={loading}>
+                        <Spin spinning={loading || (activeTab === 'repertoire' && repertoireLoading)}>
                             <div style={{ padding: 20 }}>
 
                                 {/* ── ONGLET SALLES ── */}
@@ -881,6 +962,93 @@ export default function Home() {
                                                             ))}
                                                         </div>
                                                     )}
+                                                </div>
+                                            ))
+                                        )}
+                                    </>
+                                )}
+
+                                {/* ── ONGLET RÉPERTOIRE ── */}
+                                {activeTab === 'repertoire' && (
+                                    <>
+                                        <Text type="secondary" style={{ display: 'block', marginBottom: 16 }}>
+                                            {repertoireContacts.length} contact(s)
+                                            {repertoireGrouped.length > 0
+                                                ? ` — ${repertoireGrouped.length} direction(s).`
+                                                : '.'}
+                                            {' '}Filtrez par nom, direction, poste ou numéro via la recherche en haut de page.
+                                        </Text>
+                                        {repertoireGrouped.length === 0 ? (
+                                            <Empty
+                                                image={Empty.PRESENTED_IMAGE_SIMPLE}
+                                                description={
+                                                    isSearching
+                                                        ? `Aucun contact ne correspond à « ${search} »`
+                                                        : 'Aucun contact dans le répertoire.'
+                                                }
+                                            />
+                                        ) : (
+                                            repertoireGrouped.map(([direction, members]) => (
+                                                <div
+                                                    key={direction}
+                                                    style={{ marginBottom: 24 }}
+                                                >
+                                                    <Text
+                                                        strong
+                                                        style={{
+                                                            display: 'block',
+                                                            marginBottom: 12,
+                                                            fontSize: 15,
+                                                            color: '#1565C0',
+                                                        }}
+                                                    >
+                                                        <PhoneOutlined style={{ marginRight: 8 }} />
+                                                        {direction}
+                                                    </Text>
+                                                    <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+                                                        {members.map((c) => (
+                                                            <div
+                                                                key={c.id}
+                                                                style={{
+                                                                    padding: '12px 16px',
+                                                                    borderRadius: 10,
+                                                                    background: '#f0f7ff',
+                                                                    borderLeft: '4px solid #1565C0',
+                                                                }}
+                                                            >
+                                                                <Text strong style={{ display: 'block', fontSize: 14 }}>
+                                                                    {c.prenomNom}
+                                                                    {c.fonction && (
+                                                                        <Text type="secondary" style={{ fontWeight: 400, marginLeft: 8, fontSize: 12 }}>
+                                                                            — {c.fonction}
+                                                                        </Text>
+                                                                    )}
+                                                                </Text>
+                                                                <Space size={16} wrap style={{ marginTop: 6 }}>
+                                                                    {c.poste && (
+                                                                        <Text type="secondary" style={{ fontSize: 12 }}>
+                                                                            Poste {c.poste}
+                                                                        </Text>
+                                                                    )}
+                                                                    {c.directe && (
+                                                                        <a href={`tel:${String(c.directe).replace(/\s/g, '')}`} style={{ fontSize: 12 }}>
+                                                                            <PhoneOutlined /> {c.directe}
+                                                                        </a>
+                                                                    )}
+                                                                    {c.portable && (
+                                                                        <a href={`tel:${String(c.portable).replace(/\s/g, '')}`} style={{ fontSize: 12 }}>
+                                                                            <MobileOutlined /> {c.portable}
+                                                                        </a>
+                                                                    )}
+                                                                    {c.email && (
+                                                                        <a href={`mailto:${c.email.trim()}`} style={{ fontSize: 12 }}>
+                                                                            <MailOutlined /> {c.email}
+                                                                        </a>
+                                                                    )}
+                                                                </Space>
+                                                            </div>
+                                                        ))}
+                                                    </div>
                                                 </div>
                                             ))
                                         )}

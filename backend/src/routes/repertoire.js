@@ -8,7 +8,7 @@ const { logger } = require('../utils/logger');
 const { notificationService } = require('../services/notification.service');
 const { createAuditLog } = require('../utils/audit');
 const {
-  ROLES, isValidRole, ADMIN_ROUTE_ROLES, isSuperAdmin,
+  ROLES, isValidRole, REPERTOIRE_MANAGE_ROLES, isSuperAdmin,
 } = require('../config/roles');
 const { validatePasswordStrength } = require('../utils/passwordUtils');
 const { syncDirectionDiscussionMembers } = require('../services/directionDiscussion.service');
@@ -20,8 +20,7 @@ const {
 const path = require('path');
 const fs   = require('fs');
 
-const DELETE_ROLES = ['ADMIN', 'SUPER_ADMIN', 'DG'];
-const EDIT_ROLES   = ['ADMIN', 'SUPER_ADMIN', 'DG', 'CONSOLIDATEUR'];
+const MANAGE_ROLES = REPERTOIRE_MANAGE_ROLES;
 
 const MAX_USER_PHONE = 40;
 const MAX_USER_JOB_TITLE = 120;
@@ -44,8 +43,8 @@ function parseOptionalEmail(value) {
   return s;
 }
 
-// ── GET /api/repertoire — liste des contacts ──────────────────────────────────
-router.get('/', authMiddleware, async (req, res) => {
+// ── GET /api/repertoire — liste des contacts (admin, super admin, DG) ─────────
+router.get('/', authMiddleware, roleMiddleware(MANAGE_ROLES), async (req, res) => {
   try {
     const { search, direction } = req.query;
     const prisma = req.prisma;
@@ -79,7 +78,7 @@ router.get('/', authMiddleware, async (req, res) => {
 
 // ── GET /api/repertoire/directions — directions organisationnelles actives ────
 // Retourne les Direction du modèle organisationnel (pas les labels libres)
-router.get('/directions', authMiddleware, async (req, res) => {
+router.get('/directions', authMiddleware, roleMiddleware(MANAGE_ROLES), async (req, res) => {
   try {
     const prisma = req.prisma;
     const dirs = await prisma.direction.findMany({
@@ -95,7 +94,7 @@ router.get('/directions', authMiddleware, async (req, res) => {
 });
 
 // ── POST /api/repertoire — créer un contact ───────────────────────────────────
-router.post('/', authMiddleware, roleMiddleware(EDIT_ROLES), async (req, res) => {
+router.post('/', authMiddleware, roleMiddleware(MANAGE_ROLES), async (req, res) => {
   try {
     const { numero, prenomNom, fonction, poste, directe, portable, email, directionLabel, ordre } = req.body;
     if (!prenomNom)      return res.status(400).json({ error: 'prenomNom requis' });
@@ -133,7 +132,7 @@ router.post('/', authMiddleware, roleMiddleware(EDIT_ROLES), async (req, res) =>
 router.post(
   '/:id/create-account',
   authMiddleware,
-  roleMiddleware(ADMIN_ROUTE_ROLES),
+  roleMiddleware(MANAGE_ROLES),
   async (req, res) => {
     try {
       const { id } = req.params;
@@ -260,7 +259,7 @@ router.post(
 );
 
 // ── PUT /api/repertoire/:id — modifier un contact ─────────────────────────────
-router.put('/:id', authMiddleware, roleMiddleware(EDIT_ROLES), async (req, res) => {
+router.put('/:id', authMiddleware, roleMiddleware(MANAGE_ROLES), async (req, res) => {
   try {
     const { id } = req.params;
     const { numero, prenomNom, fonction, poste, directe, portable, email, directionLabel, ordre } = req.body;
@@ -298,7 +297,7 @@ router.put('/:id', authMiddleware, roleMiddleware(EDIT_ROLES), async (req, res) 
 });
 
 // ── DELETE /api/repertoire/:id ────────────────────────────────────────────────
-router.delete('/:id', authMiddleware, roleMiddleware(DELETE_ROLES), async (req, res) => {
+router.delete('/:id', authMiddleware, roleMiddleware(MANAGE_ROLES), async (req, res) => {
   try {
     const { id } = req.params;
     const prisma = req.prisma;
@@ -313,7 +312,7 @@ router.delete('/:id', authMiddleware, roleMiddleware(DELETE_ROLES), async (req, 
 });
 
 // ── GET /api/repertoire/export/docx ──────────────────────────────────────────
-router.get('/export/docx', authMiddleware, async (req, res) => {
+router.get('/export/docx', authMiddleware, roleMiddleware(MANAGE_ROLES), async (req, res) => {
   try {
     const prisma = req.prisma;
     const contacts = await prisma.repertoireContact.findMany({

@@ -8,7 +8,13 @@ const { z } = require('zod');
 const { notificationService } = require('../services/notification.service');
 const { logger, auditLogger } = require('../utils/logger');
 const authMiddleware = require('../middlewares/auth.middleware');
-const { validatePasswordStrength } = require('../utils/passwordUtils');
+const {
+    validatePasswordStrength,
+    findUserByEmail,
+    createPasswordResetToken,
+    buildPasswordResetUrl,
+    verifyPasswordResetToken,
+} = require('../utils/passwordUtils');
 
 const router = express.Router();
 
@@ -660,29 +666,42 @@ router.put('/change-password', authMiddleware, async (req, res) => {
  *     security: []
  */
 router.post('/forgot-password', async (req, res) => {
+    const genericMessage = 'Si cet email est enregistré, un lien vous a été envoyé.';
     try {
-        const { email } = req.body;
-        const user = await req.prisma.user.findUnique({ where: { email } });
-
-        if (!user || !user.isActive) {
-            return res.json({ success: true, message: 'Si cet email est enregistré, un lien vous a été envoyé.' });
+        const { email } = req.body || {};
+        if (!email || !String(email).trim()) {
+            return res.status(400).json({ error: 'Adresse e-mail requise.' });
         }
 
-        // Token signé avec le hash actuel → invalidé automatiquement dès que le mdp change
-        const resetToken = jwt.sign(
-            { id: user.id, purpose: 'password_reset' },
-            process.env.JWT_SECRET + user.passwordHash.slice(-8),
-            { expiresIn: '1h' }
+        const user = await findUserByEmail(req.prisma, email);
+
+        if (!user || !user.isActive) {
+            return res.json({ success: true, message: genericMessage });
+        }
+
+        const resetToken = createPasswordResetToken(user);
+        const resetUrl = buildPasswordResetUrl(resetToken);
+        const emailResult = await notificationService.sendEmail(
+            user.email,
+            'PASSWORD_RESET',
+            [user, resetUrl],
         );
 
-        const resetUrl = `${process.env.FRONTEND_URL || 'http://localhost:5173'}/reset-password?token=${resetToken}`;
-        await notificationService.sendEmail(email, 'PASSWORD_RESET', [user, resetUrl]);
+        if (!emailResult?.success) {
+            logger.error('FORGOT_PASSWORD_EMAIL', 'Échec envoi e-mail de réinitialisation', {
+                email: user.email,
+                error: emailResult?.error,
+            });
+            return res.status(502).json({
+                error: 'Impossible d\'envoyer l\'e-mail pour le moment. Réessayez plus tard ou contactez l\'administrateur.',
+            });
+        }
 
-        logger.info('PASSWORD_RESET_REQUESTED', `Demande reset pour ${email}`, { email });
-        res.json({ success: true, message: 'Si cet email est enregistré, un lien vous a été envoyé.' });
+        logger.info('PASSWORD_RESET_REQUESTED', `Demande reset pour ${user.email}`, { email: user.email });
+        res.json({ success: true, message: genericMessage });
     } catch (error) {
         logger.error('FORGOT_PASSWORD', 'Erreur', { error: error.message });
-        res.status(400).json({ error: error.message });
+        res.status(500).json({ error: 'Une erreur est survenue. Veuillez réessayer.' });
     }
 });
 
@@ -724,10 +743,14 @@ router.post('/reset-password', async (req, res) => {
         }
 
         const user = await req.prisma.user.findUnique({ where: { id: decoded.id } });
-        if (!user) return res.status(400).json({ error: 'Utilisateur introuvable' });
+        if (!user || user.isDeleted) return res.status(400).json({ error: 'Utilisateur introuvable' });
+        if (!user.isActive) {
+            return res.status(400).json({
+                error: 'Compte désactivé. Contactez votre administrateur ou utilisez le lien d\'activation reçu par e-mail.',
+            });
+        }
 
-        // Vérifier avec le secret incluant le hash (auto-invalidation après changement)
-        jwt.verify(token, process.env.JWT_SECRET + user.passwordHash.slice(-8));
+        verifyPasswordResetToken(token, user);
 
         const newHash = await bcrypt.hash(newPassword, 12);
         await req.prisma.passwordHistory.create({ data: { userId: user.id, passwordHash: newHash } }).catch(() => {});

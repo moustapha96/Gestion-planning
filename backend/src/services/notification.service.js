@@ -273,7 +273,60 @@ const emailTemplates = {
         </div>
       </div>
     `,
-  }),
+    }),
+
+    /** Confirmation envoyée à l’organisateur après création d’une réunion. */
+    MEETING_CREATED_CONFIRMATION: (organizer, meeting, room, participantCount = 0) => {
+        const startDate = new Date(meeting.startTime).toLocaleDateString('fr-FR', {
+            weekday: 'long',
+            day: 'numeric',
+            month: 'long',
+            year: 'numeric',
+        });
+        const startTime = new Date(meeting.startTime).toLocaleTimeString('fr-FR', {
+            hour: '2-digit',
+            minute: '2-digit',
+        });
+        const endTime = new Date(meeting.endTime).toLocaleTimeString('fr-FR', {
+            hour: '2-digit',
+            minute: '2-digit',
+        });
+        const url = `${process.env.FRONTEND_URL || 'http://localhost:9000'}/meetings/${meeting.id}`;
+        const lieu = room?.name
+            || (meeting.meetingLink ? 'Visioconférence' : 'À définir');
+        return {
+            subject: `✅ Réunion créée : ${meeting.title}`,
+            html: `
+      <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto;">
+        <div style="background: linear-gradient(135deg, #1F5C8B 0%, #2a7cb8 100%); color: white; padding: 20px; text-align: center;">
+          <h1>Gestion Planning</h1>
+        </div>
+        <div style="padding: 20px;">
+          <p>Bonjour ${organizer.name},</p>
+          <p>Votre réunion a bien été <strong>créée</strong> dans l'application.</p>
+          <div style="background: #e8f5e9; padding: 20px; border-left: 4px solid #4caf50; margin: 20px 0;">
+            <h3 style="margin: 0 0 10px 0;">${meeting.title}</h3>
+            <p><strong>📅 Date :</strong> ${startDate}</p>
+            <p><strong>🕐 Horaire :</strong> ${startTime} – ${endTime}</p>
+            <p><strong>📍 Lieu :</strong> ${lieu}</p>
+            ${meeting.meetingLink ? `<p><strong>🎥 Visio :</strong> <a href="${meeting.meetingLink}">${meeting.meetingLink}</a></p>` : ''}
+            <p><strong>👥 Participants :</strong> ${participantCount}</p>
+            <p><strong>📝 Ordre du jour :</strong> ${meeting.agenda || '—'}</p>
+            <p style="margin: 12px 0 0 0; font-size: 13px; color: #555;">Statut : brouillon — pensez à envoyer les convocations depuis la fiche réunion.</p>
+          </div>
+          <p>
+            <a href="${url}" style="display: inline-block; background: #1F5C8B; color: white; padding: 12px 24px; text-decoration: none; border-radius: 5px; font-weight: bold;">
+              Voir la réunion
+            </a>
+          </p>
+        </div>
+        <div style="border-top: 1px solid #ddd; padding: 20px; text-align: center; font-size: 12px; color: #666;">
+          <p>© 2026 Gestion Planning - Tous droits réservés</p>
+        </div>
+      </div>
+    `,
+        };
+    },
 
   PASSWORD_RESET: (user, resetUrl) => ({
     subject: '🔑 Réinitialisation de votre mot de passe',
@@ -292,6 +345,10 @@ const emailTemplates = {
             <a href="${resetUrl}" style="display: inline-block; background: #1F5C8B; color: white; padding: 12px 24px; text-decoration: none; border-radius: 5px; font-weight: bold;">
               Réinitialiser mon mot de passe
             </a>
+          </p>
+          <p style="font-size: 12px; color: #666; word-break: break-all;">
+            Si le bouton ne fonctionne pas, copiez ce lien dans votre navigateur :<br/>
+            <a href="${resetUrl}" style="color: #1F5C8B;">${resetUrl}</a>
           </p>
           <p style="font-size: 12px; color: #999; margin-top: 16px;">
             Si vous n'êtes pas à l'origine de cette demande, ignorez cet email.
@@ -412,6 +469,43 @@ const emailTemplates = {
             <p style="margin: 0 0 8px 0;"><strong>🕐 Début :</strong> ${startStr}</p>
             <p style="margin: 0 0 8px 0;"><strong>🕐 Fin :</strong> ${endStr}</p>
             ${mission.description ? `<p style="margin: 8px 0 0 0;"><strong>Description :</strong><br/>${mission.description}</p>` : ''}
+          </div>
+          <p>
+            <a href="${url}" style="display: inline-block; background: #1F5C8B; color: white; padding: 12px 24px; text-decoration: none; border-radius: 5px; font-weight: bold;">
+              Voir la mission
+            </a>
+          </p>
+        </div>
+        <div style="border-top: 1px solid #ddd; padding: 20px; text-align: center; font-size: 12px; color: #666;">
+          <p>© 2026 Gestion Planning - Tous droits réservés</p>
+        </div>
+      </div>
+    `,
+    };
+  },
+
+  /** Confirmation envoyée au créateur après création d’une mission. */
+  MISSION_CREATED_CONFIRMATION: (creator, mission, assigneeCount = 0) => {
+    const startStr = new Date(mission.startTime).toLocaleString('fr-FR', { dateStyle: 'full', timeStyle: 'short' });
+    const endStr = new Date(mission.endTime).toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' });
+    const url = `${process.env.FRONTEND_URL || 'http://localhost:9000'}/missions/${mission.id}`;
+    return {
+      subject: `✅ Mission créée : ${mission.title}`,
+      html: `
+      <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto;">
+        <div style="background: linear-gradient(135deg, #1F5C8B 0%, #2a7cb8 100%); color: white; padding: 20px; text-align: center;">
+          <h1>Gestion Planning</h1>
+        </div>
+        <div style="padding: 20px;">
+          <p>Bonjour ${creator.name},</p>
+          <p>Votre mission a bien été <strong>enregistrée</strong> dans l'application.</p>
+          <div style="background: #e8f5e9; padding: 20px; border-left: 4px solid #4caf50; margin: 20px 0;">
+            <p style="margin: 0 0 8px 0;"><strong>📍 Mission :</strong> ${mission.title}</p>
+            <p style="margin: 0 0 8px 0;"><strong>📍 Lieu :</strong> ${mission.location}</p>
+            <p style="margin: 0 0 8px 0;"><strong>🕐 Début :</strong> ${startStr}</p>
+            <p style="margin: 0 0 8px 0;"><strong>🕐 Fin :</strong> ${endStr}</p>
+            ${mission.description ? `<p style="margin: 8px 0 0 0;"><strong>Description :</strong><br/>${mission.description}</p>` : ''}
+            <p style="margin: 12px 0 0 0;"><strong>👥 Intervenants notifiés :</strong> ${assigneeCount}</p>
           </div>
           <p>
             <a href="${url}" style="display: inline-block; background: #1F5C8B; color: white; padding: 12px 24px; text-decoration: none; border-radius: 5px; font-weight: bold;">

@@ -1,14 +1,18 @@
 /**
- * seed-test-accounts.js
- * Crée les comptes de test ADM GP avec leurs directions respectives.
+ * Crée ou met à jour les comptes « side » (un par rôle du workflow) + directions.
  *
- * Usage :
+ * Usage (depuis backend/) :
+ *   npm run db:seed-side-accounts
  *   node prisma/seed-test-accounts.js
  *
+ * Mot de passe : variable SIDE_ACCOUNTS_PASSWORD ou défaut ci-dessous.
  * Les comptes existants (même email) sont mis à jour, pas dupliqués.
  */
 
 'use strict';
+
+const path = require('path');
+require('dotenv').config({ path: path.join(__dirname, '../.env') });
 
 const { PrismaClient } = require('@prisma/client');
 const bcrypt = require('bcryptjs');
@@ -17,7 +21,7 @@ const prisma = new PrismaClient();
 
 // ── Comptes à créer ───────────────────────────────────────────────────────────
 
-const PASSWORD = 'Test@2026 !';
+const PASSWORD = process.env.SIDE_ACCOUNTS_PASSWORD || 'Test@2026 !';
 
 const ACCOUNTS = [
     {

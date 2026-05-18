@@ -14,7 +14,9 @@ import {
 import dayjs from 'dayjs';
 import api from '../api/client';
 import { useAuth } from '../context/AuthContext';
-import { isPrivilegedAdmin } from '../utils/roles';
+import { isPrivilegedAdmin, canSuperAdminForceDelete } from '../utils/roles';
+import { forceDeleteDescription, forceDeleteTitle } from '../utils/deleteConfirm';
+import ForceDeletePopconfirm from '../components/ForceDeletePopconfirm';
 
 const { Title, Text, Paragraph } = Typography;
 const { TextArea } = Input;
@@ -587,6 +589,7 @@ export default function PlanningDetail() {
     const canReturnDG    = (isSG || isDG || isAdmin) && PENDING_VALIDATION.includes(planning.status);
     const canCancel      = isAdmin && planning.status !== 'CANCELLED';
     const canDelete      = (isOwner && planning.status === 'DRAFT') || isAdmin;
+    const isSuperAdmin   = canSuperAdminForceDelete(user?.role);
 
     const weekMissions = planning.weekMissions || [];
     const workflowStep = getWorkflowStep(planning.status);
@@ -690,7 +693,19 @@ export default function PlanningDetail() {
                     </Popconfirm>
                 )}
 
-                {canDelete && (
+                {canDelete && isSuperAdmin && (
+                    <ForceDeletePopconfirm
+                        title={forceDeleteTitle('ce planning')}
+                        description={forceDeleteDescription({ entityLabel: 'ce planning et tous ses événements' })}
+                        loading={deleteLoading}
+                        onConfirm={handleDeletePlanning}
+                    >
+                        <Button danger icon={<DeleteOutlined />} loading={deleteLoading}>
+                            Supprimer définitivement
+                        </Button>
+                    </ForceDeletePopconfirm>
+                )}
+                {canDelete && !isSuperAdmin && (
                     <Popconfirm
                         title="Supprimer ce planning ?"
                         description="Le brouillon sera définitivement supprimé."

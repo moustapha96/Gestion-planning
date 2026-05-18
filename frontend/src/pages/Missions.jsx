@@ -18,7 +18,9 @@ import { PlusOutlined, FlagOutlined, EnvironmentOutlined, EditOutlined, DeleteOu
 import dayjs from 'dayjs';
 import api from '../api/client';
 import { useAuth } from '../context/AuthContext';
-import { isPrivilegedAdmin } from '../utils/roles';
+import { isPrivilegedAdmin, canSuperAdminForceDelete } from '../utils/roles';
+import { forceDeleteDescription, forceDeleteTitle } from '../utils/deleteConfirm';
+import ForceDeletePopconfirm from '../components/ForceDeletePopconfirm';
 
 const { Title } = Typography;
 
@@ -81,6 +83,7 @@ export default function Missions() {
     }, [searchText, directionFilter, projectFilter, page, pageSize]);
 
     const isAdmin = isPrivilegedAdmin(user?.role);
+    const isSuperAdmin = canSuperAdminForceDelete(user?.role);
     const canManageMission = (record) =>
         isAdmin || record.createdById === user?.id;
 
@@ -89,6 +92,19 @@ export default function Missions() {
         try {
             await api.delete(`/missions/${missionId}`);
             message.success('Mission annulée');
+            fetchMissions();
+        } catch (err) {
+            message.error(err.response?.data?.error || 'Erreur');
+        } finally {
+            setActionLoadingId(null);
+        }
+    };
+
+    const handlePermanentDeleteMission = async (missionId) => {
+        setActionLoadingId(missionId);
+        try {
+            await api.delete(`/missions/${missionId}?permanent=1`);
+            message.success('Mission supprimée définitivement');
             fetchMissions();
         } catch (err) {
             message.error(err.response?.data?.error || 'Erreur');
@@ -204,6 +220,18 @@ export default function Missions() {
                                     Annuler
                                 </Button>
                             </Popconfirm>
+                            {isSuperAdmin && (
+                                <ForceDeletePopconfirm
+                                    title={forceDeleteTitle('cette mission')}
+                                    description={forceDeleteDescription({ entityLabel: 'cette mission' })}
+                                    loading={actionLoadingId === record.id}
+                                    onConfirm={() => handlePermanentDeleteMission(record.id)}
+                                >
+                                    <Button type="link" size="small" danger loading={actionLoadingId === record.id}>
+                                        Supprimer définitivement
+                                    </Button>
+                                </ForceDeletePopconfirm>
+                            )}
                         </>
                     )}
                 </Space>

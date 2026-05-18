@@ -1,0 +1,22 @@
+# Unité de référence pour /var/www/gpadm — préférez install-gpadm.sh qui injecte le chemin Node.
+# Prérequis : cd /var/www/gpadm/frontend && npm run build
+
+[Unit]
+Description=GPADM — frontend Vite preview (0.0.0.0:9000 → proxy backend)
+After=network-online.target gestion-planning-backend.service
+Wants=gestion-planning-backend.service
+
+[Service]
+Type=simple
+User=www-data
+Group=www-data
+WorkingDirectory=/var/www/gpadm/frontend
+Environment=PATH=/usr/bin:/bin
+ExecStart=/usr/bin/node ./node_modules/vite/bin/vite.js preview --host 0.0.0.0 --port 9000
+Restart=on-failure
+RestartSec=5
+TimeoutStopSec=30
+NoNewPrivileges=true
+
+[Install]
+WantedBy=multi-user.target

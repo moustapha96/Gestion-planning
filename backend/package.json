@@ -10,6 +10,7 @@
         "db:push": "prisma db push",
         "db:migrate": "prisma migrate dev",
         "db:seed": "node prisma/seed.js",
+        "db:seed-side-accounts": "node prisma/seed-test-accounts.js",
         "db:promote-super-admin": "node scripts/promote-super-admin.js",
         "db:reset": "prisma migrate reset --force"
     },

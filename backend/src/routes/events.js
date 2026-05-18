@@ -3,11 +3,13 @@ const fs = require('fs');
 const path = require('path');
 const multer = require('multer');
 const roleMiddleware = require('../middlewares/role.middleware');
-const { ROLES, ADMIN_ROUTE_ROLES, isPrivilegedAdmin } = require('../config/roles');
+const { ROLES, ADMIN_ROUTE_ROLES, isPrivilegedAdmin, isSuperAdmin } = require('../config/roles');
+const { detachProjectReferences, detachDirectionReferences } = require('../utils/forceDelete');
 const { syncDirectionDiscussionMembers } = require('../services/directionDiscussion.service');
 
 const router = express.Router();
 const directionLogosDir = path.join(__dirname, '../../uploads/directions');
+const projectLogosDir = path.join(__dirname, '../../uploads/project-logos');
 const uploadDirectionLogo = multer({
     storage: multer.diskStorage({
         destination(_req, _file, cb) {
@@ -17,6 +19,19 @@ const uploadDirectionLogo = multer({
         filename(_req, file, cb) {
             const ext = (path.extname(file.originalname) || '').toLowerCase();
             cb(null, `direction_logo_${Date.now()}${ext || '.png'}`);
+        },
+    }),
+    limits: { fileSize: 5 * 1024 * 1024 },
+});
+const uploadProjectLogo = multer({
+    storage: multer.diskStorage({
+        destination(_req, _file, cb) {
+            fs.mkdirSync(projectLogosDir, { recursive: true });
+            cb(null, projectLogosDir);
+        },
+        filename(_req, file, cb) {
+            const ext = (path.extname(file.originalname) || '').toLowerCase();
+            cb(null, `project_logo_${Date.now()}${ext || '.png'}`);
         },
     }),
     limits: { fileSize: 5 * 1024 * 1024 },
@@ -419,13 +434,37 @@ router.post('/projects', async (req, res) => {
         const name = String(req.body?.name || '').trim();
         const code = String(req.body?.code || '').trim() || null;
         const description = String(req.body?.description || '').trim() || null;
+        const logoUrlRaw = req.body?.logoUrl;
+        const logoUrl = logoUrlRaw !== undefined ? String(logoUrlRaw || '').trim() || '/logo-gp.png' : '/logo-gp.png';
         if (!name) return res.status(400).json({ error: 'Le nom du projet est requis.' });
         const created = await req.prisma.project.create({
-            data: { name, code, description, isActive: true, status: 'ACTIVE', createdById: req.user?.id || null },
+            data: {
+                name,
+                code,
+                description,
+                logoUrl,
+                isActive: true,
+                status: 'ACTIVE',
+                createdById: req.user?.id || null,
+            },
         });
         res.status(201).json(created);
     } catch (error) {
         res.status(400).json({ error: error.message });
+    }
+});
+
+router.post('/projects/logo', uploadProjectLogo.single('logo'), async (req, res) => {
+    try {
+        if (!isPrivilegedAdmin(req.user?.role)) return res.status(403).json({ error: 'Acces reserve admin.' });
+        if (!req.file) return res.status(400).json({ error: 'Aucun logo reçu.' });
+        if (req.file.mimetype && !req.file.mimetype.startsWith('image/')) {
+            return res.status(400).json({ error: 'Le logo doit être une image.' });
+        }
+        const logoUrl = `/uploads/project-logos/${req.file.filename}`;
+        return res.status(201).json({ logoUrl });
+    } catch (error) {
+        return res.status(400).json({ error: error.message });
     }
 });
 
@@ -489,6 +528,7 @@ router.put('/projects/:id', async (req, res) => {
         const name = req.body?.name !== undefined ? String(req.body.name || '').trim() : undefined;
         const code = req.body?.code !== undefined ? (String(req.body.code || '').trim() || null) : undefined;
         const description = req.body?.description !== undefined ? (String(req.body.description || '').trim() || null) : undefined;
+        const logoUrl = req.body?.logoUrl !== undefined ? String(req.body.logoUrl || '').trim() || '/logo-gp.png' : undefined;
         const isActive = req.body?.isActive !== undefined ? Boolean(req.body.isActive) : undefined;
         const data = {};
         if (name !== undefined) {
@@ -497,6 +537,7 @@ router.put('/projects/:id', async (req, res) => {
         }
         if (code !== undefined) data.code = code;
         if (description !== undefined) data.description = description;
+        if (logoUrl !== undefined) data.logoUrl = logoUrl;
         if (isActive !== undefined) data.isActive = isActive;
         if (isActive !== undefined && req.body?.status === undefined) {
             data.status = isActive ? 'ACTIVE' : 'PAUSED';
@@ -526,11 +567,15 @@ router.delete('/projects/:id', async (req, res) => {
             req.prisma.planningEvent.count({ where: { projectId } }),
         ]);
         const totalUsage = meetingCount + missionCount + planningEventCount;
-        if (totalUsage > 0) {
+        const force = isSuperAdmin(req.user?.role) && ['1', 'true'].includes(String(req.query.force || ''));
+        if (totalUsage > 0 && !force) {
             return res.status(409).json({
                 error: 'Ce projet est utilise et ne peut pas etre supprime.',
                 usage: { meetings: meetingCount, missions: missionCount, planningEvents: planningEventCount, total: totalUsage },
             });
+        }
+        if (force && totalUsage > 0) {
+            await detachProjectReferences(req.prisma, projectId);
         }
         await req.prisma.project.delete({ where: { id: projectId } });
         res.json({ success: true });
@@ -549,11 +594,15 @@ router.delete('/directions/:id', async (req, res) => {
             req.prisma.planningEvent.count({ where: { directionId } }),
         ]);
         const totalUsage = meetingCount + missionCount + planningEventCount;
-        if (totalUsage > 0) {
+        const force = isSuperAdmin(req.user?.role) && ['1', 'true'].includes(String(req.query.force || ''));
+        if (totalUsage > 0 && !force) {
             return res.status(409).json({
                 error: 'Cette direction est utilisee et ne peut pas etre supprimee.',
                 usage: { meetings: meetingCount, missions: missionCount, planningEvents: planningEventCount, total: totalUsage },
             });
+        }
+        if (force && totalUsage > 0) {
+            await detachDirectionReferences(req.prisma, directionId);
         }
         await req.prisma.direction.delete({ where: { id: directionId } });
         res.json({ success: true });

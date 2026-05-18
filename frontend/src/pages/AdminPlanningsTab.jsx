@@ -26,6 +26,10 @@ import {
 } from '@ant-design/icons';
 import dayjs from 'dayjs';
 import api from '../api/client';
+import { useAuth } from '../context/AuthContext';
+import { canSuperAdminForceDelete } from '../utils/roles';
+import { forceDeleteDescription, forceDeleteTitle } from '../utils/deleteConfirm';
+import ForceDeletePopconfirm from '../components/ForceDeletePopconfirm';
 
 const { Text } = Typography;
 const STATUS_COLORS = {
@@ -53,7 +57,9 @@ const STATUS_LABELS = {
 
 export default function AdminPlanningsTab() {
     const { message } = App.useApp();
+    const { user } = useAuth();
     const navigate = useNavigate();
+    const isSuperAdmin = canSuperAdminForceDelete(user?.role);
     const [items, setItems] = useState([]);
     const [total, setTotal] = useState(0);
     const [page, setPage] = useState(1);
@@ -338,17 +344,30 @@ export default function AdminPlanningsTab() {
                                 </Button>
                             </>
                         )}
-                        <Popconfirm
-                            title="Supprimer ce planning ?"
-                            onConfirm={() => handleDelete(record.id)}
-                            okText="Oui"
-                            cancelText="Non"
-                            okButtonProps={{ danger: true, loading: deleteId === record.id }}
-                        >
-                            <Button size="small" danger type="text" icon={<DeleteOutlined />} loading={deleteId === record.id}>
-                                Suppr.
-                            </Button>
-                        </Popconfirm>
+                        {isSuperAdmin ? (
+                            <ForceDeletePopconfirm
+                                title={forceDeleteTitle('ce planning')}
+                                description={forceDeleteDescription({ entityLabel: 'ce planning et tous ses événements' })}
+                                loading={deleteId === record.id}
+                                onConfirm={() => handleDelete(record.id)}
+                            >
+                                <Button size="small" danger type="text" icon={<DeleteOutlined />} loading={deleteId === record.id}>
+                                    Suppr. déf.
+                                </Button>
+                            </ForceDeletePopconfirm>
+                        ) : (
+                            <Popconfirm
+                                title="Supprimer ce planning ?"
+                                onConfirm={() => handleDelete(record.id)}
+                                okText="Oui"
+                                cancelText="Non"
+                                okButtonProps={{ danger: true, loading: deleteId === record.id }}
+                            >
+                                <Button size="small" danger type="text" icon={<DeleteOutlined />} loading={deleteId === record.id}>
+                                    Suppr.
+                                </Button>
+                            </Popconfirm>
+                        )}
                     </Space>
                 );
             },

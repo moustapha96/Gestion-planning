@@ -16,6 +16,9 @@ const ALL_ROLES = Object.values(ROLES);
 /** Rôles autorisés sur les routes « administration » (pages /admin, /users, etc.) */
 const ADMIN_ROUTE_ROLES = [ROLES.ADMIN, ROLES.SUPER_ADMIN];
 
+/** Répertoire téléphonique : consultation / édition / création de comptes */
+const REPERTOIRE_MANAGE_ROLES = [ROLES.ADMIN, ROLES.SUPER_ADMIN, ROLES.DG];
+
 function isValidRole(role) {
     return ALL_ROLES.includes(role);
 }
@@ -28,11 +31,23 @@ function isSuperAdmin(role) {
     return role === ROLES.SUPER_ADMIN;
 }
 
+/** Suppression définitive / forcée (contournement des garde-fous métier). */
+function canSuperAdminForceDelete(role) {
+    return role === ROLES.SUPER_ADMIN;
+}
+
+function canManageRepertoire(role) {
+    return REPERTOIRE_MANAGE_ROLES.includes(role);
+}
+
 module.exports = {
     ROLES,
     ALL_ROLES,
     ADMIN_ROUTE_ROLES,
+    REPERTOIRE_MANAGE_ROLES,
     isValidRole,
     isPrivilegedAdmin,
     isSuperAdmin,
+    canSuperAdminForceDelete,
+    canManageRepertoire,
 };

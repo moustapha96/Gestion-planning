@@ -11,6 +11,11 @@ const {
 const { ROLE_PERMISSIONS, ROLE_LABELS } = require('../config/rolePermissions');
 const { syncDirectionDiscussionMembers } = require('../services/directionDiscussion.service');
 const { syncProjectDiscussionMembers } = require('../services/projectDiscussion.service');
+const {
+    validatePasswordStrength,
+    createPasswordResetToken,
+    buildPasswordResetUrl,
+} = require('../utils/passwordUtils');
 
 const router = express.Router();
 
@@ -519,13 +524,8 @@ router.post('/:id/send-reset-link', roleMiddleware(ADMIN_ROUTE_ROLES), async (re
         if (!user) return res.status(404).json({ error: 'Utilisateur non trouvé' });
         if (!user.isActive) return res.status(400).json({ error: 'Impossible d\'envoyer un lien à un compte désactivé' });
 
-        const resetToken = jwt.sign(
-            { id: user.id, purpose: 'password_reset' },
-            process.env.JWT_SECRET + user.passwordHash.slice(-8),
-            { expiresIn: '1h' }
-        );
-        const baseUrl = process.env.FRONTEND_URL || 'http://localhost:5173';
-        const resetUrl = `${baseUrl.replace(/\/$/, '')}/reset-password?token=${resetToken}`;
+        const resetToken = createPasswordResetToken(user);
+        const resetUrl = buildPasswordResetUrl(resetToken);
         const emailResult = await notificationService.sendEmail(user.email, 'PASSWORD_RESET', [user, resetUrl]);
 
         if (!emailResult || !emailResult.success) {
@@ -546,9 +546,8 @@ router.put('/:id/reset-password', roleMiddleware(ADMIN_ROUTE_ROLES), async (req,
     try {
         const { newPassword } = req.body;
 
-        if (!newPassword || newPassword.length < 8) {
-            return res.status(400).json({ error: 'Le mot de passe doit contenir au moins 8 caractères' });
-        }
+        const strengthError = validatePasswordStrength(newPassword);
+        if (strengthError) return res.status(400).json({ error: strengthError });
 
         const user = await req.prisma.user.findUnique({ where: { id: req.params.id } });
         if (!user) return res.status(404).json({ error: 'Utilisateur non trouvé' });

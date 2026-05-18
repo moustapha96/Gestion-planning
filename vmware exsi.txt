@@ -1,0 +1,18 @@
+vmware exsi
+
+
+
+superuser : root : gpadm
+/
+user : gpadm
+
+mot de passe root  : gpadm
+
+
+@ ip : 10.5.49.131
+
+10.5.49.1
+
+10.32.1.32  10.32.1.28
+
+https://github.com/moustapha96/Gestion-planning.git

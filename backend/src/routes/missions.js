@@ -5,7 +5,7 @@ const multer = require('multer');
 const { logger } = require('../utils/logger');
 const { notificationService } = require('../services/notification.service');
 const { createAuditLog } = require('../utils/audit');
-const { ROLES, isPrivilegedAdmin } = require('../config/roles');
+const { ROLES, isPrivilegedAdmin, isSuperAdmin } = require('../config/roles');
 const { pdfOnlyMulterFileFilter, wrapMulterUpload } = require('../utils/pdfUpload');
 
 const router = express.Router();
@@ -253,6 +253,24 @@ router.post('/', async (req, res) => {
                 logger.warn('MISSION_NOTIFY_FAILED', err.message, { userId: u.id, missionId: mission.id });
             }
         }
+        const creator = missionWithRelations.createdBy;
+        try {
+            if (creator?.email) {
+                await notificationService.sendFullNotification(
+                    req.prisma,
+                    req.user.id,
+                    creator.email,
+                    'MISSION_CREATED_CONFIRMATION',
+                    'MISSION_CREATED_CONFIRMATION',
+                    [creator, missionWithRelations, missionWithRelations.assignments.length],
+                    'Mission créée',
+                    `Votre mission « ${mission.title} » a été enregistrée.`,
+                    link,
+                );
+            }
+        } catch (notifyErr) {
+            logger.warn('MISSION_CREATOR_NOTIFY_FAILED', notifyErr.message, { missionId: mission.id });
+        }
         await createAuditLog(req, 'MISSION_CREATED', 'Mission', mission.id, `Mission ${mission.title} créée`);
         res.status(201).json(missionWithRelations);
     } catch (error) {
@@ -373,6 +391,14 @@ router.delete('/:id', async (req, res) => {
         if (!canEditMission(mission, req.user)) {
             return res.status(403).json({ error: 'Seul le créateur ou un administrateur peut annuler cette mission.' });
         }
+
+        const permanent = isSuperAdmin(req.user?.role) && ['1', 'true'].includes(String(req.query.permanent || ''));
+        if (permanent) {
+            await req.prisma.mission.delete({ where: { id: req.params.id } });
+            await createAuditLog(req, 'MISSION_DELETED', 'Mission', req.params.id, `Mission ${mission.title} supprimée définitivement (super admin)`);
+            return res.json({ success: true, permanent: true });
+        }
+
         await req.prisma.mission.update({
             where: { id: req.params.id },
             data: { status: 'CANCELLED' },

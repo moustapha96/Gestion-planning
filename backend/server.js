@@ -246,7 +246,9 @@ app.use((err, req, res, next) => {
     res.status(500).json({ error: 'Internal server error' });
 });
 
-const PORT = process.env.PORT || 3001;
+const PORT = parseInt(process.env.PORT, 10) || 3001;
+/** Interface d’écoute (127.0.0.1 = local uniquement ; le frontend proxy /api vers ce socket). */
+const HOST = process.env.HOST || '127.0.0.1';
 
 // Plusieurs origines possibles (ex. Vite sur :9000, preview sur :4173) — séparées par des virgules
 const socketCorsOrigins = (process.env.FRONTEND_URL
@@ -256,14 +258,16 @@ const socketCorsOrigins = (process.env.FRONTEND_URL
     .filter(Boolean);
 initRealtime(httpServer, socketCorsOrigins.length === 1 ? socketCorsOrigins[0] : socketCorsOrigins);
 
-httpServer.listen(PORT, () => {
-    logger.info('SERVER_START', `Serveur démarré sur le port ${PORT}`, {
+httpServer.listen(PORT, HOST, () => {
+    const baseUrl = `http://${HOST === '0.0.0.0' ? 'localhost' : HOST}:${PORT}`;
+    logger.info('SERVER_START', `Serveur démarré sur ${HOST}:${PORT}`, {
+        host: HOST,
         port: PORT,
         env: process.env.NODE_ENV || 'development',
-        swaggerUrl: `http://localhost:${PORT}/api/docs`,
+        swaggerUrl: `${baseUrl}/api/docs`,
     });
-    console.log(`Server running on port ${PORT}`);
-    console.log(`Swagger docs: http://localhost:${PORT}/api/docs`);
+    console.log(`Server running on http://${HOST}:${PORT}`);
+    console.log(`Swagger docs: ${baseUrl}/api/docs`);
 
     // Seed des types d'événement par défaut (REUNION, MISSION, ATELIER, …) — idempotent
     if (typeof eventsRoutes.ensureDefaultEventTypes === 'function') {

@@ -1,11 +1,12 @@
 import { useEffect, useState } from 'react';
 import { Table, Tag, Button, Card, Typography, Space, Modal, Form, Input, Select, DatePicker, App, Row, Col, Alert } from 'antd';
-import { PlusOutlined, StopOutlined, CheckCircleOutlined, RollbackOutlined, VideoCameraOutlined } from '@ant-design/icons';
+import { PlusOutlined, StopOutlined, CheckCircleOutlined, RollbackOutlined, VideoCameraOutlined, DeleteOutlined } from '@ant-design/icons';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import dayjs from 'dayjs';
 import api from '../api/client';
 import { useAuth } from '../context/AuthContext';
-import { isPrivilegedAdmin } from '../utils/roles';
+import { isPrivilegedAdmin, canSuperAdminForceDelete } from '../utils/roles';
+import { forceDeleteDescription, forceDeleteTitle } from '../utils/deleteConfirm';
 
 const { Title, Text } = Typography;
 
@@ -213,6 +214,8 @@ export default function Meetings() {
         }
     };
 
+    const isSuperAdmin = canSuperAdminForceDelete(user?.role);
+
     const handleCancel = (id) => {
         modal.confirm({
             title: 'Annuler la réunion',
@@ -224,6 +227,25 @@ export default function Meetings() {
                 try {
                     await api.put(`/meetings/${id}/cancel`);
                     message.success('Réunion annulée');
+                    fetchMeetings();
+                } catch (err) {
+                    message.error(err.response?.data?.error || 'Erreur');
+                }
+            },
+        });
+    };
+
+    const handlePermanentDeleteMeeting = (id) => {
+        modal.confirm({
+            title: forceDeleteTitle('cette réunion'),
+            content: forceDeleteDescription({ entityLabel: 'cette réunion' }),
+            okText: 'Supprimer définitivement',
+            okButtonProps: { danger: true },
+            cancelText: 'Annuler',
+            onOk: async () => {
+                try {
+                    await api.delete(`/meetings/${id}`);
+                    message.success('Réunion supprimée définitivement');
                     fetchMeetings();
                 } catch (err) {
                     message.error(err.response?.data?.error || 'Erreur');
@@ -330,6 +352,16 @@ export default function Meetings() {
                     {record.status === 'COMPLETED' && (record.organizerId === user?.id || isPrivilegedAdmin(user?.role) || user?.role === 'RESPONSABLE') && (
                         <Button size="small" icon={<RollbackOutlined />} onClick={() => handleReopen(record.id)}>
                             Rouvrir
+                        </Button>
+                    )}
+                    {isSuperAdmin && (
+                        <Button
+                            size="small"
+                            danger
+                            icon={<DeleteOutlined />}
+                            onClick={() => handlePermanentDeleteMeeting(record.id)}
+                        >
+                            Supprimer définitivement
                         </Button>
                     )}
                 </Space>

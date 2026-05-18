@@ -193,6 +193,47 @@ router.get('/week-planning', async (req, res) => {
     }
 });
 
+// GET /api/public/repertoire — annuaire (page d'accueil publique, lecture seule)
+router.get('/repertoire', async (req, res) => {
+    try {
+        if (!req.prisma) {
+            return res.status(200).json([]);
+        }
+        const search = String(req.query.search || '').trim();
+        const where = {};
+        if (search) {
+            where.OR = [
+                { prenomNom: { contains: search, mode: 'insensitive' } },
+                { fonction: { contains: search, mode: 'insensitive' } },
+                { directionLabel: { contains: search, mode: 'insensitive' } },
+                { portable: { contains: search, mode: 'insensitive' } },
+                { poste: { contains: search, mode: 'insensitive' } },
+                { directe: { contains: search, mode: 'insensitive' } },
+                { email: { contains: search, mode: 'insensitive' } },
+            ];
+        }
+        const contacts = await req.prisma.repertoireContact.findMany({
+            where,
+            orderBy: [{ directionLabel: 'asc' }, { ordre: 'asc' }, { numero: 'asc' }],
+            select: {
+                id: true,
+                numero: true,
+                prenomNom: true,
+                fonction: true,
+                poste: true,
+                directe: true,
+                portable: true,
+                email: true,
+                directionLabel: true,
+            },
+        });
+        res.status(200).json(contacts);
+    } catch (error) {
+        logger.error('PUBLIC_REPERTOIRE', error.message);
+        res.status(200).json([]);
+    }
+});
+
 // GET /api/public/meeting-invitations/respond?token=...
 router.get('/meeting-invitations/respond', async (req, res) => {
     const render = (title, body) => `

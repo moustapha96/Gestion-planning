@@ -43,7 +43,9 @@ import dayjs from 'dayjs';
 import api, { API_BASE } from '../api/client';
 import { useAuth } from '../context/AuthContext';
 import { enqueueRealtimeTask } from '../realtime/socket';
-import { isPrivilegedAdmin } from '../utils/roles';
+import { isPrivilegedAdmin, canSuperAdminForceDelete } from '../utils/roles';
+import { forceDeleteDescription, forceDeleteTitle } from '../utils/deleteConfirm';
+import ForceDeletePopconfirm from '../components/ForceDeletePopconfirm';
 import { PDF_ACCEPT, isAcceptedPdfFile } from '../utils/pdfAttachment';
 
 const { Title, Text } = Typography;
@@ -71,6 +73,7 @@ export default function MeetingDetail() {
     const [updateLoading, setUpdateLoading] = useState(false);
     const [sendLoading, setSendLoading] = useState(false);
     const [cancelLoading, setCancelLoading] = useState(false);
+    const [deleteLoading, setDeleteLoading] = useState(false);
     const [completeLoading, setCompleteLoading] = useState(false);
     const [reopenLoading, setReopenLoading] = useState(false);
     const [addParticipantsLoading, setAddParticipantsLoading] = useState(false);
@@ -338,6 +341,8 @@ export default function MeetingDetail() {
         }
     };
 
+    const isSuperAdmin = canSuperAdminForceDelete(user?.role);
+
     const handleCancel = () => {
         modal.confirm({
             title: 'Annuler la réunion',
@@ -357,6 +362,19 @@ export default function MeetingDetail() {
                 }
             },
         });
+    };
+
+    const handlePermanentDeleteMeeting = async () => {
+        setDeleteLoading(true);
+        try {
+            await api.delete(`/meetings/${id}`);
+            message.success('Réunion supprimée définitivement');
+            navigate('/meetings');
+        } catch (err) {
+            message.error(err.response?.data?.error || 'Erreur');
+        } finally {
+            setDeleteLoading(false);
+        }
     };
 
     const handleComplete = () => {
@@ -644,6 +662,18 @@ export default function MeetingDetail() {
                     <Button icon={<RollbackOutlined />} onClick={handleReopen} loading={reopenLoading}>
                         Rouvrir la réunion
                     </Button>
+                )}
+                {isSuperAdmin && (
+                    <ForceDeletePopconfirm
+                        title={forceDeleteTitle('cette réunion')}
+                        description={forceDeleteDescription({ entityLabel: 'cette réunion' })}
+                        loading={deleteLoading}
+                        onConfirm={handlePermanentDeleteMeeting}
+                    >
+                        <Button danger icon={<DeleteOutlined />} loading={deleteLoading}>
+                            Supprimer définitivement
+                        </Button>
+                    </ForceDeletePopconfirm>
                 )}
                 {meeting.meetingLink && (
                     <Button

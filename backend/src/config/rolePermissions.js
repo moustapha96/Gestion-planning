@@ -53,6 +53,7 @@ const ROLE_PERMISSIONS = {
         'Voir et modérer toutes les conversations privées (audit messagerie)',
         'Supprimer tout message de discussion (privé ou réunion) pour modération',
         'Recherche globale sur l’ensemble des messages privés',
+        'Suppression définitive avec confirmation : réunions, missions, plannings, projets/directions (même si utilisés), fichiers joints',
     ],
 };
 
