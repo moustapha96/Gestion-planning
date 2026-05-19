@@ -361,7 +361,7 @@ export default function Meetings() {
                             icon={<DeleteOutlined />}
                             onClick={() => handlePermanentDeleteMeeting(record.id)}
                         >
-                            Supprimer définitivement
+                            Supprimer
                         </Button>
                     )}
                 </Space>

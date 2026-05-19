@@ -18,7 +18,9 @@ import { PlusOutlined, FlagOutlined, EnvironmentOutlined, EditOutlined, DeleteOu
 import dayjs from 'dayjs';
 import api from '../api/client';
 import { useAuth } from '../context/AuthContext';
-import { isPrivilegedAdmin, canSuperAdminForceDelete } from '../utils/roles';
+import {
+    isPrivilegedAdmin, canSuperAdminForceDelete, canViewAllMissions, canCreateMission,
+} from '../utils/roles';
 import { forceDeleteDescription, forceDeleteTitle } from '../utils/deleteConfirm';
 import ForceDeletePopconfirm from '../components/ForceDeletePopconfirm';
 
@@ -84,6 +86,7 @@ export default function Missions() {
 
     const isAdmin = isPrivilegedAdmin(user?.role);
     const isSuperAdmin = canSuperAdminForceDelete(user?.role);
+    const viewAllMissions = canViewAllMissions(user?.role);
     const canManageMission = (record) =>
         isAdmin || record.createdById === user?.id;
 
@@ -170,7 +173,7 @@ export default function Missions() {
         //             ? r.assignments.map((a) => a.user?.name).filter(Boolean).join(', ') || '—'
         //             : '—',
         // },
-        ...(isAdmin
+        ...(viewAllMissions
             ? [{
                 title: 'Statut',
                 dataIndex: 'status',
@@ -228,7 +231,7 @@ export default function Missions() {
                                     onConfirm={() => handlePermanentDeleteMission(record.id)}
                                 >
                                     <Button type="link" size="small" danger loading={actionLoadingId === record.id}>
-                                        Supprimer définitivement
+                                        Supprimer
                                     </Button>
                                 </ForceDeletePopconfirm>
                             )}
@@ -245,9 +248,11 @@ export default function Missions() {
                 <Title level={3} style={{ margin: 0 }}>
                     <FlagOutlined /> Missions
                 </Title>
-                <Button type="primary" icon={<PlusOutlined />} onClick={() => navigate('/missions/new')}>
-                    Nouvelle mission
-                </Button>
+                {canCreateMission(user?.role) && (
+                    <Button type="primary" icon={<PlusOutlined />} onClick={() => navigate('/missions/new')}>
+                        Nouvelle mission
+                    </Button>
+                )}
             </div>
 
             <Card>

@@ -2,34 +2,24 @@ const express = require('express');
 const jwt = require('jsonwebtoken');
 const { notificationService } = require('../services/notification.service');
 const { logger } = require('../utils/logger');
+const {
+    toAppYmd,
+    appDayBounds,
+    appDayBoundsFromYmd,
+    eventOverlapsAppDay,
+    timedEventOverlapsRange,
+} = require('../utils/calendarEvents');
 const router = express.Router();
 
-function startOfDay(d) {
-    const x = new Date(d);
-    x.setHours(0, 0, 0, 0);
-    return x;
-}
-
-function endOfDay(d) {
-    const x = new Date(d);
-    x.setHours(23, 59, 59, 999);
-    return x;
-}
-
-/** Lundi 00:00:00 local */
+/** Lundi 00:00:00 du jour civil (fuseau applicatif) */
 function startOfWeekMonday(d) {
-    const date = new Date(d);
-    date.setHours(0, 0, 0, 0);
-    const jsDay = date.getDay();
+    const { ymd } = appDayBounds(d);
+    const anchor = appDayBoundsFromYmd(ymd).start;
+    const jsDay = anchor.getUTCDay();
     const offset = jsDay === 0 ? -6 : 1 - jsDay;
-    date.setDate(date.getDate() + offset);
-    return date;
-}
-
-function ymdLocal(d) {
-    const x = new Date(d);
-    if (Number.isNaN(x.getTime())) return '';
-    return `${x.getFullYear()}-${String(x.getMonth() + 1).padStart(2, '0')}-${String(x.getDate()).padStart(2, '0')}`;
+    const monday = new Date(anchor);
+    monday.setUTCDate(anchor.getUTCDate() + offset);
+    return appDayBoundsFromYmd(toAppYmd(monday)).start;
 }
 
 function mapRoomsWithBookings(rooms) {
@@ -54,8 +44,7 @@ router.get('/day-planning', async (req, res) => {
         if (!req.prisma) {
             return res.status(200).json({ rooms: [], date: new Date().toISOString() });
         }
-        const todayStart = startOfDay(new Date());
-        const todayEnd = endOfDay(new Date());
+        const { ymd: todayYmd, start: todayStart, end: todayEnd } = appDayBounds(new Date());
 
         const rooms = await req.prisma.room.findMany({
             where: { status: 'ACTIVE' },
@@ -80,7 +69,7 @@ router.get('/day-planning', async (req, res) => {
         const missions = await req.prisma.mission.findMany({
             where: {
                 status: { not: 'CANCELLED' },
-                startTime: { gte: todayStart, lte: todayEnd },
+                ...timedEventOverlapsRange(todayStart, todayEnd),
             },
             include: { createdBy: { select: { name: true } } },
             orderBy: { startTime: 'asc' },
@@ -89,7 +78,7 @@ router.get('/day-planning', async (req, res) => {
         const meetings = await req.prisma.meeting.findMany({
             where: {
                 status: { not: 'CANCELLED' },
-                startTime: { gte: todayStart, lte: todayEnd },
+                ...timedEventOverlapsRange(todayStart, todayEnd),
             },
             include: {
                 organizer: { select: { name: true } },
@@ -100,7 +89,8 @@ router.get('/day-planning', async (req, res) => {
         });
 
         res.status(200).json({
-            date: todayStart.toISOString(),
+            date: `${todayYmd}T12:00:00.000Z`,
+            dateKey: todayYmd,
             rooms: roomsWithBookings,
             meetings: meetings || [],
             missions: missions || [],
@@ -118,9 +108,8 @@ router.get('/week-planning', async (req, res) => {
         }
         const anchor = req.query.date ? new Date(req.query.date) : new Date();
         const monday = startOfWeekMonday(anchor);
-        const sunday = new Date(monday);
-        sunday.setDate(monday.getDate() + 6);
-        const rangeEnd = endOfDay(sunday);
+        const sundayYmd = toAppYmd(new Date(monday.getTime() + 6 * 86400000));
+        const rangeEnd = appDayBoundsFromYmd(sundayYmd).end;
 
         const roomsRaw = await req.prisma.room.findMany({
             where: { status: 'ACTIVE' },
@@ -140,7 +129,7 @@ router.get('/week-planning', async (req, res) => {
         const meetings = await req.prisma.meeting.findMany({
             where: {
                 status: { not: 'CANCELLED' },
-                startTime: { gte: monday, lte: rangeEnd },
+                ...timedEventOverlapsRange(monday, rangeEnd),
             },
             include: {
                 organizer: { select: { name: true } },
@@ -153,7 +142,7 @@ router.get('/week-planning', async (req, res) => {
         const missions = await req.prisma.mission.findMany({
             where: {
                 status: { not: 'CANCELLED' },
-                startTime: { gte: monday, lte: rangeEnd },
+                ...timedEventOverlapsRange(monday, rangeEnd),
             },
             include: { createdBy: { select: { name: true } } },
             orderBy: { startTime: 'asc' },
@@ -162,17 +151,20 @@ router.get('/week-planning', async (req, res) => {
         const roomsBase = mapRoomsWithBookings(roomsRaw);
         const days = [];
         for (let i = 0; i < 7; i += 1) {
-            const d = new Date(monday);
-            d.setDate(monday.getDate() + i);
-            const dk = ymdLocal(startOfDay(d));
+            const d = new Date(monday.getTime() + i * 86400000);
+            const dk = toAppYmd(d);
+            const { start: dayStart, end: dayEnd } = appDayBoundsFromYmd(dk);
 
             const roomsForDay = roomsBase.map((room) => ({
                 ...room,
-                bookings: room.bookings.filter((b) => ymdLocal(b.date) === dk),
+                bookings: room.bookings.filter((b) => {
+                    const bd = new Date(b.date);
+                    return bd >= dayStart && bd <= dayEnd;
+                }),
             }));
 
-            const meetingsForDay = meetings.filter((m) => ymdLocal(m.startTime) === dk);
-            const missionsForDay = missions.filter((m) => ymdLocal(m.startTime) === dk);
+            const meetingsForDay = meetings.filter((m) => eventOverlapsAppDay(m.startTime, m.endTime, dk));
+            const missionsForDay = missions.filter((m) => eventOverlapsAppDay(m.startTime, m.endTime, dk));
 
             days.push({
                 date: `${dk}T12:00:00.000Z`,

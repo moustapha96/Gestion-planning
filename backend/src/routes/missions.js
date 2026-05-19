@@ -5,7 +5,9 @@ const multer = require('multer');
 const { logger } = require('../utils/logger');
 const { notificationService } = require('../services/notification.service');
 const { createAuditLog } = require('../utils/audit');
-const { ROLES, isPrivilegedAdmin, isSuperAdmin } = require('../config/roles');
+const {
+    ROLES, isPrivilegedAdmin, isSuperAdmin, canViewAllMissions, missionScopeWhere,
+} = require('../config/roles');
 const { pdfOnlyMulterFileFilter, wrapMulterUpload } = require('../utils/pdfUpload');
 
 const router = express.Router();
@@ -50,7 +52,6 @@ async function getMissionConflictForUser(prisma, userId, start, end, excludeMiss
 router.get('/', async (req, res) => {
     try {
         const userId = req.user?.id;
-        const isAdmin = isPrivilegedAdmin(req.user?.role);
         const q = String(req.query.q || '').trim();
         const directionId = String(req.query.directionId || '').trim() || null;
         const projectId = String(req.query.projectId || '').trim() || null;
@@ -63,14 +64,7 @@ router.get('/', async (req, res) => {
         const contains = q ? { contains: q, mode: 'insensitive' } : null;
 
         const where = {
-            ...(isAdmin
-                ? {}
-                : {
-                    OR: [
-                        { createdById: userId },
-                        { assignments: { some: { userId } } },
-                    ],
-                }),
+            ...missionScopeWhere(req.user),
             ...(status
                 ? { status }
                 : { status: { not: 'CANCELLED' } }),
@@ -148,7 +142,7 @@ router.get('/:id', async (req, res) => {
         const canView =
             mission.createdById === userId ||
             mission.assignments.some((a) => a.userId === userId) ||
-            isPrivilegedAdmin(req.user?.role);
+            canViewAllMissions(req.user?.role);
         if (!canView) return res.status(403).json({ error: 'Accès non autorisé' });
         res.json(mission);
     } catch (error) {
@@ -446,7 +440,7 @@ router.post('/:id/files', wrapMulterUpload(uploadMissionFile.single('file')), as
         const canView =
             mission.createdById === userId ||
             mission.assignments.some((a) => a.userId === userId) ||
-            isPrivilegedAdmin(req.user?.role);
+            canViewAllMissions(req.user?.role);
         if (!canView) return res.status(403).json({ error: 'Accès non autorisé' });
 
         const kind = 'DOCUMENT';

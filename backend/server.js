@@ -1,4 +1,7 @@
 require('dotenv').config();
+const { applyProcessTimezone, APP_TIMEZONE, cronTimezoneOptions } = require('./src/config/timezone');
+applyProcessTimezone();
+
 const path = require('path');
 const fs = require('fs');
 const http = require('http');
@@ -264,6 +267,8 @@ httpServer.listen(PORT, HOST, () => {
         host: HOST,
         port: PORT,
         env: process.env.NODE_ENV || 'development',
+        timezone: APP_TIMEZONE,
+        tz: process.env.TZ,
         swaggerUrl: `${baseUrl}/api/docs`,
     });
     console.log(`Server running on http://${HOST}:${PORT}`);
@@ -286,30 +291,32 @@ httpServer.listen(PORT, HOST, () => {
             });
     }
 
-    // Cron : rapport hebdomadaire chaque lundi à 8h00 (CDC §3.10)
+    const cronTz = cronTimezoneOptions();
+
+    // Cron : rapport hebdomadaire chaque lundi à 8h00 heure de Dakar (CDC §3.10)
     cron.schedule('0 8 * * 1', () => {
         runWeeklyReport(prisma).catch((err) => {
             logger.error('CRON_WEEKLY_REPORT', err.message, { stack: err.stack });
         });
-    });
-    // Cron : rappels réunions J-1 chaque jour à 8h00 (CDC §3.3.2)
+    }, cronTz);
+    // Cron : rappels réunions J-1 chaque jour à 8h00 heure de Dakar (CDC §3.3.2)
     cron.schedule('0 8 * * *', () => {
         runMeetingReminders(prisma).catch((err) => {
             logger.error('CRON_MEETING_REMINDERS', err.message, { stack: err.stack });
         });
-    });
-    // Cron : digest notifications (toutes les heures, filtré par préférence utilisateur)
+    }, cronTz);
+    // Cron : digest notifications (toutes les heures, heure de Dakar)
     cron.schedule('0 * * * *', () => {
         runDailyDigest(prisma).catch((err) => {
             logger.error('CRON_DAILY_DIGEST', err.message, { stack: err.stack });
         });
-    });
+    }, cronTz);
     // Cron : auto-fermeture des réunions expirées (toutes les 5 minutes)
     cron.schedule('*/5 * * * *', () => {
         runMeetingAutoClose(prisma).catch((err) => {
             logger.error('CRON_MEETING_AUTO_CLOSE', err.message, { stack: err.stack });
         });
-    });
+    }, cronTz);
     // Cron : sauvegarde PostgreSQL périodique (cron configurable, fuseau optionnel)
     if (process.env.DISABLE_BACKUP_CRON !== 'true') {
         const backupCronExpression = process.env.BACKUP_CRON_EXPRESSION || '0 0 * * 0';
@@ -324,18 +331,14 @@ httpServer.listen(PORT, HOST, () => {
                     logger.error('CRON_BACKUP_SCHEDULED', err.message, { stack: err.stack });
                 });
             };
-            if (process.env.BACKUP_CRON_TIMEZONE) {
-                cron.schedule(backupCronExpression, runScheduledBackup, {
-                    timezone: process.env.BACKUP_CRON_TIMEZONE,
-                });
-            } else {
-                cron.schedule(backupCronExpression, runScheduledBackup);
-            }
+            cron.schedule(backupCronExpression, runScheduledBackup, {
+                timezone: process.env.BACKUP_CRON_TIMEZONE || APP_TIMEZONE,
+            });
         }
     }
     logger.info(
         'CRON_REGISTERED',
-        'Crons: rapport hebdo + rappels réunions + digest + auto-fermeture réunions + sauvegarde périodique (si activée)',
+        `Crons (fuseau ${APP_TIMEZONE}): rapport hebdo + rappels réunions + digest + auto-fermeture + sauvegarde`,
     );
 });
 

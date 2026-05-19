@@ -450,7 +450,7 @@ export default function AdminTaxonomyPage({ variant }) {
                                                 onConfirm={() => handleDelete(record, { force: true })}
                                             >
                                                 <Button size="small" danger icon={<DeleteOutlined />}>
-                                                    Supprimer définitivement
+                                                    Supprimer
                                                 </Button>
                                             </ForceDeletePopconfirm>
                                         ) : (

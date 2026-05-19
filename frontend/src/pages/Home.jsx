@@ -10,6 +10,9 @@ import {
     CheckCircleOutlined, SearchOutlined, PhoneOutlined, MobileOutlined, MailOutlined,
 } from '@ant-design/icons';
 import api from '../api/client';
+import {
+    APP_TIMEZONE, appYmd, appDayjs, formatAppDateLong, appNowMinutes,
+} from '../utils/datetime';
 
 const { Content } = Layout;
 const { Title, Text } = Typography;
@@ -46,7 +49,11 @@ function formatTime(dateStr) {
     if (typeof dateStr === 'string' && /^\d{1,2}:\d{2}(:\d{2})?$/.test(dateStr.trim()))
         return dateStr.trim().slice(0, 5);
     try {
-        return new Date(dateStr).toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' });
+        return new Date(dateStr).toLocaleTimeString('fr-FR', {
+            hour: '2-digit',
+            minute: '2-digit',
+            timeZone: APP_TIMEZONE,
+        });
     } catch { return ''; }
 }
 
@@ -62,8 +69,7 @@ function OccupancyBar({ bookings = [] }) {
     const BAR_START = 8 * 60;
     const BAR_END   = 19 * 60;
     const TOTAL     = BAR_END - BAR_START;
-    const now       = new Date();
-    const nowMin    = now.getHours() * 60 + now.getMinutes();
+    const nowMin    = appNowMinutes();
     const nowPct    = ((nowMin - BAR_START) / TOTAL) * 100;
     const showNow   = nowPct > 0 && nowPct < 100;
 
@@ -124,16 +130,13 @@ function parseMinTimeline(timeStr) {
     if (!timeStr) return null;
     const m = String(timeStr).match(/^(\d{1,2}):(\d{2})/);
     if (m) return parseInt(m[1]) * 60 + parseInt(m[2]);
-    try {
-        const d = new Date(timeStr);
-        if (!isNaN(d.getTime())) return d.getHours() * 60 + d.getMinutes();
-    } catch { /* noop */ }
+    const d = appDayjs(timeStr);
+    if (d.isValid()) return d.hour() * 60 + d.minute();
     return null;
 }
 
 function DayTimeline({ events }) {
-    const now    = new Date();
-    const nowMin = now.getHours() * 60 + now.getMinutes();
+    const nowMin = appNowMinutes();
     const nowTop = ((nowMin - TIMELINE_START * 60) / 60) * TIMELINE_HH;
     const showNow = nowTop > 0 && nowTop < TIMELINE_HOURS.length * TIMELINE_HH;
 
@@ -232,6 +235,7 @@ export default function Home() {
     const [meetings,  setMeetings]  = useState([]);
     const [missions,  setMissions]  = useState([]);
     const [date,      setDate]      = useState(null);
+    const [dateKey,   setDateKey]   = useState(null);
     const [activeTab, setActiveTab] = useState('rooms');
     const [countdown, setCountdown] = useState(REFRESH_INTERVAL);
     const [horizon,   setHorizon]   = useState('day');
@@ -298,14 +302,18 @@ export default function Home() {
                 setRooms(res.data?.rooms      || []);
                 setMeetings(res.data?.meetings || []);
                 setMissions(res.data?.missions || []);
-                setDate(res.data?.date         || null);
+                setDate(res.data?.date || null);
+                setDateKey(res.data?.dateKey || appYmd(res.data?.date) || appYmd());
             } else {
                 const res = await api.get('/public/week-planning');
                 setWeekPayload(res.data || null);
                 setRooms([]);
                 setMeetings([]);
                 setMissions([]);
-                setDate(res.data?.days?.[0]?.date || null);
+                const todayKey = appYmd();
+                const todayBlock = (res.data?.days || []).find((d) => d.dateKey === todayKey);
+                setDate(todayBlock?.date || res.data?.days?.[0]?.date || null);
+                setDateKey(todayKey);
             }
             setCountdown(REFRESH_INTERVAL);
         } catch {
@@ -313,6 +321,8 @@ export default function Home() {
             setRooms([]);
             setMeetings([]);
             setMissions([]);
+            setDate(null);
+            setDateKey(null);
         } finally {
             setLoading(false);
         }
@@ -330,56 +340,51 @@ export default function Home() {
         return () => clearInterval(tick);
     }, []);
 
-    const displayDate = date
-        ? new Date(date).toLocaleDateString('fr-FR', {
-              weekday: 'long', year: 'numeric', month: 'long', day: 'numeric',
-          })
-        : '';
+    const displayDate = useMemo(() => {
+        if (horizon !== 'day') return '';
+        const key = dateKey || (date ? appYmd(date) : appYmd());
+        return formatAppDateLong(key);
+    }, [horizon, date, dateKey]);
 
     const weekRangeLabel = useMemo(() => {
         if (horizon !== 'week' || !weekPayload?.days?.length) return '';
         const first = weekPayload.days[0];
         const last = weekPayload.days[weekPayload.days.length - 1];
-        try {
-            const a = new Date(first.date);
-            const b = new Date(last.date);
-            if (a.getMonth() === b.getMonth() && a.getFullYear() === b.getFullYear()) {
-                return `${a.toLocaleDateString('fr-FR', { day: 'numeric' })} – ${b.toLocaleDateString('fr-FR', { day: 'numeric', month: 'long', year: 'numeric' })}`;
-            }
-            return `${a.toLocaleDateString('fr-FR', { day: 'numeric', month: 'short' })} – ${b.toLocaleDateString('fr-FR', { day: 'numeric', month: 'short', year: 'numeric' })}`;
-        } catch {
-            return '';
+        const a = appDayjs(first.dateKey || first.date);
+        const b = appDayjs(last.dateKey || last.date);
+        if (!a.isValid() || !b.isValid()) return '';
+        if (a.month() === b.month() && a.year() === b.year()) {
+            return `${a.format('D')} – ${b.format('D MMMM YYYY')}`;
         }
+        return `${a.format('D MMM')} – ${b.format('D MMM YYYY')}`;
     }, [horizon, weekPayload]);
 
     const rawDayBlocks = useMemo(() => {
         if (horizon === 'week' && weekPayload?.days?.length) {
             return weekPayload.days.map((d) => ({
                 key: d.dateKey,
-                dateLabel: new Date(d.date).toLocaleDateString('fr-FR', {
-                    weekday: 'long', day: 'numeric', month: 'long', year: 'numeric',
-                }),
+                dateLabel: formatAppDateLong(d.dateKey || d.date),
                 dateKey: d.dateKey,
+                isToday: d.dateKey === appYmd(),
                 rooms: d.rooms || [],
                 meetings: d.meetings || [],
                 missions: d.missions || [],
             }));
         }
-        const dateStr = date ? new Date(date).toISOString().split('T')[0] : '';
-        if (date) {
+        const dk = dateKey || (date ? appYmd(date) : appYmd());
+        if (dk) {
             return [{
-                key: dateStr,
-                dateLabel: new Date(date).toLocaleDateString('fr-FR', {
-                    weekday: 'long', day: 'numeric', month: 'long', year: 'numeric',
-                }),
-                dateKey: dateStr,
+                key: dk,
+                dateLabel: formatAppDateLong(dk),
+                dateKey: dk,
+                isToday: true,
                 rooms,
                 meetings,
                 missions,
             }];
         }
         return [];
-    }, [horizon, weekPayload, date, rooms, meetings, missions]);
+    }, [horizon, weekPayload, date, dateKey, rooms, meetings, missions]);
 
     // Application du filtre de recherche sur chaque bloc journalier
     const dayBlocks = useMemo(() => {
@@ -794,12 +799,19 @@ export default function Home() {
                                                                 const dk = block.dateKey;
 
                                                                 const isCurrentlyBooked = room.bookings?.some((b) => {
-                                                                    const nowMs = Date.now();
-                                                                    const startMs = dk && b.startTime
-                                                                        ? new Date(`${dk}T${b.startTime}`).getTime() : 0;
-                                                                    const endMs = dk && b.endTime
-                                                                        ? new Date(`${dk}T${b.endTime}`).getTime() : 0;
-                                                                    return nowMs >= startMs && nowMs <= endMs;
+                                                                    if (!dk || !b.startTime) return false;
+                                                                    const pad = (t) => {
+                                                                        const s = String(t).trim();
+                                                                        if (/^\d{1,2}:\d{2}$/.test(s)) return `${s}:00`;
+                                                                        return s;
+                                                                    };
+                                                                    const start = appDayjs(`${dk}T${pad(b.startTime)}`);
+                                                                    const end = b.endTime
+                                                                        ? appDayjs(`${dk}T${pad(b.endTime)}`)
+                                                                        : start.add(1, 'hour');
+                                                                    const now = appDayjs();
+                                                                    return now.valueOf() >= start.valueOf()
+                                                                        && now.valueOf() <= end.valueOf();
                                                                 });
 
                                                                 return (

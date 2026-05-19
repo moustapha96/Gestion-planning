@@ -3,6 +3,7 @@ const path = require('path');
 const fs = require('fs');
 const { PrismaClient } = require('@prisma/client');
 const { logger } = require('../utils/logger');
+const { formatFrDateTime } = require('../config/timezone');
 const { emitToUser } = require('../realtime/socket');
 const prisma = new PrismaClient();
 
@@ -450,7 +451,7 @@ const emailTemplates = {
   }),
 
   MISSION_CREATED: (user, mission, createdByName) => {
-    const startStr = new Date(mission.startTime).toLocaleString('fr-FR', { dateStyle: 'full', timeStyle: 'short' });
+    const startStr = formatFrDateTime(mission.startTime, { dateStyle: 'full', timeStyle: 'short' });
     const endStr = new Date(mission.endTime).toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' });
     const url = `${process.env.FRONTEND_URL || 'http://localhost:5173'}/missions/${mission.id}`;
     return {
@@ -486,7 +487,7 @@ const emailTemplates = {
 
   /** Confirmation envoyée au créateur après création d’une mission. */
   MISSION_CREATED_CONFIRMATION: (creator, mission, assigneeCount = 0) => {
-    const startStr = new Date(mission.startTime).toLocaleString('fr-FR', { dateStyle: 'full', timeStyle: 'short' });
+    const startStr = formatFrDateTime(mission.startTime, { dateStyle: 'full', timeStyle: 'short' });
     const endStr = new Date(mission.endTime).toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' });
     const url = `${process.env.FRONTEND_URL || 'http://localhost:9000'}/missions/${mission.id}`;
     return {
@@ -564,7 +565,7 @@ const emailTemplates = {
   }),
 
   MISSION_UPDATED: (user, mission, createdByName) => {
-    const startStr = new Date(mission.startTime).toLocaleString('fr-FR', { dateStyle: 'full', timeStyle: 'short' });
+    const startStr = formatFrDateTime(mission.startTime, { dateStyle: 'full', timeStyle: 'short' });
     const endStr = new Date(mission.endTime).toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' });
     const url = `${process.env.FRONTEND_URL || 'http://localhost:5173'}/missions/${mission.id}`;
     return {
@@ -671,7 +672,7 @@ const emailTemplates = {
 
   // Rappel réunion J-1 — CDC §3.3.2
   MEETING_REMINDER: (user, meeting) => {
-    const dateStr = new Date(meeting.startTime).toLocaleString('fr-FR', { dateStyle: 'full', timeStyle: 'short' });
+    const dateStr = formatFrDateTime(meeting.startTime, { dateStyle: 'full', timeStyle: 'short' });
     const endStr = new Date(meeting.endTime).toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' });
     const url = `${process.env.FRONTEND_URL || 'http://localhost:5173'}/meetings/${meeting.id}`;
     return {

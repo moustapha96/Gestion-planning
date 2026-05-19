@@ -18,10 +18,12 @@ const ROLE_PERMISSIONS = {
         'Tout ce que peut faire un Responsable',
         'Consolider les plannings soumis par les responsables',
         'Consulter les plannings de tous les responsables',
+        'Consulter toutes les missions (vue globale, comme l’administrateur)',
     ],
     [ROLES.COORDINATEUR_PROJET]: [
         'Consulter les plannings en circuit de validation',
         'Valider la première étape du planning après consolidation (coordinateur de projet)',
+        'Consulter toutes les missions (vue globale, comme l’administrateur)',
     ],
     [ROLES.SECRETAIRE_GENERAL]: [
         'Consulter les plannings en circuit de validation',

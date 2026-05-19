@@ -26,3 +26,18 @@ export function canSuperAdminForceDelete(role) {
 export function canManageRepertoire(role) {
     return role === ROLES.ADMIN || role === ROLES.SUPER_ADMIN || role === ROLES.DG;
 }
+
+/** Voir toutes les missions (liste, détail, calendrier) — aligné backend. */
+export function canViewAllMissions(role) {
+    return (
+        isPrivilegedAdmin(role)
+        || role === ROLES.CONSOLIDATEUR
+        || role === ROLES.COORDINATEUR_PROJET
+        || role === ROLES.DG
+    );
+}
+
+/** Création de mission (responsable + admin). */
+export function canCreateMission(role) {
+    return role === ROLES.RESPONSABLE || isPrivilegedAdmin(role);
+}

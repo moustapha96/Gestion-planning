@@ -1,5 +1,12 @@
 const express = require('express');
 const { logger } = require('../utils/logger');
+const { missionScopeWhere } = require('../config/roles');
+const {
+  toAppYmd,
+  timedEventOverlapsRange,
+  mapMissionToCalendarEvent,
+  mapMeetingToCalendarEvent,
+} = require('../utils/calendarEvents');
 
 /** Lundi 00:00:00 (semaine ISO / calendrier app) pour la date donnée */
 function startOfWeekMonday(d) {
@@ -51,10 +58,7 @@ async function monthHandler(req, res) {
     // Tous les utilisateurs voient toutes les réunions sur le calendrier
     const meetings = await req.prisma.meeting.findMany({
       where: {
-        startTime: {
-          gte: startDate,
-          lte: endDate,
-        },
+        ...timedEventOverlapsRange(startDate, endDate),
         status: { not: 'CANCELLED' },
       },
       include: {
@@ -63,15 +67,11 @@ async function monthHandler(req, res) {
       },
     });
 
-    const userId = req.user?.id;
     const missions = await req.prisma.mission.findMany({
       where: {
-        startTime: { gte: startDate, lte: endDate },
+        ...timedEventOverlapsRange(startDate, endDate),
         status: { not: 'CANCELLED' },
-        OR: [
-          { createdById: userId },
-          { assignments: { some: { userId } } },
-        ],
+        ...missionScopeWhere(req.user),
       },
       include: {
         createdBy: { select: { name: true, email: true } },
@@ -86,7 +86,7 @@ async function monthHandler(req, res) {
           id: event.id,
           type: 'planning-event',
           title: event.title,
-          date: new Date(event.startTime).toISOString().split('T')[0],
+          date: toAppYmd(event.startTime),
           startTime: event.startTime,
           endTime: event.endTime,
           description: event.description,
@@ -100,35 +100,11 @@ async function monthHandler(req, res) {
     });
 
     meetings.forEach((meeting) => {
-      events.push({
-        id: meeting.id,
-        type: 'meeting',
-        title: meeting.title,
-        date: new Date(meeting.startTime).toISOString().split('T')[0],
-        startTime: meeting.startTime,
-        endTime: meeting.endTime,
-        description: meeting.agenda,
-        room: meeting.room?.name,
-        organizer: meeting.organizer.name,
-        status: meeting.status,
-        meetingId: meeting.id,
-      });
+      events.push(mapMeetingToCalendarEvent(meeting));
     });
 
     missions.forEach((mission) => {
-      events.push({
-        id: mission.id,
-        type: 'mission',
-        title: mission.title,
-        date: new Date(mission.startTime).toISOString().split('T')[0],
-        startTime: mission.startTime,
-        endTime: mission.endTime,
-        description: mission.description,
-        location: mission.location,
-        organizer: mission.createdBy.name,
-        status: mission.status,
-        missionId: mission.id,
-      });
+      events.push(mapMissionToCalendarEvent(mission));
     });
 
     if (req.user && req.user.email) {
@@ -188,10 +164,7 @@ router.get('/week', async (req, res) => {
 
     const meetings = await req.prisma.meeting.findMany({
       where: {
-        startTime: {
-          gte: weekStart,
-          lte: weekEnd,
-        },
+        ...timedEventOverlapsRange(weekStart, weekEnd),
         status: { not: 'CANCELLED' },
       },
       include: {
@@ -202,12 +175,9 @@ router.get('/week', async (req, res) => {
 
     const missions = await req.prisma.mission.findMany({
       where: {
-        startTime: { gte: weekStart, lte: weekEnd },
+        ...timedEventOverlapsRange(weekStart, weekEnd),
         status: { not: 'CANCELLED' },
-        OR: [
-          { createdById: req.user.id },
-          { assignments: { some: { userId: req.user.id } } },
-        ],
+        ...missionScopeWhere(req.user),
       },
       include: { createdBy: { select: { name: true } } },
     });
@@ -220,7 +190,7 @@ router.get('/week', async (req, res) => {
           id: event.id,
           type: 'planning-event',
           title: event.title,
-          date: new Date(event.startTime).toISOString().split('T')[0],
+          date: toAppYmd(event.startTime),
           time: new Date(event.startTime).toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' }),
           startTime: event.startTime,
           endTime: event.endTime,
@@ -232,33 +202,23 @@ router.get('/week', async (req, res) => {
 
     meetings.forEach((meeting) => {
       events.push({
-        id: meeting.id,
-        type: 'meeting',
-        title: meeting.title,
-        date: new Date(meeting.startTime).toISOString().split('T')[0],
-        time: new Date(meeting.startTime).toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' }),
-        startTime: meeting.startTime,
-        endTime: meeting.endTime,
-        room: meeting.room?.name,
-        meetingId: meeting.id,
-        organizer: meeting.organizer?.name,
-        status: meeting.status,
+        ...mapMeetingToCalendarEvent(meeting),
+        time: new Date(meeting.startTime).toLocaleTimeString('fr-FR', {
+          hour: '2-digit',
+          minute: '2-digit',
+          timeZone: 'Africa/Dakar',
+        }),
       });
     });
 
     missions.forEach((mission) => {
       events.push({
-        id: mission.id,
-        type: 'mission',
-        title: mission.title,
-        date: new Date(mission.startTime).toISOString().split('T')[0],
-        time: new Date(mission.startTime).toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' }),
-        startTime: mission.startTime,
-        endTime: mission.endTime,
-        location: mission.location,
-        missionId: mission.id,
-        organizer: mission.createdBy?.name,
-        status: mission.status,
+        ...mapMissionToCalendarEvent(mission),
+        time: new Date(mission.startTime).toLocaleTimeString('fr-FR', {
+          hour: '2-digit',
+          minute: '2-digit',
+          timeZone: 'Africa/Dakar',
+        }),
       });
     });
 
@@ -282,7 +242,7 @@ router.get('/day', async (req, res) => {
 
     const meetings = await req.prisma.meeting.findMany({
       where: {
-        startTime: { gte: dayStart, lte: dayEnd },
+        ...timedEventOverlapsRange(dayStart, dayEnd),
         status: { not: 'CANCELLED' },
       },
       include: {
@@ -294,19 +254,16 @@ router.get('/day', async (req, res) => {
 
     const missions = await req.prisma.mission.findMany({
       where: {
-        startTime: { gte: dayStart, lte: dayEnd },
+        ...timedEventOverlapsRange(dayStart, dayEnd),
         status: { not: 'CANCELLED' },
-        OR: [
-          { createdById: req.user.id },
-          { assignments: { some: { userId: req.user.id } } },
-        ],
+        ...missionScopeWhere(req.user),
       },
       include: { createdBy: { select: { name: true } } },
       orderBy: { startTime: 'asc' },
     });
 
     const planningEventWhere = {
-      startTime: { gte: dayStart, lte: dayEnd },
+      ...timedEventOverlapsRange(dayStart, dayEnd),
       ...(req.user.role === 'RESPONSABLE' ? { planning: { userId: req.user.id } } : {}),
     };
 
@@ -324,7 +281,7 @@ router.get('/day', async (req, res) => {
         id: event.id,
         type: 'planning-event',
         title: event.title,
-        date: new Date(event.startTime).toISOString().split('T')[0],
+        date: toAppYmd(event.startTime),
         startTime: event.startTime,
         endTime: event.endTime,
         description: event.description,
@@ -334,35 +291,11 @@ router.get('/day', async (req, res) => {
         status: event.planning?.status,
         planningId: event.planningId,
       })),
-      ...meetings.map((meeting) => ({
-        id: meeting.id,
-        type: 'meeting',
-        title: meeting.title,
-        date: new Date(meeting.startTime).toISOString().split('T')[0],
-        startTime: meeting.startTime,
-        endTime: meeting.endTime,
-        description: meeting.agenda,
-        room: meeting.room?.name,
-        meetingId: meeting.id,
-        organizer: meeting.organizer.name,
-        status: meeting.status,
-      })),
-      ...missions.map((mission) => ({
-        id: mission.id,
-        type: 'mission',
-        title: mission.title,
-        date: new Date(mission.startTime).toISOString().split('T')[0],
-        startTime: mission.startTime,
-        endTime: mission.endTime,
-        description: mission.description,
-        location: mission.location,
-        missionId: mission.id,
-        organizer: mission.createdBy.name,
-        status: mission.status,
-      })),
+      ...meetings.map((m) => mapMeetingToCalendarEvent(m)),
+      ...missions.map((m) => mapMissionToCalendarEvent(m)),
     ].sort((a, b) => new Date(a.startTime) - new Date(b.startTime));
 
-    res.json({ events, date: date.toISOString().split('T')[0] });
+    res.json({ events, date: toAppYmd(date) });
   } catch (error) {
     logger.error('GET_CALENDAR_DAY_ERROR', error.message, { userId: req.user.id });
     res.status(500).json({ error: error.message });

@@ -671,7 +671,7 @@ export default function MeetingDetail() {
                         onConfirm={handlePermanentDeleteMeeting}
                     >
                         <Button danger icon={<DeleteOutlined />} loading={deleteLoading}>
-                            Supprimer définitivement
+                            Supprimer
                         </Button>
                     </ForceDeletePopconfirm>
                 )}

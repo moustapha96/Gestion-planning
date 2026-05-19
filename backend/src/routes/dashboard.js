@@ -1,6 +1,8 @@
 const express = require('express');
 const roleMiddleware = require('../middlewares/role.middleware');
-const { ROLES, ADMIN_ROUTE_ROLES, isPrivilegedAdmin, isSuperAdmin } = require('../config/roles');
+const {
+    ROLES, ADMIN_ROUTE_ROLES, isPrivilegedAdmin, isSuperAdmin, canViewAllMissions, missionScopeWhere,
+} = require('../config/roles');
 
 const router = express.Router();
 
@@ -331,9 +333,7 @@ router.get('/search-global', async (req, res) => {
         if (selectedTypes.has('missions')) {
             const missions = await req.prisma.mission.findMany({
                 where: {
-                    ...(isAdmin ? {} : {
-                        OR: [{ createdById: userId }, { assignments: { some: { userId } } }],
-                    }),
+                    ...missionScopeWhere(req.user),
                     ...(from || to ? { startTime: { ...(from ? { gte: from } : {}), ...(to ? { lte: to } : {}) } } : {}),
                     OR: [
                         { title: contains },

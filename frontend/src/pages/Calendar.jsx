@@ -12,6 +12,12 @@ import jsPDF from 'jspdf';
 import autoTable from 'jspdf-autotable';
 import api from '../api/client';
 import { useAuth } from '../context/AuthContext';
+import { appDayjs, appYmd } from '../utils/datetime';
+import {
+    eventOverlapsDay,
+    buildEventsMapForDays,
+    formatTimeInAppTz,
+} from '../utils/calendarEvents';
 
 const { Title, Text } = Typography;
 
@@ -56,41 +62,14 @@ function getEventLocation(ev) {
 
 function parseMinutes(timeStr) {
     if (!timeStr) return null;
-    try {
-        const d = new Date(timeStr);
-        if (!isNaN(d.getTime())) return d.getHours() * 60 + d.getMinutes();
-    } catch { /* noop */ }
+    const d = appDayjs(timeStr);
+    if (d.isValid()) return d.hour() * 60 + d.minute();
     const m = String(timeStr).match(/^(\d{1,2}):(\d{2})/);
-    if (m) return parseInt(m[1]) * 60 + parseInt(m[2]);
+    if (m) return parseInt(m[1], 10) * 60 + parseInt(m[2], 10);
     return null;
 }
 
-/** Date locale YYYY-MM-DD (évite le décalage UTC sur les clés de semaine) */
-function localYmd(d) {
-    const x = d instanceof Date ? d : new Date(d);
-    if (Number.isNaN(x.getTime())) return '';
-    return `${x.getFullYear()}-${String(x.getMonth() + 1).padStart(2, '0')}-${String(x.getDate()).padStart(2, '0')}`;
-}
-
-/** Jour calendaire d'un événement pour le placer dans la grille */
-function eventDayKey(ev) {
-    if (ev?.date && /^\d{4}-\d{2}-\d{2}$/.test(ev.date)) return ev.date;
-    const raw = ev?.startTime || ev?.time;
-    if (raw) return localYmd(raw);
-    return '';
-}
-
-function formatTime(timeStr) {
-    if (!timeStr) return '';
-    try {
-        const d = new Date(timeStr);
-        if (!isNaN(d.getTime()))
-            return d.toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' });
-    } catch { /* noop */ }
-    const m = String(timeStr).match(/^(\d{1,2}):(\d{2})/);
-    if (m) return `${m[1].padStart(2, '0')}:${m[2]}`;
-    return '';
-}
+const formatTime = formatTimeInAppTz;
 
 // ── Événement positionné dans la grille ─────────────────────────
 function GridEvent({ ev, onNavigate }) {
@@ -221,7 +200,7 @@ function TimeGrid({ containerRef, columns, eventsMap, nowLine, onNavigate }) {
                                     )}
 
                                     {colEvents.map((ev) => (
-                                        <GridEvent key={`${ev.type || 'ev'}-${ev.id}`} ev={ev} onNavigate={onNavigate} />
+                                        <GridEvent key={`${ev.type || 'ev'}-${ev.id}-${key}`} ev={ev} onNavigate={onNavigate} />
                                     ))}
                                 </div>
                             </div>
@@ -239,10 +218,7 @@ function TimeGrid({ containerRef, columns, eventsMap, nowLine, onNavigate }) {
 function evDate(ev) {
     if (ev.date) return ev.date;
     const raw = ev.startTime || ev.time;
-    if (raw) {
-        const d = new Date(raw);
-        if (!isNaN(d.getTime())) return d.toISOString().split('T')[0];
-    }
+    if (raw) return appYmd(raw);
     return '';
 }
 
@@ -533,7 +509,7 @@ export default function Calendar() {
     const fetchWeek = async (date) => {
         try {
             setLoading(true);
-            const d = date.toISOString().split('T')[0];
+            const d = appYmd(date);
             const res = await api.get('/calendar/week', { params: { date: d } });
             setWeekEvents(res.data.events || []);
         } catch { message.error('Erreur chargement semaine'); }
@@ -543,7 +519,7 @@ export default function Calendar() {
     const fetchDay = async (date) => {
         try {
             setLoading(true);
-            const d = date.toISOString().split('T')[0];
+            const d = appYmd(date);
             const res = await api.get('/calendar/day', { params: { date: d } });
             setDayEvents(res.data.events || []);
         } catch { message.error('Erreur chargement jour'); }
@@ -573,7 +549,7 @@ export default function Calendar() {
     const getFirstDayMon = (d) => mondayFirstWeekdayIndex(new Date(d.getFullYear(), d.getMonth(), 1).getDay());
     const getEventsForDate = (day) => {
         const ds = `${year}-${String(month).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
-        return events.filter((e) => eventDayKey(e) === ds);
+        return events.filter((e) => eventOverlapsDay(e, ds));
     };
 
     const isTodayDate = (date) => new Date().toDateString() === new Date(date).toDateString();
@@ -617,7 +593,7 @@ export default function Calendar() {
         return selectedDate;
     }, [view, currentMonth, selectedDate, year, month]);
 
-    const createDateParam = createAnchorDate.toISOString().split('T')[0];
+    const createDateParam = appYmd(createAnchorDate);
 
     const handleEventClick = (ev) => {
         setDetailsEvent(ev);
@@ -678,7 +654,7 @@ export default function Calendar() {
                         const t = formatTime(ev.startTime || ev.time);
                         return (
                             <div
-                                key={`${ev.type || 'ev'}-${ev.id}`}
+                                key={`${ev.type || 'ev'}-${ev.id}-${day}`}
                                 onClick={(e) => { e.stopPropagation(); handleEventClick(ev); }}
                                 title={ev.title}
                                 style={{
@@ -886,16 +862,13 @@ export default function Calendar() {
 
                     {/* ══ VUE SEMAINE ══ */}
                     {view === 'week' && (() => {
-                        const columns = weekDays.map((d) => ({
-                            key:       localYmd(d),
+                        const dayKeys = weekDays.map((d) => appYmd(d));
+                        const columns = weekDays.map((d, i) => ({
+                            key:       dayKeys[i],
                             header:    d.toLocaleDateString('fr-FR', { weekday: 'short', day: 'numeric' }),
                             todayFlag: isTodayDate(d),
                         }));
-                        const eventsMap = {};
-                        weekDays.forEach((d) => {
-                            const k = localYmd(d);
-                            eventsMap[k] = weekEvents.filter((e) => eventDayKey(e) === k);
-                        });
+                        const eventsMap = buildEventsMapForDays(weekEvents, dayKeys);
                         return (
                             <TimeGrid
                                 containerRef={timeGridRef}
@@ -909,7 +882,7 @@ export default function Calendar() {
 
                     {/* ══ VUE JOUR ══ */}
                     {view === 'day' && (() => {
-                        const dateStr = localYmd(selectedDate);
+                        const dateStr = appYmd(selectedDate);
                         return (
                             <TimeGrid
                                 containerRef={timeGridRef}
@@ -918,7 +891,7 @@ export default function Calendar() {
                                     header:    selectedDate.toLocaleDateString('fr-FR', { weekday: 'long', day: 'numeric', month: 'short' }),
                                     todayFlag: isTodayDate(selectedDate),
                                 }]}
-                                eventsMap={{ [dateStr]: dayEvents.filter((e) => eventDayKey(e) === dateStr) }}
+                                eventsMap={buildEventsMapForDays(dayEvents, [dateStr])}
                                 nowLine={nowLine}
                                 onNavigate={handleEventClick}
                             />

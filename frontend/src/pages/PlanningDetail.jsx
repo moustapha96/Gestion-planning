@@ -701,7 +701,7 @@ export default function PlanningDetail() {
                         onConfirm={handleDeletePlanning}
                     >
                         <Button danger icon={<DeleteOutlined />} loading={deleteLoading}>
-                            Supprimer définitivement
+                            Supprimer
                         </Button>
                     </ForceDeletePopconfirm>
                 )}

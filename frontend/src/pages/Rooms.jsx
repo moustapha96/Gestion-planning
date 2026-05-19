@@ -261,7 +261,7 @@ export default function Rooms() {
                                                     onClick={() => navigate(`/meetings/new?roomId=${room.id}`)}
                                                     style={{ marginTop: 8 }}
                                                 >
-                                                    Créer une réunion dans cette salle
+                                                    Créer une réunion
                                                 </Button>
                                             )}
                                         </Space>

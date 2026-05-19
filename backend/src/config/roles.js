@@ -40,6 +40,31 @@ function canManageRepertoire(role) {
     return REPERTOIRE_MANAGE_ROLES.includes(role);
 }
 
+/** Voir toutes les missions (pas seulement les siennes / assignées). */
+const MISSION_VIEW_ALL_ROLES = [
+    ROLES.ADMIN,
+    ROLES.SUPER_ADMIN,
+    ROLES.CONSOLIDATEUR,
+    ROLES.COORDINATEUR_PROJET,
+    ROLES.DG,
+];
+
+function canViewAllMissions(role) {
+    return MISSION_VIEW_ALL_ROLES.includes(role);
+}
+
+/** Filtre Prisma pour la liste / calendrier des missions. */
+function missionScopeWhere(user) {
+    if (canViewAllMissions(user?.role)) return {};
+    const userId = user?.id;
+    return {
+        OR: [
+            { createdById: userId },
+            { assignments: { some: { userId } } },
+        ],
+    };
+}
+
 module.exports = {
     ROLES,
     ALL_ROLES,
@@ -50,4 +75,7 @@ module.exports = {
     isSuperAdmin,
     canSuperAdminForceDelete,
     canManageRepertoire,
+    MISSION_VIEW_ALL_ROLES,
+    canViewAllMissions,
+    missionScopeWhere,
 };

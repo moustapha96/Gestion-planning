@@ -132,7 +132,7 @@ async function notifyBackupResult({ success, fileName, sizeBytes, durationMs, er
         fileName: fileName || '—',
         sizeLabel: formatBytes(sizeBytes),
         durationSec: durationMs != null ? `${Math.round(durationMs / 1000)}` : '—',
-        at: new Date().toLocaleString('fr-FR'),
+        at: require('../config/timezone').formatFrDateTime(new Date()),
         kind: kindLabel,
         error: errorMessage || '',
     };

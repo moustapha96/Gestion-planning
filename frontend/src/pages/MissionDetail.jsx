@@ -191,7 +191,7 @@ export default function MissionDetail() {
                                     onConfirm={handlePermanentDelete}
                                 >
                                     <Button danger type="primary" icon={<DeleteOutlined />} loading={permanentDeleteLoading}>
-                                        Supprimer définitivement
+                                        Supprimer
                                     </Button>
                                 </ForceDeletePopconfirm>
                             )}
