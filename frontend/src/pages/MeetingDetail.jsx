@@ -43,7 +43,7 @@ import dayjs from 'dayjs';
 import api, { API_BASE } from '../api/client';
 import { useAuth } from '../context/AuthContext';
 import { enqueueRealtimeTask } from '../realtime/socket';
-import { isPrivilegedAdmin, canSuperAdminForceDelete } from '../utils/roles';
+import { isPrivilegedAdmin, canSuperAdminForceDelete, canApproveMeeting, meetingNeedsConsolidatorApproval } from '../utils/roles';
 import { forceDeleteDescription, forceDeleteTitle } from '../utils/deleteConfirm';
 import ForceDeletePopconfirm from '../components/ForceDeletePopconfirm';
 import { PDF_ACCEPT, isAcceptedPdfFile } from '../utils/pdfAttachment';
@@ -51,7 +51,18 @@ import { PDF_ACCEPT, isAcceptedPdfFile } from '../utils/pdfAttachment';
 const { Title, Text } = Typography;
 
 const STATUS_COLORS = { DRAFT: 'default', SENT: 'blue', CONFIRMED: 'green', COMPLETED: 'cyan', CANCELLED: 'red' };
-const STATUS_LABELS = { DRAFT: 'Brouillon', SENT: 'Envoyée', CONFIRMED: 'Confirmée', COMPLETED: 'Terminée', CANCELLED: 'Annulée' };
+const STATUS_LABELS = {
+    DRAFT: 'Brouillon',
+    SENT: 'Envoyée',
+    CONFIRMED: 'Confirmée',
+    COMPLETED: 'Terminée',
+    CANCELLED: 'Annulée',
+};
+
+function meetingStatusLabel(meeting) {
+    if (meetingNeedsConsolidatorApproval(meeting)) return 'En attente validation';
+    return STATUS_LABELS[meeting.status] || meeting.status;
+}
 const INV_STATUS = { PENDING: 'En attente', ACCEPTED: 'Acceptée', DECLINED: 'Refusée' };
 
 export default function MeetingDetail() {
@@ -72,6 +83,7 @@ export default function MeetingDetail() {
     const [attachmentLoading, setAttachmentLoading] = useState(false);
     const [updateLoading, setUpdateLoading] = useState(false);
     const [sendLoading, setSendLoading] = useState(false);
+    const [approveLoading, setApproveLoading] = useState(false);
     const [cancelLoading, setCancelLoading] = useState(false);
     const [deleteLoading, setDeleteLoading] = useState(false);
     const [completeLoading, setCompleteLoading] = useState(false);
@@ -298,6 +310,19 @@ export default function MeetingDetail() {
             message.error(err.response?.data?.error || 'Erreur');
         } finally {
             setSendLoading(false);
+        }
+    };
+
+    const handleApprove = async () => {
+        setApproveLoading(true);
+        try {
+            await api.put(`/meetings/${id}/approve`);
+            message.success('Réunion validée et publiée sur le calendrier');
+            fetchMeeting();
+        } catch (err) {
+            message.error(err.response?.data?.error || 'Erreur lors de la validation');
+        } finally {
+            setApproveLoading(false);
         }
     };
 
@@ -622,7 +647,9 @@ export default function MeetingDetail() {
     }
 
     const isOrganizer = meeting.organizerId === user?.id;
-    const canSend = isOrganizer && meeting.status === 'DRAFT';
+    const needsConsolidator = meetingNeedsConsolidatorApproval(meeting);
+    const canSend = canApproveMeeting(meeting, user) && isOrganizer && !needsConsolidator;
+    const canApprove = canApproveMeeting(meeting, user) && needsConsolidator;
     const canManage = isOrganizer || isPrivilegedAdmin(user?.role);
     const canComplete = canManage && meeting.status !== 'CANCELLED' && meeting.status !== 'COMPLETED';
     const canCancel = canManage && meeting.status !== 'CANCELLED' && meeting.status !== 'COMPLETED';
@@ -641,6 +668,11 @@ export default function MeetingDetail() {
                 {canEdit && (
                     <Button icon={<EditOutlined />} onClick={() => navigate(`/meetings/${id}/edit`)}>
                         Modifier
+                    </Button>
+                )}
+                {canApprove && (
+                    <Button type="primary" icon={<CheckCircleOutlined />} onClick={handleApprove} loading={approveLoading}>
+                        Valider et publier
                     </Button>
                 )}
                 {canSend && (
@@ -690,6 +722,19 @@ export default function MeetingDetail() {
                     </Button>
                 )}
             </Space>
+
+            {needsConsolidator && (
+                <Alert
+                    type="warning"
+                    showIcon
+                    style={{ marginBottom: 16 }}
+                    message={
+                        isOrganizer
+                            ? 'Cette réunion est en attente de validation par un consolidateur. Elle n\'apparaîtra sur le calendrier qu\'après validation.'
+                            : 'Réunion en attente de validation. Validez-la pour la publier sur le calendrier et envoyer les convocations.'
+                    }
+                />
+            )}
 
             {visioOpen && (
                 <Card
@@ -810,7 +855,9 @@ export default function MeetingDetail() {
                             {meeting.project?.name && <Tag color="blue">Projet: {meeting.project.name}</Tag>}
                         </Space>
                     </div>
-                    <Tag color={STATUS_COLORS[meeting.status]}>{STATUS_LABELS[meeting.status] || meeting.status}</Tag>
+                    <Tag color={needsConsolidator ? 'orange' : STATUS_COLORS[meeting.status]}>
+                        {meetingStatusLabel(meeting)}
+                    </Tag>
                 </Space>
 
                 <Descriptions column={1} bordered size="small">

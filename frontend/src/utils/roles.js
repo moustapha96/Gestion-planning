@@ -41,3 +41,18 @@ export function canViewAllMissions(role) {
 export function canCreateMission(role) {
     return role === ROLES.RESPONSABLE || isPrivilegedAdmin(role);
 }
+
+/** Valider / publier une réunion en brouillon (consolidateur si organisateur responsable). */
+export function canApproveMeeting(meeting, user) {
+    if (!meeting || meeting.status !== 'DRAFT' || !user) return false;
+    if (isPrivilegedAdmin(user.role)) return true;
+    const organizerRole = meeting.organizer?.role;
+    if (organizerRole === ROLES.RESPONSABLE) {
+        return user.role === ROLES.CONSOLIDATEUR;
+    }
+    return meeting.organizerId === user.id;
+}
+
+export function meetingNeedsConsolidatorApproval(meeting) {
+    return meeting?.status === 'DRAFT' && meeting?.organizer?.role === ROLES.RESPONSABLE;
+}

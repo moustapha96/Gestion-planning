@@ -1,20 +1,38 @@
-/**
- * Vérifie si un créneau [slotStart, slotEnd] chevauche une réservation.
- * RoomBooking: date (DateTime), startTime "HH:mm", endTime "HH:mm"
- */
-function bookingOverlaps(booking, slotStart, slotEnd) {
-    const d = new Date(booking.date);
-    const dayStart = new Date(d.getFullYear(), d.getMonth(), d.getDate(), 0, 0, 0, 0);
+const { toAppYmd, appDayBoundsFromYmd } = require('./calendarEvents');
+const { parseHm } = require('./roomBooking');
+const { publishedMeetingStatusFilter } = require('../config/meetingVisibility');
 
-    const [startH, startM] = booking.startTime.split(':').map((x) => parseInt(x, 10) || 0);
-    const [endH, endM] = booking.endTime.split(':').map((x) => parseInt(x, 10) || 0);
+function bookingOverlaps(booking, slotStart, slotEnd) {
+    const dayYmd = toAppYmd(booking.date);
+    const { start: dayStart } = appDayBoundsFromYmd(dayYmd);
+
+    const startP = parseHm(booking.startTime);
+    const endP = parseHm(booking.endTime);
+    if (!startP || !endP) return false;
 
     const bookStart = new Date(dayStart);
-    bookStart.setHours(startH, startM, 0, 0);
+    bookStart.setUTCHours(startP.h, startP.m, 0, 0);
     const bookEnd = new Date(dayStart);
-    bookEnd.setHours(endH, endM, 0, 0);
+    bookEnd.setUTCHours(endP.h, endP.m, 0, 0);
+    if (bookEnd <= bookStart) {
+        bookEnd.setUTCDate(bookEnd.getUTCDate() + 1);
+    }
 
     return slotStart < bookEnd && slotEnd > bookStart;
+}
+
+async function hasMeetingConflict(prisma, roomId, slotStart, slotEnd, excludeMeetingId = null) {
+    const conflict = await prisma.meeting.findFirst({
+        where: {
+            roomId,
+            ...publishedMeetingStatusFilter(),
+            startTime: { lt: slotEnd },
+            endTime: { gt: slotStart },
+            ...(excludeMeetingId && { id: { not: excludeMeetingId } }),
+        },
+        select: { id: true },
+    });
+    return !!conflict;
 }
 
 /**
@@ -34,10 +52,8 @@ async function isRoomAvailableForSlot(prisma, roomId, slotStart, slotEnd, exclud
     const active = await isRoomActive(prisma, roomId);
     if (!active) return false;
 
-    const dayStart = new Date(slotStart);
-    dayStart.setHours(0, 0, 0, 0);
-    const dayEnd = new Date(slotStart);
-    dayEnd.setHours(23, 59, 59, 999);
+    const dayYmd = toAppYmd(slotStart);
+    const { start: dayStart, end: dayEnd } = appDayBoundsFromYmd(dayYmd);
 
     const bookings = await prisma.roomBooking.findMany({
         where: {
@@ -51,44 +67,35 @@ async function isRoomAvailableForSlot(prisma, roomId, slotStart, slotEnd, exclud
     for (const b of bookings) {
         if (bookingOverlaps(b, slotStart, slotEnd)) return false;
     }
+
+    if (await hasMeetingConflict(prisma, roomId, slotStart, slotEnd, excludeMeetingId)) {
+        return false;
+    }
     return true;
 }
 
 /**
  * Retourne les IDs des salles disponibles pour le créneau [slotStart, slotEnd].
  */
-async function getAvailableRoomIds(prisma, slotStart, slotEnd) {
+async function getAvailableRoomIds(prisma, slotStart, slotEnd, excludeMeetingId = null) {
     const rooms = await prisma.room.findMany({
         where: { status: 'ACTIVE' },
-        include: {
-            bookings: {
-                where: {
-                    status: 'CONFIRMED',
-                    date: {
-                        gte: new Date(slotStart.getFullYear(), slotStart.getMonth(), slotStart.getDate(), 0, 0, 0, 0),
-                        lte: new Date(slotStart.getFullYear(), slotStart.getMonth(), slotStart.getDate(), 23, 59, 59, 999),
-                    },
-                },
-            },
-        },
+        select: { id: true },
     });
 
     const available = [];
     for (const room of rooms) {
-        let hasConflict = false;
-        for (const b of room.bookings) {
-            if (bookingOverlaps(b, slotStart, slotEnd)) {
-                hasConflict = true;
-                break;
-            }
+        // eslint-disable-next-line no-await-in-loop
+        if (await isRoomAvailableForSlot(prisma, room.id, slotStart, slotEnd, excludeMeetingId)) {
+            available.push(room.id);
         }
-        if (!hasConflict) available.push(room.id);
     }
     return available;
 }
 
 module.exports = {
     bookingOverlaps,
+    hasMeetingConflict,
     isRoomAvailableForSlot,
     isRoomActive,
     getAvailableRoomIds,

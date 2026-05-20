@@ -8,8 +8,15 @@ const { notificationService } = require('../services/notification.service');
 const { autoCloseExpiredMeetings } = require('../services/meeting.service');
 const { logger } = require('../utils/logger');
 const { isRoomAvailableForSlot, isRoomActive } = require('../utils/availability');
+const { formatAppTimeHm } = require('../utils/roomBooking');
+const { appDayBoundsFromYmd, toAppYmd } = require('../utils/calendarEvents');
 const { createAuditLog } = require('../utils/audit');
 const { ROLES, isPrivilegedAdmin, isSuperAdmin } = require('../config/roles');
+const {
+    canPublishMeeting,
+    requiresConsolidatorApproval,
+    meetingListWhereForUser,
+} = require('../config/meetingVisibility');
 const { emitToUsers, emitToMeetingRoom } = require('../realtime/socket');
 const { pdfOnlyMulterFileFilter, wrapMulterUpload } = require('../utils/pdfUpload');
 const { resolveMeetingEventTypeId } = require('../services/eventType.service');
@@ -39,39 +46,6 @@ function canViewMeeting(meeting, user) {
     // Tout utilisateur authentifié peut voir le détail d'une réunion
     // (le calendrier expose déjà toutes les réunions à tous les utilisateurs)
     return true;
-}
-
-async function getUserMeetingConflict(prisma, userId, start, end, excludeMeetingId = null) {
-    return prisma.meeting.findFirst({
-        where: {
-            status: { not: 'CANCELLED' },
-            ...(excludeMeetingId ? { id: { not: excludeMeetingId } } : {}),
-            startTime: { lt: end },
-            endTime: { gt: start },
-            invitations: { some: { userId } },
-        },
-        select: { id: true, title: true, startTime: true, endTime: true },
-    });
-}
-
-async function getUserMissionConflictForMeeting(prisma, userId, start, end) {
-    return prisma.mission.findFirst({
-        where: {
-            status: { not: 'CANCELLED' },
-            startTime: { lt: end },
-            endTime: { gt: start },
-            OR: [
-                { createdById: userId },
-                { assignments: { some: { userId } } },
-            ],
-        },
-        select: { id: true, title: true, startTime: true, endTime: true },
-    });
-}
-
-function canEditMeeting(meeting, user) {
-    if (!meeting || !user) return false;
-    return meeting.organizerId === user.id || isPrivilegedAdmin(user.role);
 }
 
 function isParticipant(meeting, user) {
@@ -125,6 +99,119 @@ function buildInvitationActionUrl(req, invitationId, status) {
     );
     const backendBase = process.env.BACKEND_URL || `http://localhost:${process.env.PORT || 3001}`;
     return `${backendBase}/api/public/meeting-invitations/respond?token=${encodeURIComponent(token)}`;
+}
+
+/** Publie une réunion (réservation salle + convocations + statut SENT). */
+async function publishMeeting(req, meeting) {
+    if (meeting.roomId) {
+        const active = await isRoomActive(req.prisma, meeting.roomId);
+        if (!active) {
+            const err = new Error('La salle de cette réunion est désactivée. Réactivez la salle ou choisissez une autre salle avant de publier.');
+            err.statusCode = 410;
+            throw err;
+        }
+        const available = await isRoomAvailableForSlot(
+            req.prisma,
+            meeting.roomId,
+            meeting.startTime,
+            meeting.endTime,
+            meeting.id,
+        );
+        if (!available) {
+            const err = new Error('La salle n\'est plus disponible sur ce créneau. Choisissez un autre horaire ou une autre salle.');
+            err.statusCode = 409;
+            throw err;
+        }
+        const dateForBooking = appDayBoundsFromYmd(toAppYmd(meeting.startTime)).start;
+        const startStr = formatAppTimeHm(meeting.startTime);
+        const endStr = formatAppTimeHm(meeting.endTime);
+        const existingBooking = await req.prisma.roomBooking.findUnique({
+            where: { meetingId: meeting.id },
+        });
+        if (existingBooking) {
+            await req.prisma.roomBooking.update({
+                where: { id: existingBooking.id },
+                data: {
+                    roomId: meeting.roomId,
+                    userId: req.user.id,
+                    date: dateForBooking,
+                    startTime: startStr,
+                    endTime: endStr,
+                    status: 'CONFIRMED',
+                },
+            });
+        } else {
+            await req.prisma.roomBooking.create({
+                data: {
+                    roomId: meeting.roomId,
+                    meetingId: meeting.id,
+                    userId: req.user.id,
+                    date: dateForBooking,
+                    startTime: startStr,
+                    endTime: endStr,
+                },
+            });
+        }
+    }
+
+    const convocationChannel = meeting.meetingLink
+        ? `Salle: ${meeting.room?.name || '—'} · Visio: disponible`
+        : `Salle: ${meeting.room?.name || '—'}`;
+    for (const inv of meeting.invitations) {
+        const acceptUrl = buildInvitationActionUrl(req, inv.id, 'ACCEPTED');
+        const declineUrl = buildInvitationActionUrl(req, inv.id, 'DECLINED');
+        await notificationService.sendFullNotification(
+            req.prisma,
+            inv.user.id,
+            inv.user.email,
+            'MEETING_CONVOCATION',
+            'MEETING_CONVOCATION',
+            [inv.user, meeting, meeting.room, { acceptUrl, declineUrl }],
+            `Convocation : ${meeting.title}`,
+            `Vous êtes convoqué(e) le ${new Date(meeting.startTime).toLocaleDateString('fr-FR')} (${convocationChannel})`,
+            `/meetings`,
+        );
+    }
+
+    const updated = await req.prisma.meeting.update({
+        where: { id: meeting.id },
+        data: {
+            status: 'SENT',
+            invitations: {
+                updateMany: { where: {}, data: { sentAt: new Date() } },
+            },
+        },
+    });
+
+    logger.info('MEETING_SENT', `Réunion publiée « ${meeting.title} »`, {
+        meetingId: meeting.id,
+        publishedBy: req.user.id,
+        participantCount: meeting.invitations.length,
+    });
+
+    await createAuditLog(req, 'MEETING_SENT', 'Meeting', meeting.id, `Réunion « ${meeting.title} » publiée`);
+
+    return updated;
+}
+
+async function notifyConsolidatorsPendingMeeting(prisma, req, meeting, organizer) {
+    const consolidators = await prisma.user.findMany({
+        where: { role: ROLES.CONSOLIDATEUR, isActive: true },
+        select: { id: true, name: true, email: true },
+    });
+    for (const c of consolidators) {
+        await notificationService.sendFullNotification(
+            prisma,
+            c.id,
+            c.email,
+            'MEETING_PENDING_APPROVAL',
+            'MEETING_PENDING_APPROVAL',
+            [c, meeting, organizer, meeting.room],
+            `Réunion à valider : ${meeting.title}`,
+            `${organizer.name} a soumis une réunion en attente de validation.`,
+            `/meetings/${meeting.id}`,
+        );
+    }
 }
 
 const meetingsUploadDir = path.join(__dirname, '../../uploads/meetings');
@@ -193,45 +280,34 @@ router.get('/', async (req, res) => {
         const page = Math.max(1, parseInt(req.query.page, 10) || 1);
         const skip = (page - 1) * limit;
         const contains = q ? { contains: q, mode: 'insensitive' } : null;
-        const isAdmin = isPrivilegedAdmin(req.user?.role);
         const includeFiles = await canUseMeetingFiles(req.prisma);
-        const where = {
-            ...(isAdmin
-                ? {}
-                : {
-                      OR: [
-                          { organizerId: req.user.id },
-                          { invitations: { some: { userId: req.user.id } } },
-                      ],
-                  }),
-            ...(status ? { status } : {}),
-            ...(from || to ? { startTime: { ...(from ? { gte: from } : {}), ...(to ? { lte: to } : {}) } } : {}),
-            ...(directionId ? { directionId } : {}),
-            ...(projectId ? { projectId } : {}),
-            ...(contains
-                ? {
-                      AND: [
-                          {
-                              OR: [
-                                  { title: contains },
-                                  { agenda: contains },
-                                  { room: { is: { name: contains } } },
-                                  { direction: { is: { name: contains } } },
-                                  { direction: { is: { code: contains } } },
-                                  { project: { is: { name: contains } } },
-                                  { project: { is: { code: contains } } },
-                              ],
-                          },
-                      ],
-                  }
-                : {}),
-        };
+        const whereParts = [meetingListWhereForUser(req.user)];
+        if (status) whereParts.push({ status });
+        if (from || to) {
+            whereParts.push({ startTime: { ...(from ? { gte: from } : {}), ...(to ? { lte: to } : {}) } });
+        }
+        if (directionId) whereParts.push({ directionId });
+        if (projectId) whereParts.push({ projectId });
+        if (contains) {
+            whereParts.push({
+                OR: [
+                    { title: contains },
+                    { agenda: contains },
+                    { room: { is: { name: contains } } },
+                    { direction: { is: { name: contains } } },
+                    { direction: { is: { code: contains } } },
+                    { project: { is: { name: contains } } },
+                    { project: { is: { code: contains } } },
+                ],
+            });
+        }
+        const where = whereParts.length === 1 ? whereParts[0] : { AND: whereParts };
 
         const [meetings, total] = await Promise.all([
             req.prisma.meeting.findMany({
                 where,
                 include: {
-                    organizer: { select: { name: true, email: true } },
+                    organizer: { select: { name: true, email: true, role: true } },
                     room: true,
                     direction: { select: { id: true, name: true, code: true } },
                     project: { select: { id: true, name: true, code: true } },
@@ -712,15 +788,9 @@ router.put('/:id', async (req, res) => {
         });
 
         if (meeting.status === 'SENT' && (existingBooking || newRoomId)) {
-            const dateForBooking = new Date(updated.startTime);
-            const startStr = updated.startTime.toLocaleTimeString('fr-FR', {
-                hour: '2-digit',
-                minute: '2-digit',
-            });
-            const endStr = updated.endTime.toLocaleTimeString('fr-FR', {
-                hour: '2-digit',
-                minute: '2-digit',
-            });
+            const dateForBooking = appDayBoundsFromYmd(toAppYmd(updated.startTime)).start;
+            const startStr = formatAppTimeHm(updated.startTime);
+            const endStr = formatAppTimeHm(updated.endTime);
 
             if (existingBooking) {
                 await req.prisma.roomBooking.updateMany({
@@ -854,31 +924,6 @@ router.post('/', async (req, res) => {
             return res.status(400).json({ error: 'Lien de visioconférence invalide (http/https requis).' });
         }
 
-        // Vérifier conflits participants : réunions et missions
-        for (const uid of participantList) {
-            if (uid === req.user.id) continue;
-            const [meetingConflict, missionConflict] = await Promise.all([
-                getUserMeetingConflict(req.prisma, uid, start, end),
-                getUserMissionConflictForMeeting(req.prisma, uid, start, end),
-            ]);
-            if (meetingConflict) {
-                return res.status(409).json({
-                    error: `Conflit participant: cet utilisateur a déjà une réunion sur ce créneau (${meetingConflict.title}).`,
-                    userId: uid,
-                    conflictType: 'MEETING',
-                    conflictId: meetingConflict.id,
-                });
-            }
-            if (missionConflict) {
-                return res.status(409).json({
-                    error: `Conflit participant: cet utilisateur a déjà une mission sur ce créneau (${missionConflict.title}).`,
-                    userId: uid,
-                    conflictType: 'MISSION',
-                    conflictId: missionConflict.id,
-                });
-            }
-        }
-
         // Réunion sur une salle libre : salle doit être ACTIVE
         if (roomId) {
             const active = await isRoomActive(req.prisma, roomId);
@@ -951,19 +996,25 @@ router.post('/', async (req, res) => {
         try {
             const organizer = await req.prisma.user.findUnique({
                 where: { id: req.user.id },
-                select: { id: true, name: true, email: true },
+                select: { id: true, name: true, email: true, role: true },
             });
             const room = roomId
                 ? await req.prisma.room.findUnique({ where: { id: roomId }, select: { name: true } })
                 : null;
+            if (requiresConsolidatorApproval(organizer?.role)) {
+                await notifyConsolidatorsPendingMeeting(req.prisma, req, meeting, organizer);
+            }
             if (organizer?.email) {
+                const pendingMsg = requiresConsolidatorApproval(organizer.role)
+                    ? 'Statut : brouillon — en attente de validation par le consolidateur.'
+                    : 'Statut : brouillon — pensez à envoyer les convocations depuis la fiche réunion.';
                 await notificationService.sendFullNotification(
                     req.prisma,
                     organizer.id,
                     organizer.email,
                     'MEETING_CREATED_CONFIRMATION',
                     'MEETING_CREATED_CONFIRMATION',
-                    [organizer, meeting, room, participantList.length],
+                    [organizer, meeting, room, participantList.length, pendingMsg],
                     'Réunion créée',
                     `Votre réunion « ${meeting.title} » a été enregistrée.`,
                     `/meetings/${meeting.id}`,
@@ -1010,126 +1061,89 @@ router.put('/:id/send', async (req, res) => {
         const meeting = await req.prisma.meeting.findUnique({
             where: { id: req.params.id },
             include: {
+                organizer: { select: { id: true, name: true, role: true } },
                 invitations: { include: { user: true } },
                 room: true,
             },
         });
 
-        if (meeting.organizerId !== req.user.id) {
-            return res.status(403).json({ error: 'Not authorized' });
+        if (!meeting) {
+            return res.status(404).json({ error: 'Réunion introuvable' });
         }
         if (meeting.status === 'CANCELLED' || meeting.status === 'COMPLETED') {
-            return res.status(400).json({ error: 'Réunion finalisée : envoi des convocations impossible.' });
+            return res.status(400).json({ error: 'Réunion finalisée : publication impossible.' });
         }
-
-        if (meeting.roomId) {
-            const active = await isRoomActive(req.prisma, meeting.roomId);
-            if (!active) {
-                return res.status(410).json({
-                    error: 'La salle de cette réunion est désactivée. Réactivez la salle ou choisissez une autre salle avant d\'envoyer.',
+        if (!canPublishMeeting(meeting, req.user)) {
+            if (requiresConsolidatorApproval(meeting.organizer?.role)) {
+                return res.status(403).json({
+                    error: 'Cette réunion doit être validée par un consolidateur avant d\'apparaître sur le calendrier.',
                 });
             }
+            return res.status(403).json({ error: 'Seul l\'organisateur peut envoyer les convocations.' });
         }
 
-        // Vérifier à nouveau que le créneau est libre avant de réserver (au cas où une autre réunion aurait été envoyée entretemps)
-        // meetingId est unique sur RoomBooking : upsert pour ré-envoi ou mise à jour sans doublon
-        if (meeting.roomId) {
-            const available = await isRoomAvailableForSlot(
-                req.prisma,
-                meeting.roomId,
-                meeting.startTime,
-                meeting.endTime,
-                meeting.id
-            );
-            if (!available) {
-                return res.status(409).json({
-                    error: 'La salle n\'est plus disponible sur ce créneau. Choisissez un autre horaire ou une autre salle.',
-                });
-            }
-            const dateForBooking = new Date(meeting.startTime);
-            const startStr = meeting.startTime.toLocaleTimeString('fr-FR', {
-                hour: '2-digit',
-                minute: '2-digit',
-            });
-            const endStr = meeting.endTime.toLocaleTimeString('fr-FR', {
-                hour: '2-digit',
-                minute: '2-digit',
-            });
-
-            const existingBooking = await req.prisma.roomBooking.findUnique({
-                where: { meetingId: meeting.id },
-            });
-            if (existingBooking) {
-                await req.prisma.roomBooking.update({
-                    where: { id: existingBooking.id },
-                    data: {
-                        roomId: meeting.roomId,
-                        userId: req.user.id,
-                        date: dateForBooking,
-                        startTime: startStr,
-                        endTime: endStr,
-                        status: 'CONFIRMED',
-                    },
-                });
-            } else {
-                await req.prisma.roomBooking.create({
-                    data: {
-                        roomId: meeting.roomId,
-                        meetingId: meeting.id,
-                        userId: req.user.id,
-                        date: dateForBooking,
-                        startTime: startStr,
-                        endTime: endStr,
-                    },
-                });
-            }
-        }
-
-        // Send email + in-app notification to each participant
-        const convocationChannel = meeting.meetingLink
-            ? `Salle: ${meeting.room?.name || '—'} · Visio: disponible`
-            : `Salle: ${meeting.room?.name || '—'}`;
-        for (const inv of meeting.invitations) {
-            const acceptUrl = buildInvitationActionUrl(req, inv.id, 'ACCEPTED');
-            const declineUrl = buildInvitationActionUrl(req, inv.id, 'DECLINED');
-            await notificationService.sendFullNotification(
-                req.prisma,
-                inv.user.id,
-                inv.user.email,
-                'MEETING_CONVOCATION',
-                'MEETING_CONVOCATION',
-                [inv.user, meeting, meeting.room, { acceptUrl, declineUrl }],
-                `Convocation : ${meeting.title}`,
-                `Vous êtes convoqué(e) le ${new Date(meeting.startTime).toLocaleDateString('fr-FR')} (${convocationChannel})`,
-                `/meetings`
-            );
-        }
-
-        const updated = await req.prisma.meeting.update({
-            where: { id: req.params.id },
-            data: {
-                status: 'SENT',
-                invitations: {
-                    updateMany: { where: {}, data: { sentAt: new Date() } },
-                },
-            },
-        });
-
-        logger.info('MEETING_SENT', `Convocations envoyées pour "${meeting.title}"`, {
-            meetingId: req.params.id,
-            organizerId: req.user.id,
-            participantCount: meeting.invitations.length,
-        });
-
-        await createAuditLog(req, 'MEETING_SENT', 'Meeting', req.params.id, `Convocations réunion "${meeting.title}" envoyées`);
-
+        const updated = await publishMeeting(req, meeting);
         res.json(updated);
     } catch (error) {
-        logger.error('SEND_MEETING', 'Erreur envoi convocations', {
+        logger.error('SEND_MEETING', 'Erreur publication réunion', {
             meetingId: req.params.id,
             error: error.message,
         });
-        res.status(400).json({ error: error.message });
+        res.status(error.statusCode || 400).json({ error: error.message });
+    }
+});
+
+/** Validation consolidateur : publie la réunion (calendrier + convocations). */
+router.put('/:id/approve', async (req, res) => {
+    try {
+        const meeting = await req.prisma.meeting.findUnique({
+            where: { id: req.params.id },
+            include: {
+                organizer: { select: { id: true, name: true, email: true, role: true } },
+                invitations: { include: { user: true } },
+                room: true,
+            },
+        });
+
+        if (!meeting) {
+            return res.status(404).json({ error: 'Réunion introuvable' });
+        }
+        if (meeting.status !== 'DRAFT') {
+            return res.status(400).json({ error: 'Seules les réunions en brouillon peuvent être validées.' });
+        }
+        if (!canPublishMeeting(meeting, req.user)) {
+            return res.status(403).json({ error: 'Vous n\'êtes pas autorisé à valider cette réunion.' });
+        }
+
+        const updated = await publishMeeting(req, meeting);
+
+        try {
+            if (meeting.organizer?.email) {
+                await notificationService.sendFullNotification(
+                    req.prisma,
+                    meeting.organizer.id,
+                    meeting.organizer.email,
+                    'MEETING_APPROVED',
+                    'MEETING_APPROVED',
+                    [meeting.organizer, meeting, meeting.room, req.user],
+                    `Réunion validée : ${meeting.title}`,
+                    `Votre réunion a été validée par ${req.user.name} et publiée sur le calendrier.`,
+                    `/meetings/${meeting.id}`,
+                );
+            }
+        } catch (notifyErr) {
+            logger.warn('MEETING_APPROVED_NOTIFY_FAILED', notifyErr.message, { meetingId: meeting.id });
+        }
+
+        await createAuditLog(req, 'MEETING_APPROVED', 'Meeting', meeting.id, `Réunion « ${meeting.title} » validée`);
+
+        res.json(updated);
+    } catch (error) {
+        logger.error('APPROVE_MEETING', 'Erreur validation réunion', {
+            meetingId: req.params.id,
+            error: error.message,
+        });
+        res.status(error.statusCode || 400).json({ error: error.message });
     }
 });
 
@@ -1454,30 +1468,6 @@ router.post('/:id/participants', async (req, res) => {
 
         if (toAdd.length === 0) {
             return res.status(400).json({ error: 'Aucun nouveau participant à ajouter' });
-        }
-
-        // Vérifier conflits avant ajout (réunion + mission)
-        for (const uid of toAdd) {
-            const [meetingConflict, missionConflict] = await Promise.all([
-                getUserMeetingConflict(req.prisma, uid, meeting.startTime, meeting.endTime, meeting.id),
-                getUserMissionConflictForMeeting(req.prisma, uid, meeting.startTime, meeting.endTime),
-            ]);
-            if (meetingConflict) {
-                return res.status(409).json({
-                    error: `Conflit participant: cet utilisateur a déjà une réunion sur ce créneau (${meetingConflict.title}).`,
-                    userId: uid,
-                    conflictType: 'MEETING',
-                    conflictId: meetingConflict.id,
-                });
-            }
-            if (missionConflict) {
-                return res.status(409).json({
-                    error: `Conflit participant: cet utilisateur a déjà une mission sur ce créneau (${missionConflict.title}).`,
-                    userId: uid,
-                    conflictType: 'MISSION',
-                    conflictId: missionConflict.id,
-                });
-            }
         }
 
         await req.prisma.invitation.createMany({

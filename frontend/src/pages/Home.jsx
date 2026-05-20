@@ -13,6 +13,8 @@ import api from '../api/client';
 import {
     APP_TIMEZONE, appYmd, appDayjs, formatAppDateLong, appNowMinutes,
 } from '../utils/datetime';
+import { minutesFromTimeStr, isSlotActiveNow } from '../utils/roomSlots';
+import { segmentEventForDay } from '../utils/calendarEvents';
 
 const { Content } = Layout;
 const { Title, Text } = Typography;
@@ -58,10 +60,7 @@ function formatTime(dateStr) {
 }
 
 function toMinutesFromTimeStr(timeStr) {
-    if (!timeStr) return null;
-    const m = String(timeStr).match(/^(\d{1,2}):(\d{2})/);
-    if (m) return parseInt(m[1]) * 60 + parseInt(m[2]);
-    return null;
+    return minutesFromTimeStr(timeStr);
 }
 
 // ── Barre d'occupation d'une salle (08:00 – 19:00) ──────────────
@@ -82,10 +81,12 @@ function OccupancyBar({ bookings = [] }) {
             }}>
                 {bookings.map((b, i) => {
                     const start = toMinutesFromTimeStr(b.startTime);
-                    const end   = toMinutesFromTimeStr(b.endTime);
-                    if (!start || !end) return null;
+                    let end = toMinutesFromTimeStr(b.endTime);
+                    if (start == null || end == null) return null;
+                    if (end <= start) end += 24 * 60;
                     const left  = Math.max(0, ((start - BAR_START) / TOTAL) * 100);
                     const width = Math.min(100 - left, ((end - start) / TOTAL) * 100);
+                    if (width <= 0) return null;
                     return (
                         <Tooltip
                             key={i}
@@ -127,12 +128,7 @@ const TIMELINE_HH    = 48; // px par heure
 const TIMELINE_HOURS = Array.from({ length: TIMELINE_END - TIMELINE_START }, (_, i) => TIMELINE_START + i);
 
 function parseMinTimeline(timeStr) {
-    if (!timeStr) return null;
-    const m = String(timeStr).match(/^(\d{1,2}):(\d{2})/);
-    if (m) return parseInt(m[1]) * 60 + parseInt(m[2]);
-    const d = appDayjs(timeStr);
-    if (d.isValid()) return d.hour() * 60 + d.minute();
-    return null;
+    return minutesFromTimeStr(timeStr);
 }
 
 function DayTimeline({ events }) {
@@ -189,8 +185,10 @@ function DayTimeline({ events }) {
                     {/* Événements */}
                     {events.map((ev) => {
                         const startMin = parseMinTimeline(ev.start);
-                        const endMin   = parseMinTimeline(ev.end);
-                        if (!startMin) return null;
+                        if (startMin == null) return null;
+                        let endMin = parseMinTimeline(ev.end);
+                        if (endMin == null) endMin = startMin + 60;
+                        if (endMin <= startMin) endMin += 24 * 60;
                         const top      = ((startMin - TIMELINE_START * 60) / 60) * TIMELINE_HH;
                         const duration = endMin ? endMin - startMin : 60;
                         const height   = Math.max((duration / 60) * TIMELINE_HH, 24);
@@ -439,11 +437,13 @@ export default function Home() {
         });
     }, [rawDayBlocks, isSearching, searchTokens]);
 
-    function buildCalendarEventsForDay(meetingsList, missionsList) {
+    function buildCalendarEventsForDay(meetingsList, missionsList, dateKey) {
         const list = [];
         (meetingsList || []).forEach((m) => {
-            const start = m.startTime || '';
-            const end = m.endTime || '';
+            const seg = dateKey
+                ? segmentEventForDay({ type: 'meeting', startTime: m.startTime, endTime: m.endTime }, dateKey)
+                : { startTime: m.startTime, endTime: m.endTime };
+            if (!seg) return;
             const loc = m.room?.location
                 ? `${m.room?.name || 'Salle'} — ${m.room.location}`
                 : (m.room?.name || '');
@@ -452,20 +452,24 @@ export default function Home() {
                 id:        `meeting-${m.id}`,
                 type:      'meeting',
                 title:     m.title || 'Réunion',
-                start,
-                end,
-                startSort: start ? new Date(start).getTime() : 0,
+                start:     seg.startTime,
+                end:       seg.endTime,
+                startSort: seg.startTime ? new Date(seg.startTime).getTime() : 0,
                 subtitle,
             });
         });
         (missionsList || []).forEach((m) => {
+            const seg = dateKey
+                ? segmentEventForDay({ type: 'mission', startTime: m.startTime, endTime: m.endTime }, dateKey)
+                : { startTime: m.startTime, endTime: m.endTime };
+            if (!seg) return;
             list.push({
                 id:        `mission-${m.id}`,
                 type:      'mission',
                 title:     m.title,
-                start:     m.startTime,
-                end:       m.endTime,
-                startSort: m.startTime ? new Date(m.startTime).getTime() : 0,
+                start:     seg.startTime,
+                end:       seg.endTime,
+                startSort: seg.startTime ? new Date(seg.startTime).getTime() : 0,
                 subtitle:  m.location || '',
             });
         });
@@ -486,7 +490,10 @@ export default function Home() {
         const ids = new Set();
         dayBlocks.forEach((b) => {
             (b.rooms || []).forEach((r) => {
-                if (r.bookings?.length) ids.add(r.id);
+                const active = (r.bookings || []).some((bk) =>
+                    isSlotActiveNow(bk.startTime, bk.endTime, b.dateKey),
+                );
+                if (active) ids.add(r.id);
             });
         });
         return ids.size;
@@ -798,21 +805,9 @@ export default function Home() {
                                                                 const hasBookings = room.bookings?.length > 0;
                                                                 const dk = block.dateKey;
 
-                                                                const isCurrentlyBooked = room.bookings?.some((b) => {
-                                                                    if (!dk || !b.startTime) return false;
-                                                                    const pad = (t) => {
-                                                                        const s = String(t).trim();
-                                                                        if (/^\d{1,2}:\d{2}$/.test(s)) return `${s}:00`;
-                                                                        return s;
-                                                                    };
-                                                                    const start = appDayjs(`${dk}T${pad(b.startTime)}`);
-                                                                    const end = b.endTime
-                                                                        ? appDayjs(`${dk}T${pad(b.endTime)}`)
-                                                                        : start.add(1, 'hour');
-                                                                    const now = appDayjs();
-                                                                    return now.valueOf() >= start.valueOf()
-                                                                        && now.valueOf() <= end.valueOf();
-                                                                });
+                                                                const isCurrentlyBooked = (room.bookings || []).some((b) =>
+                                                                    isSlotActiveNow(b.startTime, b.endTime, dk),
+                                                                );
 
                                                                 return (
                                                                     <Col key={`${block.key}-${room.id}`} xs={24} md={12} xl={8}>
@@ -834,7 +829,7 @@ export default function Home() {
                                                                                         } />
                                                                                     ) : hasBookings ? (
                                                                                         <Badge status="processing" text={
-                                                                                            <Text style={{ fontSize: 11 }}>Occupée</Text>
+                                                                                            <Text style={{ fontSize: 11 }}>Réservée</Text>
                                                                                         } />
                                                                                     ) : (
                                                                                         <Badge status="success" text={
@@ -1094,7 +1089,7 @@ export default function Home() {
                                             />
                                         ) : (
                                             dayBlocks.map((block) => {
-                                                const dayEvents = buildCalendarEventsForDay(block.meetings, block.missions);
+                                                const dayEvents = buildCalendarEventsForDay(block.meetings, block.missions, block.dateKey);
                                                 return (
                                                     <div
                                                         key={block.key}

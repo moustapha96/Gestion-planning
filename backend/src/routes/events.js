@@ -4,6 +4,7 @@ const path = require('path');
 const multer = require('multer');
 const roleMiddleware = require('../middlewares/role.middleware');
 const { ROLES, ADMIN_ROUTE_ROLES, isPrivilegedAdmin, isSuperAdmin } = require('../config/roles');
+const { meetingCalendarWhereForUser } = require('../config/meetingVisibility');
 const { detachProjectReferences, detachDirectionReferences } = require('../utils/forceDelete');
 const { syncDirectionDiscussionMembers } = require('../services/directionDiscussion.service');
 
@@ -143,14 +144,8 @@ router.get('/unified', async (req, res) => {
         const [meetings, missions, planningEvents] = await Promise.all([
             req.prisma.meeting.findMany({
                 where: {
-                    ...(isAdmin ? {} : {
-                        OR: [
-                            { organizerId: userId },
-                            { invitations: { some: { userId } } },
-                        ],
-                    }),
+                    ...meetingCalendarWhereForUser(req.user),
                     ...(from || to ? { startTime: { ...(from ? { gte: from } : {}), ...(to ? { lte: to } : {}) } } : {}),
-                    status: { not: 'CANCELLED' },
                     ...(directionId ? { directionId } : {}),
                     ...(projectId ? { projectId } : {}),
                 },

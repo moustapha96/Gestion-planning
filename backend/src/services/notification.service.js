@@ -277,7 +277,7 @@ const emailTemplates = {
     }),
 
     /** Confirmation envoyée à l’organisateur après création d’une réunion. */
-    MEETING_CREATED_CONFIRMATION: (organizer, meeting, room, participantCount = 0) => {
+    MEETING_CREATED_CONFIRMATION: (organizer, meeting, room, participantCount = 0, statusHint) => {
         const startDate = new Date(meeting.startTime).toLocaleDateString('fr-FR', {
             weekday: 'long',
             day: 'numeric',
@@ -313,8 +313,80 @@ const emailTemplates = {
             ${meeting.meetingLink ? `<p><strong>🎥 Visio :</strong> <a href="${meeting.meetingLink}">${meeting.meetingLink}</a></p>` : ''}
             <p><strong>👥 Participants :</strong> ${participantCount}</p>
             <p><strong>📝 Ordre du jour :</strong> ${meeting.agenda || '—'}</p>
-            <p style="margin: 12px 0 0 0; font-size: 13px; color: #555;">Statut : brouillon — pensez à envoyer les convocations depuis la fiche réunion.</p>
+            <p style="margin: 12px 0 0 0; font-size: 13px; color: #555;">${statusHint || 'Statut : brouillon — pensez à envoyer les convocations depuis la fiche réunion.'}</p>
           </div>
+          <p>
+            <a href="${url}" style="display: inline-block; background: #1F5C8B; color: white; padding: 12px 24px; text-decoration: none; border-radius: 5px; font-weight: bold;">
+              Voir la réunion
+            </a>
+          </p>
+        </div>
+        <div style="border-top: 1px solid #ddd; padding: 20px; text-align: center; font-size: 12px; color: #666;">
+          <p>© 2026 Gestion Planning - Tous droits réservés</p>
+        </div>
+      </div>
+    `,
+        };
+    },
+
+    /** Consolidateur : réunion créée par un responsable, en attente de validation. */
+    MEETING_PENDING_APPROVAL: (consolidator, meeting, organizer, room) => {
+        const startDate = new Date(meeting.startTime).toLocaleDateString('fr-FR', {
+            weekday: 'long', day: 'numeric', month: 'long', year: 'numeric',
+        });
+        const startTime = new Date(meeting.startTime).toLocaleTimeString('fr-FR', {
+            hour: '2-digit', minute: '2-digit',
+        });
+        const endTime = new Date(meeting.endTime).toLocaleTimeString('fr-FR', {
+            hour: '2-digit', minute: '2-digit',
+        });
+        const url = `${process.env.FRONTEND_URL || 'http://localhost:9000'}/meetings/${meeting.id}`;
+        const lieu = room?.name || (meeting.meetingLink ? 'Visioconférence' : 'À définir');
+        return {
+            subject: `📋 Réunion à valider : ${meeting.title}`,
+            html: `
+      <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto;">
+        <div style="background: linear-gradient(135deg, #1F5C8B 0%, #2a7cb8 100%); color: white; padding: 20px; text-align: center;">
+          <h1>Gestion Planning</h1>
+        </div>
+        <div style="padding: 20px;">
+          <p>Bonjour ${consolidator.name},</p>
+          <p><strong>${organizer.name}</strong> a créé une réunion qui nécessite votre validation avant publication sur le calendrier.</p>
+          <div style="background: #fff8e1; padding: 20px; border-left: 4px solid #ff9800; margin: 20px 0;">
+            <h3 style="margin: 0 0 10px 0;">${meeting.title}</h3>
+            <p><strong>📅 Date :</strong> ${startDate}</p>
+            <p><strong>🕐 Horaire :</strong> ${startTime} – ${endTime}</p>
+            <p><strong>📍 Lieu :</strong> ${lieu}</p>
+            <p><strong>📝 Ordre du jour :</strong> ${meeting.agenda || '—'}</p>
+          </div>
+          <p>
+            <a href="${url}" style="display: inline-block; background: #1F5C8B; color: white; padding: 12px 24px; text-decoration: none; border-radius: 5px; font-weight: bold;">
+              Valider la réunion
+            </a>
+          </p>
+        </div>
+        <div style="border-top: 1px solid #ddd; padding: 20px; text-align: center; font-size: 12px; color: #666;">
+          <p>© 2026 Gestion Planning - Tous droits réservés</p>
+        </div>
+      </div>
+    `,
+        };
+    },
+
+    /** Organisateur : réunion validée par le consolidateur. */
+    MEETING_APPROVED: (organizer, meeting, room, approver) => {
+        const url = `${process.env.FRONTEND_URL || 'http://localhost:9000'}/meetings/${meeting.id}`;
+        return {
+            subject: `✅ Réunion validée : ${meeting.title}`,
+            html: `
+      <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto;">
+        <div style="background: linear-gradient(135deg, #1F5C8B 0%, #2a7cb8 100%); color: white; padding: 20px; text-align: center;">
+          <h1>Gestion Planning</h1>
+        </div>
+        <div style="padding: 20px;">
+          <p>Bonjour ${organizer.name},</p>
+          <p>Votre réunion <strong>« ${meeting.title} »</strong> a été validée par <strong>${approver.name}</strong>.</p>
+          <p>Elle est maintenant publiée sur le calendrier et les convocations ont été envoyées aux participants.</p>
           <p>
             <a href="${url}" style="display: inline-block; background: #1F5C8B; color: white; padding: 12px 24px; text-decoration: none; border-radius: 5px; font-weight: bold;">
               Voir la réunion

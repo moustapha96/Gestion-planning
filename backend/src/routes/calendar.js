@@ -1,6 +1,7 @@
 const express = require('express');
 const { logger } = require('../utils/logger');
 const { missionScopeWhere } = require('../config/roles');
+const { meetingCalendarWhereForUser } = require('../config/meetingVisibility');
 const {
   toAppYmd,
   timedEventOverlapsRange,
@@ -55,11 +56,11 @@ async function monthHandler(req, res) {
       },
     });
 
-    // Tous les utilisateurs voient toutes les réunions sur le calendrier
+    // Réunions publiées ou visibles selon le rôle (brouillons responsable : organisateur + consolidateur)
     const meetings = await req.prisma.meeting.findMany({
       where: {
         ...timedEventOverlapsRange(startDate, endDate),
-        status: { not: 'CANCELLED' },
+        ...meetingCalendarWhereForUser(req.user),
       },
       include: {
         organizer: { select: { name: true, email: true } },
@@ -165,7 +166,7 @@ router.get('/week', async (req, res) => {
     const meetings = await req.prisma.meeting.findMany({
       where: {
         ...timedEventOverlapsRange(weekStart, weekEnd),
-        status: { not: 'CANCELLED' },
+        ...meetingCalendarWhereForUser(req.user),
       },
       include: {
         organizer: { select: { name: true, email: true } },
@@ -243,7 +244,7 @@ router.get('/day', async (req, res) => {
     const meetings = await req.prisma.meeting.findMany({
       where: {
         ...timedEventOverlapsRange(dayStart, dayEnd),
-        status: { not: 'CANCELLED' },
+        ...meetingCalendarWhereForUser(req.user),
       },
       include: {
         organizer: { select: { name: true, email: true } },

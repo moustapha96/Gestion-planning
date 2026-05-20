@@ -2,6 +2,12 @@ const express = require('express');
 const roleMiddleware = require('../middlewares/role.middleware');
 const { getAvailableRoomIds } = require('../utils/availability');
 const { ADMIN_ROUTE_ROLES, isPrivilegedAdmin } = require('../config/roles');
+const { appDayBounds, timedEventOverlapsRange } = require('../utils/calendarEvents');
+const {
+    buildRoomDaySlots,
+    findCurrentBooking,
+} = require('../utils/roomBooking');
+const { publishedMeetingStatusFilter } = require('../config/meetingVisibility');
 
 const router = express.Router();
 
@@ -35,10 +41,19 @@ const router = express.Router();
 router.get('/', async (req, res) => {
     try {
         const includeAll = isPrivilegedAdmin(req.user?.role) && req.query.all === '1';
-        const todayStart = new Date();
-        todayStart.setHours(0, 0, 0, 0);
-        const todayEnd = new Date();
-        todayEnd.setHours(23, 59, 59, 999);
+        const { ymd: todayYmd, start: todayStart, end: todayEnd } = appDayBounds(new Date());
+        const now = new Date();
+
+        const meetingsToday = await req.prisma.meeting.findMany({
+            where: {
+                ...publishedMeetingStatusFilter(),
+                roomId: { not: null },
+                ...timedEventOverlapsRange(todayStart, todayEnd),
+            },
+            select: {
+                id: true, roomId: true, title: true, startTime: true, endTime: true,
+            },
+        });
 
         const rooms = await req.prisma.room.findMany({
             where: includeAll ? {} : { status: 'ACTIVE' },
@@ -48,7 +63,6 @@ router.get('/', async (req, res) => {
                         status: 'CONFIRMED',
                         date: { gte: todayStart, lte: todayEnd },
                     },
-                    take: 1,
                     include: { meeting: { select: { title: true } } },
                 },
             },
@@ -56,12 +70,14 @@ router.get('/', async (req, res) => {
         });
 
         const payload = rooms.map((room) => {
-            const booking = room.bookings?.[0];
-            const occupied = !!booking;
+            const slots = buildRoomDaySlots(room.id, todayYmd, room.bookings, meetingsToday);
+            const currentBooking = findCurrentBooking(slots, now, todayYmd);
+            const occupied = !!currentBooking;
             return {
                 ...room,
                 bookings: undefined,
-                currentBooking: booking || null,
+                todaySlots: slots,
+                currentBooking: currentBooking || null,
                 occupancyStatus: occupied ? 'BUSY' : 'FREE',
             };
         });
@@ -75,10 +91,19 @@ router.get('/', async (req, res) => {
 // GET /api/rooms/status - Statut temps réel des salles
 router.get('/status', async (req, res) => {
     try {
-        const todayStart = new Date();
-        todayStart.setHours(0, 0, 0, 0);
-        const todayEnd = new Date();
-        todayEnd.setHours(23, 59, 59, 999);
+        const { ymd: todayYmd, start: todayStart, end: todayEnd } = appDayBounds(new Date());
+        const now = new Date();
+
+        const meetingsToday = await req.prisma.meeting.findMany({
+            where: {
+                ...publishedMeetingStatusFilter(),
+                roomId: { not: null },
+                ...timedEventOverlapsRange(todayStart, todayEnd),
+            },
+            select: {
+                id: true, roomId: true, title: true, startTime: true, endTime: true,
+            },
+        });
 
         const rooms = await req.prisma.room.findMany({
             where: { status: 'ACTIVE' },
@@ -88,16 +113,22 @@ router.get('/status', async (req, res) => {
                         status: 'CONFIRMED',
                         date: { gte: todayStart, lte: todayEnd },
                     },
+                    include: { meeting: { select: { title: true } } },
                 },
             },
         });
 
-        const status = rooms.map((room) => ({
-            id: room.id,
-            name: room.name,
-            status: room.bookings.length > 0 ? 'OCCUPIED' : 'FREE',
-            bookings: room.bookings,
-        }));
+        const status = rooms.map((room) => {
+            const slots = buildRoomDaySlots(room.id, todayYmd, room.bookings, meetingsToday);
+            const current = findCurrentBooking(slots, now, todayYmd);
+            return {
+                id: room.id,
+                name: room.name,
+                status: current ? 'OCCUPIED' : 'FREE',
+                bookings: slots,
+                currentBooking: current,
+            };
+        });
 
         res.json(status);
     } catch (error) {

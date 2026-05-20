@@ -5,7 +5,7 @@ import { useNavigate, useSearchParams } from 'react-router-dom';
 import dayjs from 'dayjs';
 import api from '../api/client';
 import { useAuth } from '../context/AuthContext';
-import { isPrivilegedAdmin, canSuperAdminForceDelete } from '../utils/roles';
+import { isPrivilegedAdmin, canSuperAdminForceDelete, meetingNeedsConsolidatorApproval } from '../utils/roles';
 import { forceDeleteDescription, forceDeleteTitle } from '../utils/deleteConfirm';
 
 const { Title, Text } = Typography;
@@ -329,7 +329,12 @@ export default function Meetings() {
             title: 'Statut',
             dataIndex: 'status',
             key: 'status',
-            render: (s) => <Tag color={STATUS_COLORS[s]}>{STATUS_LABELS[s] || s}</Tag>,
+            render: (s, record) => {
+                if (meetingNeedsConsolidatorApproval(record)) {
+                    return <Tag color="orange">En attente validation</Tag>;
+                }
+                return <Tag color={STATUS_COLORS[s]}>{STATUS_LABELS[s] || s}</Tag>;
+            },
         },
         {
             title: 'Actions',

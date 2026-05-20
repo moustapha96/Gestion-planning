@@ -3,6 +3,7 @@ const roleMiddleware = require('../middlewares/role.middleware');
 const {
     ROLES, ADMIN_ROUTE_ROLES, isPrivilegedAdmin, isSuperAdmin, canViewAllMissions, missionScopeWhere,
 } = require('../config/roles');
+const { meetingListWhereForUser } = require('../config/meetingVisibility');
 
 const router = express.Router();
 
@@ -296,17 +297,19 @@ router.get('/search-global', async (req, res) => {
         if (selectedTypes.has('meetings')) {
             const meetings = await req.prisma.meeting.findMany({
                 where: {
-                    ...(isAdmin ? {} : {
-                        OR: [{ organizerId: userId }, { invitations: { some: { userId } } }],
-                    }),
-                    ...(from || to ? { startTime: { ...(from ? { gte: from } : {}), ...(to ? { lte: to } : {}) } } : {}),
-                    OR: [
-                        { title: contains },
-                        { agenda: contains },
-                        { project: { name: contains } },
-                        { project: { code: contains } },
-                        { direction: { name: contains } },
-                        { direction: { code: contains } },
+                    AND: [
+                        meetingListWhereForUser(req.user),
+                        ...(from || to ? [{ startTime: { ...(from ? { gte: from } : {}), ...(to ? { lte: to } : {}) } }] : []),
+                        {
+                            OR: [
+                                { title: contains },
+                                { agenda: contains },
+                                { project: { name: contains } },
+                                { project: { code: contains } },
+                                { direction: { name: contains } },
+                                { direction: { code: contains } },
+                            ],
+                        },
                     ],
                 },
                 select: {
