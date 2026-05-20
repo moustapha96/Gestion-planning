@@ -69,15 +69,37 @@ export function canCreateMission(role) {
     return role === ROLES.RESPONSABLE || isPrivilegedAdmin(role);
 }
 
-/** Valider / publier une réunion en brouillon (consolidateur si organisateur responsable). */
+/** Utilisateur désigné consolidateur du projet lié à l'entité. */
+export function isProjectConsolidator(entity, user) {
+    if (!entity || !user?.id) return false;
+    const consolidatorId = entity.consolidatorId
+        ?? entity.project?.consolidatorId
+        ?? entity.user?.project?.consolidatorId;
+    return consolidatorId === user.id;
+}
+
+/** Consolider un planning soumis (rôle global ou consolidateur du projet du responsable). */
+export function canConsolidatePlanning(planning, user) {
+    if (!planning || planning.status !== 'SUBMITTED' || !user) return false;
+    if (isPrivilegedAdmin(user.role) || user.role === ROLES.CONSOLIDATEUR) return true;
+    return isProjectConsolidator(planning, user);
+}
+
+/** Valider / publier une réunion en brouillon (consolidateur du projet ou rôle global). */
 export function canApproveMeeting(meeting, user) {
     if (!meeting || meeting.status !== 'DRAFT' || !user) return false;
     if (isPrivilegedAdmin(user.role)) return true;
     const organizerRole = meeting.organizer?.role;
     if (organizerRole === ROLES.RESPONSABLE) {
-        return user.role === ROLES.CONSOLIDATEUR;
+        if (user.role === ROLES.CONSOLIDATEUR) return true;
+        return isProjectConsolidator(meeting, user);
     }
     return meeting.organizerId === user.id;
+}
+
+/** Au moins un projet a cet utilisateur comme consolidateur désigné. */
+export function userConsolidatesAnyProject(projects, userId) {
+    return (projects || []).some((p) => p.consolidatorId === userId);
 }
 
 export function meetingNeedsConsolidatorApproval(meeting) {

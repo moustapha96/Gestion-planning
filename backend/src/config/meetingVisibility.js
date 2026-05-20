@@ -1,4 +1,5 @@
 const { ROLES, isPrivilegedAdmin } = require('./roles');
+const { isUserProjectConsolidator } = require('../services/projectConsolidator.service');
 
 /** Réunions visibles sur le calendrier public / page d'accueil. */
 const PUBLISHED_MEETING_STATUSES = ['SENT', 'CONFIRMED', 'COMPLETED'];
@@ -11,15 +12,23 @@ function publishedMeetingStatusFilter() {
     return { status: { in: PUBLISHED_MEETING_STATUSES } };
 }
 
+/** Brouillons à valider pour l'utilisateur désigné consolidateur d'un projet. */
+function projectConsolidatorDraftFilter(user) {
+    if (!user?.id) return null;
+    return { status: 'DRAFT', project: { consolidatorId: user.id } };
+}
+
 /** Filtre Prisma : réunions affichées sur le calendrier connecté. */
 function meetingCalendarWhereForUser(user) {
     if (isPrivilegedAdmin(user?.role) || user?.role === ROLES.CONSOLIDATEUR) {
         return { status: { not: 'CANCELLED' } };
     }
+    const draftAsConsolidator = projectConsolidatorDraftFilter(user);
     return {
         OR: [
             publishedMeetingStatusFilter(),
             { organizerId: user.id, status: 'DRAFT' },
+            ...(draftAsConsolidator ? [draftAsConsolidator] : []),
         ],
     };
 }
@@ -29,10 +38,12 @@ function meetingListWhereForUser(user) {
     if (isPrivilegedAdmin(user?.role) || user?.role === ROLES.CONSOLIDATEUR) {
         return { status: { not: 'CANCELLED' } };
     }
+    const draftAsConsolidator = projectConsolidatorDraftFilter(user);
     return {
         OR: [
             { organizerId: user.id },
             { invitations: { some: { userId: user.id } } },
+            ...(draftAsConsolidator ? [draftAsConsolidator] : []),
         ],
     };
 }
@@ -47,7 +58,8 @@ function canPublishMeeting(meeting, user) {
     if (isPrivilegedAdmin(user?.role)) return true;
     const organizerRole = meeting.organizer?.role;
     if (requiresConsolidatorApproval(organizerRole)) {
-        return user?.role === ROLES.CONSOLIDATEUR;
+        if (user?.role === ROLES.CONSOLIDATEUR) return true;
+        return isUserProjectConsolidator(user, meeting.project);
     }
     return meeting.organizerId === user.id;
 }

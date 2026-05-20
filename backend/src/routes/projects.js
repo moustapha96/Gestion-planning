@@ -3,6 +3,7 @@ const path = require('path');
 const fs = require('fs');
 const multer = require('multer');
 const { isPrivilegedAdmin, ROLES } = require('../config/roles');
+const { validateConsolidatorId, PROJECT_CONSOLIDATOR_INCLUDE } = require('../services/projectConsolidator.service');
 const { pdfOnlyMulterFileFilter, wrapMulterUpload } = require('../utils/pdfUpload');
 
 const router = express.Router();
@@ -45,6 +46,17 @@ function canManageProject(project, user) {
     return Boolean(project && user && (isPrivilegedAdmin(user.role) || project.createdById === user.id || user.role === ROLES.RESPONSABLE));
 }
 
+function canCreateProject(user) {
+    return Boolean(user && (ALLOWED_ROLES.includes(user.role) || user.role === ROLES.RESPONSABLE));
+}
+
+/** Créateur, responsable ou administration peuvent désigner le consolidateur. */
+function canSetProjectConsolidator(project, user) {
+    if (!user) return false;
+    if (ALLOWED_ROLES.includes(user.role) || user.role === ROLES.RESPONSABLE) return true;
+    return Boolean(project && project.createdById === user.id);
+}
+
 function canAddProjectFile(project, user) {
     if (!project || !user) return false;
     if (project.status === 'COMPLETED') return false;
@@ -62,6 +74,7 @@ router.get('/', async (req, res) => {
             where,
             include: {
                 createdBy: { select: { id: true, name: true, email: true } },
+                ...PROJECT_CONSOLIDATOR_INCLUDE,
                 _count: { select: { missions: true, meetings: true, planningEvents: true, files: true } },
             },
             orderBy: { name: 'asc' },
@@ -78,6 +91,7 @@ router.get('/:id', async (req, res) => {
             where: { id: req.params.id },
             include: {
                 createdBy: { select: { id: true, name: true, email: true } },
+                ...PROJECT_CONSOLIDATOR_INCLUDE,
                 missions: {
                     select: { id: true, title: true, status: true, startTime: true, endTime: true },
                     orderBy: { startTime: 'desc' },
@@ -104,10 +118,12 @@ router.get('/:id', async (req, res) => {
 });
 
 router.post('/', async (req, res) => {
-    if (!ALLOWED_ROLES.includes(req.user?.role)) return res.status(403).json({ error: 'Accès refusé' });
-    const { name, code, description, logoUrl: logoUrlRaw } = req.body;
+    if (!canCreateProject(req.user)) return res.status(403).json({ error: 'Accès refusé' });
+    const { name, code, description, logoUrl: logoUrlRaw, consolidatorId: consolidatorIdRaw } = req.body;
     if (!name?.trim()) return res.status(400).json({ error: 'Le nom est requis' });
     const logoUrl = logoUrlRaw !== undefined ? String(logoUrlRaw || '').trim() : null;
+    const consolidatorCheck = await validateConsolidatorId(req.prisma, consolidatorIdRaw ?? null);
+    if (!consolidatorCheck.ok) return res.status(400).json({ error: consolidatorCheck.error });
     try {
         const project = await req.prisma.project.create({
             data: {
@@ -115,10 +131,12 @@ router.post('/', async (req, res) => {
                 code: code?.trim() || null,
                 description: description?.trim() || null,
                 ...(logoUrl ? { logoUrl } : {}),
+                consolidatorId: consolidatorCheck.value ?? null,
                 status: 'ACTIVE',
                 isActive: true,
                 createdById: req.user?.id || null,
             },
+            include: PROJECT_CONSOLIDATOR_INCLUDE,
         });
         res.status(201).json(project);
     } catch (err) {
@@ -132,7 +150,7 @@ router.put('/:id', async (req, res) => {
     if (!project) return res.status(404).json({ error: 'Projet introuvable' });
     if (!canManageProject(project, req.user)) return res.status(403).json({ error: 'Accès refusé' });
 
-    const { name, code, description, isActive, logoUrl: logoUrlBody } = req.body;
+    const { name, code, description, isActive, logoUrl: logoUrlBody, consolidatorId: consolidatorIdRaw } = req.body;
     const data = {};
     if (name !== undefined) data.name = String(name || '').trim();
     if (code !== undefined) data.code = code?.trim() || null;
@@ -142,9 +160,21 @@ router.put('/:id', async (req, res) => {
         const lu = String(logoUrlBody || '').trim();
         data.logoUrl = lu || '/logo-gp.png';
     }
+    if (consolidatorIdRaw !== undefined) {
+        if (!canSetProjectConsolidator(project, req.user)) {
+            return res.status(403).json({ error: 'Vous n\'êtes pas autorisé à désigner le consolidateur de ce projet.' });
+        }
+        const consolidatorCheck = await validateConsolidatorId(req.prisma, consolidatorIdRaw);
+        if (!consolidatorCheck.ok) return res.status(400).json({ error: consolidatorCheck.error });
+        data.consolidatorId = consolidatorCheck.value ?? null;
+    }
 
     try {
-        const updated = await req.prisma.project.update({ where: { id: req.params.id }, data });
+        const updated = await req.prisma.project.update({
+            where: { id: req.params.id },
+            data,
+            include: PROJECT_CONSOLIDATOR_INCLUDE,
+        });
         res.json(updated);
     } catch (err) {
         if (err.code === 'P2002') return res.status(409).json({ error: 'Un projet avec ce nom existe déjà' });

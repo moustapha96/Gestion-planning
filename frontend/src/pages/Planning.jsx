@@ -13,7 +13,7 @@ import {
 import dayjs from 'dayjs';
 import api from '../api/client';
 import { useAuth } from '../context/AuthContext';
-import { isPrivilegedAdmin } from '../utils/roles';
+import { isPrivilegedAdmin, canConsolidatePlanning, userConsolidatesAnyProject } from '../utils/roles';
 
 const { Title, Text } = Typography;
 const { TextArea } = Input;
@@ -172,6 +172,7 @@ export default function Planning() {
     const [actionLoadingId, setActionLoadingId] = useState(null);
     const [deleteLoadingId, setDeleteLoadingId] = useState(null);
     const [shareModal,      setShareModal]      = useState({ open: false, text: '' });
+    const [taxonomyProjects, setTaxonomyProjects] = useState([]);
 
     const isConsolidateur = user?.role === 'CONSOLIDATEUR';
     const isCoordProjet   = user?.role === 'COORDINATEUR_PROJET';
@@ -179,7 +180,14 @@ export default function Planning() {
     const isDG            = user?.role === 'DG';
     const isResponsable   = user?.role === 'RESPONSABLE';
     const isAdmin         = isPrivilegedAdmin(user?.role);
-    const canSeeAll       = isConsolidateur || isCoordProjet || isSG || isDG || isAdmin;
+    const isProjectConsolidator = userConsolidatesAnyProject(taxonomyProjects, user?.id);
+    const canSeeAll       = isConsolidateur || isCoordProjet || isSG || isDG || isAdmin || isProjectConsolidator;
+
+    useEffect(() => {
+        api.get('/events/taxonomy')
+            .then((res) => setTaxonomyProjects(res.data?.projects || []))
+            .catch(() => setTaxonomyProjects([]));
+    }, [user?.id]);
 
     useEffect(() => { fetchPlannings(selectedDate, mineOnly); }, [selectedDate, mineOnly]); // eslint-disable-line
 
@@ -396,7 +404,7 @@ export default function Planning() {
             render: (_, record) => {
                 const canSubmit = (record.userId === user?.id || isAdmin) &&
                     (record.status === 'DRAFT' || record.status === 'RETURNED');
-                const canConsol = (isConsolidateur || isAdmin) && record.status === 'SUBMITTED';
+                const canConsol = canConsolidatePlanning(record, user);
                 const canApproveCp = (isCoordProjet || isAdmin)
                     && (record.status === 'CP_PENDING' || record.status === 'IN_CONSOLIDATION');
                 const canApproveSg = (isSG || isDG || isAdmin) && record.status === 'SG_PENDING';

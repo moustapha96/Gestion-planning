@@ -470,7 +470,11 @@ export function UsersTab() {
                             }))}
                         />
                     </Form.Item>
-                    <Form.Item name="projectId" label="Projet (canal équipe)">
+                    <Form.Item
+                        name="projectId"
+                        label="Projet (canal équipe)"
+                        extra="Si un projet est choisi, cet utilisateur devient automatiquement consolidateur de ce projet."
+                    >
                         <Select
                             allowClear
                             placeholder="Aucun projet"
@@ -526,7 +530,11 @@ export function UsersTab() {
                             }))}
                         />
                     </Form.Item>
-                    <Form.Item name="projectId" label="Projet (canal équipe)">
+                    <Form.Item
+                        name="projectId"
+                        label="Projet (canal équipe)"
+                        extra="Si un projet est choisi, cet utilisateur devient automatiquement consolidateur de ce projet."
+                    >
                         <Select
                             allowClear
                             placeholder="Aucun projet"

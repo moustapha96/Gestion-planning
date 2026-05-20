@@ -196,24 +196,17 @@ async function publishMeeting(req, meeting) {
     return updated;
 }
 
+const { notifyConsolidatorsForProject } = require('../services/projectConsolidator.service');
+
 async function notifyConsolidatorsPendingMeeting(prisma, req, meeting, organizer) {
-    const consolidators = await prisma.user.findMany({
-        where: { role: ROLES.CONSOLIDATEUR, isActive: true },
-        select: { id: true, name: true, email: true },
+    await notifyConsolidatorsForProject(prisma, req, meeting.projectId, {
+        type: 'MEETING_PENDING_APPROVAL',
+        emailType: 'MEETING_PENDING_APPROVAL',
+        emailArgs: (c) => [c, meeting, organizer, meeting.room],
+        title: `Réunion à valider : ${meeting.title}`,
+        message: `${organizer.name} a soumis une réunion en attente de validation.`,
+        link: `/meetings/${meeting.id}`,
     });
-    for (const c of consolidators) {
-        await notificationService.sendFullNotification(
-            prisma,
-            c.id,
-            c.email,
-            'MEETING_PENDING_APPROVAL',
-            'MEETING_PENDING_APPROVAL',
-            [c, meeting, organizer, meeting.room],
-            `Réunion à valider : ${meeting.title}`,
-            `${organizer.name} a soumis une réunion en attente de validation.`,
-            `/meetings/${meeting.id}`,
-        );
-    }
 }
 
 const meetingsUploadDir = path.join(__dirname, '../../uploads/meetings');
@@ -312,7 +305,7 @@ router.get('/', async (req, res) => {
                     organizer: { select: { name: true, email: true, role: true } },
                     room: true,
                     direction: { select: { id: true, name: true, code: true } },
-                    project: { select: { id: true, name: true, code: true } },
+                    project: { select: { id: true, name: true, code: true, consolidatorId: true } },
                     eventType: EVENT_TYPE_INCLUDE,
                     invitations: { include: { user: true } },
                     ...(includeFiles
@@ -382,7 +375,7 @@ router.get('/:id', async (req, res) => {
                 organizer: true,
                 room: true,
                 direction: { select: { id: true, name: true, code: true } },
-                project: { select: { id: true, name: true, code: true } },
+                project: { select: { id: true, name: true, code: true, consolidatorId: true } },
                 eventType: EVENT_TYPE_INCLUDE,
                 invitations: { include: { user: true } },
                 messages: {
@@ -779,7 +772,7 @@ router.put('/:id', async (req, res) => {
                 organizer: { select: { name: true, email: true } },
                 room: true,
                 direction: { select: { id: true, name: true, code: true } },
-                project: { select: { id: true, name: true, code: true } },
+                project: { select: { id: true, name: true, code: true, consolidatorId: true } },
                 eventType: EVENT_TYPE_INCLUDE,
                 invitations: { include: { user: true } },
             },
@@ -1102,6 +1095,7 @@ router.put('/:id/approve', async (req, res) => {
             where: { id: req.params.id },
             include: {
                 organizer: { select: { id: true, name: true, email: true, role: true } },
+                project: { select: { id: true, name: true, consolidatorId: true } },
                 invitations: { include: { user: true } },
                 room: true,
             },

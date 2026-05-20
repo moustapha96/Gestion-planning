@@ -14,7 +14,7 @@ import {
 import dayjs from 'dayjs';
 import api from '../api/client';
 import { useAuth } from '../context/AuthContext';
-import { isPrivilegedAdmin, canSuperAdminForceDelete } from '../utils/roles';
+import { isPrivilegedAdmin, canSuperAdminForceDelete, canConsolidatePlanning, isProjectConsolidator } from '../utils/roles';
 import { forceDeleteDescription, forceDeleteTitle } from '../utils/deleteConfirm';
 import ForceDeletePopconfirm from '../components/ForceDeletePopconfirm';
 
@@ -580,7 +580,7 @@ export default function PlanningDetail() {
 
     const canEditEvents  = planning.status !== 'CANCELLED' && (isAdmin || (isOwner && (planning.status === 'DRAFT' || planning.status === 'RETURNED')));
     const canSubmit      = (isOwner || isAdmin) && (planning.status === 'DRAFT' || planning.status === 'RETURNED');
-    const canConsolidate = (isConsolidateur || isAdmin) && planning.status === 'SUBMITTED';
+    const canConsolidate = canConsolidatePlanning(planning, user);
     const canApproveCp   = (isCoordProjet || isAdmin)
         && (planning.status === 'CP_PENDING' || planning.status === 'IN_CONSOLIDATION');
     const canApproveSg   = (isSG || isDG || isAdmin) && planning.status === 'SG_PENDING';
@@ -889,7 +889,7 @@ export default function PlanningDetail() {
                 )}
 
                 {/* ── Missions croisées ── */}
-                {(isAdmin || isConsolidateur || isCoordProjet || isSG || isDG || isOwner) && (
+                {(isAdmin || isConsolidateur || isCoordProjet || isSG || isDG || isOwner || isProjectConsolidator(planning, user)) && (
                     <>
                         <Divider style={{ margin: '24px 0 16px' }} />
                         <div style={{ marginBottom: 12 }}>

@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
-import { Card, Typography, Tag, Button, Space, Descriptions, List, Upload, Popconfirm, App, Spin, Modal, Form, Input, Switch } from 'antd';
+import { Card, Typography, Tag, Button, Space, Descriptions, List, Upload, Popconfirm, App, Spin, Modal, Form, Input, Switch, Select } from 'antd';
 import {
     ArrowLeftOutlined,
     ProjectOutlined,
@@ -15,6 +15,7 @@ import {
     CheckCircleOutlined,
     StopOutlined,
     MessageOutlined,
+    UserOutlined,
 } from '@ant-design/icons';
 import api, { API_BASE } from '../api/client';
 import { useAuth } from '../context/AuthContext';
@@ -43,10 +44,14 @@ export default function ProjectDetail() {
     const [saving, setSaving] = useState(false);
     const [logoUploading, setLogoUploading] = useState(false);
     const [editOpen, setEditOpen] = useState(false);
+    const [allUsers, setAllUsers] = useState([]);
     const [form] = Form.useForm();
 
     const canEdit = CAN_EDIT.includes(user?.role);
     const canManageStatus = project && (canEdit || user?.role === 'RESPONSABLE' || project.createdById === user?.id);
+    const canSetConsolidator = Boolean(
+        project && (canEdit || user?.role === 'RESPONSABLE' || project.createdById === user?.id),
+    );
     const canUploadFiles = project && project.status !== 'COMPLETED' && (
         canEdit || user?.role === 'RESPONSABLE' || project.createdById === user?.id
     );
@@ -65,6 +70,13 @@ export default function ProjectDetail() {
     };
 
     useEffect(() => { load(); }, [id]);
+
+    useEffect(() => {
+        if (!canSetConsolidator) return;
+        api.get('/users/participants')
+            .then((res) => setAllUsers(res.data || []))
+            .catch(() => setAllUsers([]));
+    }, [canSetConsolidator]);
 
     const handleUpload = async ({ file, onSuccess, onError }) => {
         if (!isAcceptedPdfFile(file)) {
@@ -107,6 +119,7 @@ export default function ProjectDetail() {
             description: project.description || '',
             isActive: Boolean(project.isActive),
             logoUrl: project.logoUrl || '',
+            consolidatorId: project.consolidatorId || undefined,
         });
         setEditOpen(true);
     };
@@ -194,7 +207,7 @@ export default function ProjectDetail() {
                 )}
                 {canManageStatus && (
                     <Button icon={<EditOutlined />} onClick={openEdit}>
-                        Modifier
+                        Modifier le projet
                     </Button>
                 )}
                 {canManageStatus && project.status !== 'COMPLETED' && (
@@ -280,9 +293,23 @@ export default function ProjectDetail() {
                         <ProjectOutlined style={{ fontSize: 28, color: '#1565C0' }} />
                     </div>
                 )}
-                <Title level={3} style={{ margin: 0 }}>
-                    {project.name}
-                </Title>
+                <div>
+                    <Title level={3} style={{ margin: 0 }}>
+                        {project.name}
+                    </Title>
+                    <Space size={8} style={{ marginTop: 8 }} wrap>
+                        <Tag color={STATUS_COLORS[project.status] || 'default'}>
+                            {STATUS_LABELS[project.status] || project.status}
+                        </Tag>
+                        {project.consolidator ? (
+                            <Tag icon={<UserOutlined />} color="purple">
+                                Consolidateur : {project.consolidator.name}
+                            </Tag>
+                        ) : (
+                            <Tag color="default">Consolidateur non défini</Tag>
+                        )}
+                    </Space>
+                </div>
             </div>
 
             <Card style={{ marginBottom: 16 }}>
@@ -295,6 +322,22 @@ export default function ProjectDetail() {
                     </Descriptions.Item>
                     <Descriptions.Item label="Créateur">
                         {project.createdBy?.name || project.createdBy?.email || '—'}
+                    </Descriptions.Item>
+                    <Descriptions.Item label="Consolidateur">
+                        {project.consolidator ? (
+                            <Space direction="vertical" size={0}>
+                                <Text strong>
+                                    <UserOutlined style={{ marginRight: 6, color: '#722ed1' }} />
+                                    {project.consolidator.name}
+                                </Text>
+                                <Text type="secondary" style={{ fontSize: 12 }}>
+                                    {project.consolidator.email}
+                                    {project.consolidator.role ? ` · ${project.consolidator.role}` : ''}
+                                </Text>
+                            </Space>
+                        ) : (
+                            <Text type="secondary">Non défini — à configurer par l&apos;administration</Text>
+                        )}
                     </Descriptions.Item>
                     <Descriptions.Item label="Description">
                         {project.description || <Text type="secondary">—</Text>}
@@ -378,6 +421,7 @@ export default function ProjectDetail() {
             <Modal
                 open={editOpen}
                 title="Modifier le projet"
+                width={560}
                 onCancel={() => setEditOpen(false)}
                 onOk={handleSave}
                 confirmLoading={saving}
@@ -442,6 +486,24 @@ export default function ProjectDetail() {
                     <Form.Item name="isActive" label="Actif" valuePropName="checked">
                         <Switch />
                     </Form.Item>
+                    {canSetConsolidator && (
+                        <Form.Item
+                            name="consolidatorId"
+                            label="Consolidateur du projet"
+                            extra="Valide réunions, plannings et demandes pour ce projet (tout rôle)."
+                        >
+                            <Select
+                                allowClear
+                                showSearch
+                                placeholder="Choisir un utilisateur"
+                                optionFilterProp="label"
+                                options={allUsers.map((u) => ({
+                                    value: u.id,
+                                    label: `${u.name} (${u.email}) — ${u.role}`,
+                                }))}
+                            />
+                        </Form.Item>
+                    )}
                 </Form>
             </Modal>
         </div>

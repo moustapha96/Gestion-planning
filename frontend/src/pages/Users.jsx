@@ -460,7 +460,11 @@ export default function Users() {
                             </Form.Item>
                         </Col>
                         <Col xs={24} sm={12}>
-                            <Form.Item name="projectId" label="Projet (équipe)">
+                            <Form.Item
+                                name="projectId"
+                                label="Projet (équipe)"
+                                extra="Si un projet est choisi, l'utilisateur devient consolidateur de ce projet."
+                            >
                                 <Select allowClear placeholder="Choisir un projet" showSearch optionFilterProp="children">
                                     {projectsList.map((p) => (
                                         <Select.Option key={p.id} value={p.id}>
@@ -545,7 +549,11 @@ export default function Users() {
                             </Form.Item>
                         </Col>
                         <Col xs={24} sm={12}>
-                            <Form.Item name="projectId" label="Projet (équipe)">
+                            <Form.Item
+                                name="projectId"
+                                label="Projet (équipe)"
+                                extra="Si un projet est choisi, l'utilisateur devient consolidateur de ce projet."
+                            >
                                 <Select allowClear placeholder="Choisir un projet" showSearch optionFilterProp="children">
                                     {projectsList.map((p) => (
                                         <Select.Option key={p.id} value={p.id}>

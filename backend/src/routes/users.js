@@ -12,6 +12,10 @@ const { ROLE_PERMISSIONS, ROLE_LABELS } = require('../config/rolePermissions');
 const { syncDirectionDiscussionMembers } = require('../services/directionDiscussion.service');
 const { syncProjectDiscussionMembers } = require('../services/projectDiscussion.service');
 const {
+    assignUserAsProjectConsolidator,
+    clearProjectConsolidatorIfUser,
+} = require('../services/projectConsolidator.service');
+const {
     validatePasswordStrength,
     createPasswordResetToken,
     buildPasswordResetUrl,
@@ -205,6 +209,7 @@ router.post('/', roleMiddleware(ADMIN_ROUTE_ROLES), async (req, res) => {
         }
         if (user.projectId) {
             await syncProjectDiscussionMembers(req.prisma, user.projectId);
+            await assignUserAsProjectConsolidator(req.prisma, user.projectId, user.id);
         }
 
         logger.info('USER_CREATED', `Utilisateur ${email} créé par admin ${req.user.id}`, {
@@ -357,9 +362,11 @@ router.put('/:id', roleMiddleware(ADMIN_ROUTE_ROLES), async (req, res) => {
         const nextProjectId = updated.projectId || null;
         if (previousProjectId && previousProjectId !== nextProjectId) {
             await syncProjectDiscussionMembers(req.prisma, previousProjectId);
+            await clearProjectConsolidatorIfUser(req.prisma, previousProjectId, updated.id);
         }
         if (nextProjectId) {
             await syncProjectDiscussionMembers(req.prisma, nextProjectId);
+            await assignUserAsProjectConsolidator(req.prisma, nextProjectId, updated.id);
         }
 
         // Si le rôle a changé : email + notification in-app à l'utilisateur concerné

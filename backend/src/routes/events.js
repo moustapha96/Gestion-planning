@@ -7,6 +7,7 @@ const { ROLES, ADMIN_ROUTE_ROLES, isPrivilegedAdmin, isSuperAdmin } = require('.
 const { meetingCalendarWhereForUser } = require('../config/meetingVisibility');
 const { detachProjectReferences, detachDirectionReferences } = require('../utils/forceDelete');
 const { syncDirectionDiscussionMembers } = require('../services/directionDiscussion.service');
+const { validateConsolidatorId, PROJECT_CONSOLIDATOR_INCLUDE } = require('../services/projectConsolidator.service');
 
 const router = express.Router();
 const directionLogosDir = path.join(__dirname, '../../uploads/directions');
@@ -432,16 +433,20 @@ router.post('/projects', async (req, res) => {
         const logoUrlRaw = req.body?.logoUrl;
         const logoUrl = logoUrlRaw !== undefined ? String(logoUrlRaw || '').trim() || '/logo-gp.png' : '/logo-gp.png';
         if (!name) return res.status(400).json({ error: 'Le nom du projet est requis.' });
+        const consolidatorCheck = await validateConsolidatorId(req.prisma, req.body?.consolidatorId ?? null);
+        if (!consolidatorCheck.ok) return res.status(400).json({ error: consolidatorCheck.error });
         const created = await req.prisma.project.create({
             data: {
                 name,
                 code,
                 description,
                 logoUrl,
+                consolidatorId: consolidatorCheck.value ?? null,
                 isActive: true,
                 status: 'ACTIVE',
                 createdById: req.user?.id || null,
             },
+            include: PROJECT_CONSOLIDATOR_INCLUDE,
         });
         res.status(201).json(created);
     } catch (error) {
@@ -473,6 +478,7 @@ router.get('/taxonomy', async (req, res) => {
             }),
             req.prisma.project.findMany({
                 where: includeInactive ? {} : { isActive: true, status: 'ACTIVE' },
+                include: PROJECT_CONSOLIDATOR_INCLUDE,
                 orderBy: { name: 'asc' },
             }),
             req.prisma.eventType.findMany({
@@ -534,6 +540,11 @@ router.put('/projects/:id', async (req, res) => {
         if (description !== undefined) data.description = description;
         if (logoUrl !== undefined) data.logoUrl = logoUrl;
         if (isActive !== undefined) data.isActive = isActive;
+        if (req.body?.consolidatorId !== undefined) {
+            const consolidatorCheck = await validateConsolidatorId(req.prisma, req.body.consolidatorId);
+            if (!consolidatorCheck.ok) return res.status(400).json({ error: consolidatorCheck.error });
+            data.consolidatorId = consolidatorCheck.value ?? null;
+        }
         if (isActive !== undefined && req.body?.status === undefined) {
             data.status = isActive ? 'ACTIVE' : 'PAUSED';
         }
@@ -545,7 +556,11 @@ router.put('/projects/:id', async (req, res) => {
             data.status = s;
             data.isActive = s === 'ACTIVE';
         }
-        const updated = await req.prisma.project.update({ where: { id: req.params.id }, data });
+        const updated = await req.prisma.project.update({
+            where: { id: req.params.id },
+            data,
+            include: PROJECT_CONSOLIDATOR_INCLUDE,
+        });
         res.json(updated);
     } catch (error) {
         res.status(400).json({ error: error.message });

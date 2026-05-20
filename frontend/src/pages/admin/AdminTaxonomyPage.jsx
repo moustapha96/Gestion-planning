@@ -1,7 +1,7 @@
 import { useEffect, useState, useCallback, useMemo } from 'react';
 import { useNavigate } from 'react-router-dom';
 import {
-    Table, Tag, Button, Typography, Space, Modal, Form, Input, Popconfirm, App, Tooltip, Row, Col, Spin, Switch, Alert, Upload, List, Grid, Card,
+    Table, Tag, Button, Typography, Space, Modal, Form, Input, Popconfirm, App, Tooltip, Row, Col, Spin, Switch, Alert, Upload, List, Grid, Card, Select,
 } from 'antd';
 import { PlusOutlined, EditOutlined, DeleteOutlined, ApartmentOutlined, ProjectOutlined, UploadOutlined } from '@ant-design/icons';
 import { Link } from 'react-router-dom';
@@ -35,6 +35,7 @@ export default function AdminTaxonomyPage({ variant }) {
     const [saving, setSaving] = useState(false);
     const [logoUploading, setLogoUploading] = useState(false);
     const [search, setSearch] = useState('');
+    const [allUsers, setAllUsers] = useState([]);
     const [createForm] = Form.useForm();
     const [editForm] = Form.useForm();
     const createLogoUrl = Form.useWatch('logoUrl', createForm);
@@ -110,6 +111,13 @@ export default function AdminTaxonomyPage({ variant }) {
 
     useEffect(() => { load(); }, [load]);
 
+    useEffect(() => {
+        if (isDirections) return;
+        api.get('/users')
+            .then((res) => setAllUsers((res.data || []).filter((u) => u.isActive)))
+            .catch(() => setAllUsers([]));
+    }, [isDirections]);
+
     const rawItems = isDirections ? directions : projects;
 
     const items = useMemo(() => {
@@ -167,6 +175,7 @@ export default function AdminTaxonomyPage({ variant }) {
             logoUrl: item?.logoUrl || '',
             description: item?.description || '',
             isActive: Boolean(item?.isActive),
+            consolidatorId: item?.consolidatorId || undefined,
         });
     };
 
@@ -276,6 +285,20 @@ export default function AdminTaxonomyPage({ variant }) {
             width: 120,
             render: (v) => v || '—',
         },
+        ...(!isDirections ? [{
+            title: 'Consolidateur',
+            key: 'consolidator',
+            width: 180,
+            render: (_, record) => {
+                const c = record.consolidator;
+                if (!c) return <Text type="secondary">Non défini</Text>;
+                return (
+                    <Tooltip title={c.email}>
+                        <Text>{c.name}</Text>
+                    </Tooltip>
+                );
+            },
+        }] : []),
         {
             title: 'Description',
             dataIndex: 'description',
@@ -536,6 +559,24 @@ export default function AdminTaxonomyPage({ variant }) {
                     <Form.Item name="description" label="Description">
                         <Input.TextArea rows={3} />
                     </Form.Item>
+                    {!isDirections && (
+                        <Form.Item
+                            name="consolidatorId"
+                            label="Consolidateur du projet"
+                            extra="Utilisateur qui valide les réunions, plannings et demandes liées à ce projet (tout rôle)."
+                        >
+                            <Select
+                                allowClear
+                                showSearch
+                                placeholder="Choisir un utilisateur"
+                                optionFilterProp="label"
+                                options={allUsers.map((u) => ({
+                                    value: u.id,
+                                    label: `${u.name} (${u.email}) — ${u.role}`,
+                                }))}
+                            />
+                        </Form.Item>
+                    )}
                 </Form>
             </Modal>
 
@@ -594,6 +635,22 @@ export default function AdminTaxonomyPage({ variant }) {
                     </Form.Item>
                     <Form.Item name="isActive" label="Actif" valuePropName="checked">
                         <Switch />
+                    </Form.Item>
+                    <Form.Item
+                        name="consolidatorId"
+                        label="Consolidateur du projet"
+                        extra="Utilisateur qui valide les réunions, plannings et demandes liées à ce projet (tout rôle)."
+                    >
+                        <Select
+                            allowClear
+                            showSearch
+                            placeholder="Choisir un utilisateur"
+                            optionFilterProp="label"
+                            options={allUsers.map((u) => ({
+                                value: u.id,
+                                label: `${u.name} (${u.email}) — ${u.role}`,
+                            }))}
+                        />
                     </Form.Item>
                 </Form>
                 )}

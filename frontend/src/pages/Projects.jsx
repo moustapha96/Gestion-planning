@@ -1,12 +1,12 @@
 import { useState, useEffect, useCallback } from 'react';
 import {
     Card, Table, Button, Modal, Form, Input, Switch, Popconfirm, Tag, Space,
-    Typography, App, Drawer, Descriptions, List, Statistic, Row, Col, Tooltip, Badge, Upload,
+    Typography, App, Drawer, Descriptions, List, Statistic, Row, Col, Tooltip, Badge, Upload, Select,
 } from 'antd';
 import {
     ProjectOutlined, PlusOutlined, EditOutlined, DeleteOutlined,
     EyeOutlined, TeamOutlined, FlagOutlined, CheckCircleOutlined, StopOutlined, PauseCircleOutlined,
-    FileAddOutlined, FileTextOutlined, UploadOutlined,
+    FileAddOutlined, FileTextOutlined, UploadOutlined, UserOutlined,
 } from '@ant-design/icons';
 import { useNavigate } from 'react-router-dom';
 import api, { API_BASE } from '../api/client';
@@ -42,11 +42,15 @@ export default function Projects() {
     const [logoUploading, setLogoUploading] = useState(false);
     const [pendingLogoFile, setPendingLogoFile] = useState(null);
     const [search,        setSearch]        = useState('');
+    const [allUsers,      setAllUsers]      = useState([]);
     const [form] = Form.useForm();
 
     const canEdit = CAN_EDIT.includes(user?.role);
+    const canCreateProject = canEdit || user?.role === 'RESPONSABLE';
     const canManageProjectRow = (p) =>
         Boolean(p) && (canEdit || user?.role === 'RESPONSABLE' || p.createdById === user?.id);
+    const canSetConsolidator = (p) =>
+        canEdit || user?.role === 'RESPONSABLE' || (p && p.createdById === user?.id) || (!p && canCreateProject);
     const canUploadProjectFiles = (project) =>
         Boolean(project) && project.status !== 'COMPLETED' && (
             canEdit || user?.role === 'RESPONSABLE' || project.createdById === user?.id
@@ -67,6 +71,13 @@ export default function Projects() {
 
     useEffect(() => { load(); }, [load]);
 
+    useEffect(() => {
+        if (!canCreateProject) return;
+        api.get('/users/participants')
+            .then((res) => setAllUsers(res.data || []))
+            .catch(() => setAllUsers([]));
+    }, [canCreateProject]);
+
     // ── Ouvrir formulaire création/édition ────────────────────────
     const openCreate = () => {
         setEditTarget(null);
@@ -84,14 +95,18 @@ export default function Projects() {
             description: p.description || '',
             isActive: p.isActive,
             logoUrl: p.logoUrl || '',
+            consolidatorId: p.consolidatorId || undefined,
         });
         setModalOpen(true);
     };
 
     const handleSave = async () => {
         const values = await form.validateFields();
-        const { logoUrl, ...rest } = values;
+        const { logoUrl, consolidatorId, ...rest } = values;
         const payload = { ...rest };
+        if (canSetConsolidator(editTarget)) {
+            payload.consolidatorId = consolidatorId || null;
+        }
         if (editTarget) {
             if (logoUrl !== undefined) {
                 payload.logoUrl = String(logoUrl || '').trim() || '/logo-gp.png';
@@ -241,7 +256,9 @@ export default function Projects() {
         return (
             p.name?.toLowerCase().includes(q) ||
             p.code?.toLowerCase().includes(q) ||
-            p.description?.toLowerCase().includes(q)
+            p.description?.toLowerCase().includes(q) ||
+            p.consolidator?.name?.toLowerCase().includes(q) ||
+            p.consolidator?.email?.toLowerCase().includes(q)
         );
     });
 
@@ -294,6 +311,24 @@ export default function Projects() {
             dataIndex: 'description',
             ellipsis: true,
             render: (d) => d || <Text type="secondary">—</Text>,
+        },
+        {
+            title: 'Consolidateur',
+            key: 'consolidator',
+            width: 180,
+            ellipsis: true,
+            render: (_, row) => {
+                const c = row.consolidator;
+                if (!c) return <Text type="secondary">Non défini</Text>;
+                return (
+                    <Tooltip title={`${c.email} — ${c.role}`}>
+                        <Space size={4}>
+                            <UserOutlined style={{ color: '#722ed1' }} />
+                            <Text>{c.name}</Text>
+                        </Space>
+                    </Tooltip>
+                );
+            },
         },
         {
             title: 'Missions',
@@ -383,7 +418,7 @@ export default function Projects() {
                 <Title level={3} style={{ margin: 0 }}>
                     <ProjectOutlined style={{ marginRight: 8 }} />Projets
                 </Title>
-                {canEdit && (
+                {canCreateProject && (
                     <Button type="primary" icon={<PlusOutlined />} onClick={openCreate}>
                         Nouveau projet
                     </Button>
@@ -516,6 +551,24 @@ export default function Projects() {
                             <Switch checkedChildren="Actif" unCheckedChildren="Inactif" />
                         </Form.Item>
                     )}
+                    {canSetConsolidator(editTarget) && (
+                        <Form.Item
+                            name="consolidatorId"
+                            label="Consolidateur du projet"
+                            extra="Utilisateur qui valide réunions, plannings et demandes pour ce projet (tout rôle)."
+                        >
+                            <Select
+                                allowClear
+                                showSearch
+                                placeholder="Choisir un utilisateur"
+                                optionFilterProp="label"
+                                options={allUsers.map((u) => ({
+                                    value: u.id,
+                                    label: `${u.name} (${u.email}) — ${u.role}`,
+                                }))}
+                            />
+                        </Form.Item>
+                    )}
                 </Form>
             </Modal>
 
@@ -524,9 +577,23 @@ export default function Projects() {
                 open={!!drawerProject}
                 onClose={() => setDrawerProject(null)}
                 extra={drawerProject?.id ? (
-                    <Button type="primary" size="small" onClick={() => navigate(`/projects/${drawerProject.id}`)}>
-                        Ouvrir la page détail
-                    </Button>
+                    <Space>
+                        {canManageProjectRow(drawerProject) && (
+                            <Button
+                                size="small"
+                                icon={<EditOutlined />}
+                                onClick={() => {
+                                    openEdit(drawerProject);
+                                    setDrawerProject(null);
+                                }}
+                            >
+                                Modifier
+                            </Button>
+                        )}
+                        <Button type="primary" size="small" onClick={() => navigate(`/projects/${drawerProject.id}`)}>
+                            Page détail
+                        </Button>
+                    </Space>
                 ) : null}
                 title={(
                     <span style={{ display: 'inline-flex', alignItems: 'center', gap: 10 }}>
@@ -580,6 +647,19 @@ export default function Projects() {
                             </Descriptions.Item>
                             <Descriptions.Item label="Créateur">
                                 {drawerProject.createdBy?.name || drawerProject.createdBy?.email || '—'}
+                            </Descriptions.Item>
+                            <Descriptions.Item label="Consolidateur">
+                                {drawerProject.consolidator ? (
+                                    <Space direction="vertical" size={0}>
+                                        <Text strong>{drawerProject.consolidator.name}</Text>
+                                        <Text type="secondary" style={{ fontSize: 12 }}>
+                                            {drawerProject.consolidator.email}
+                                            {drawerProject.consolidator.role ? ` · ${drawerProject.consolidator.role}` : ''}
+                                        </Text>
+                                    </Space>
+                                ) : (
+                                    <Text type="secondary">Non défini</Text>
+                                )}
                             </Descriptions.Item>
                             <Descriptions.Item label="Description">
                                 {drawerProject.description || <Text type="secondary">—</Text>}

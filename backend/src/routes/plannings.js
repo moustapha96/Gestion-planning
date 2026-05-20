@@ -16,6 +16,10 @@ const {
     isPendingValidation,
 } = require('../config/planningWorkflow');
 const { resolvePlanningEventTypeFields } = require('../services/eventType.service');
+const {
+    notifyConsolidatorsForProject,
+    canUserConsolidatePlanning,
+} = require('../services/projectConsolidator.service');
 
 const PLANNING_EVENT_INCLUDE = {
     room: { select: { id: true, name: true } },
@@ -100,7 +104,15 @@ router.get('/week/:date', async (req, res) => {
         const plannings = await req.prisma.planning.findMany({
             where,
             include: {
-                user: { select: { id: true, name: true, email: true } },
+                user: {
+                    select: {
+                        id: true,
+                        name: true,
+                        email: true,
+                        projectId: true,
+                        project: { select: { id: true, name: true, consolidatorId: true } },
+                    },
+                },
                 events: { include: PLANNING_EVENT_INCLUDE },
             },
             orderBy: [{ user: { name: 'asc' } }, { weekStart: 'asc' }],
@@ -194,13 +206,14 @@ router.put('/:id/admin-submit', roleMiddleware(ADMIN_ROUTE_ROLES), async (req, r
             },
         });
         await createAuditLog(req, 'PLANNING_SUBMITTED', 'Planning', req.params.id, `Soumission admin`);
-        const consolidators = await req.prisma.user.findMany({ where: { role: 'CONSOLIDATEUR', isActive: true } });
-        for (const c of consolidators) {
-            await notificationService.sendFullNotification(
-                req.prisma, c.id, c.email, 'PLANNING_SUBMITTED', 'PLANNING_SUBMITTED',
-                [c, req.params.id], 'Nouveau planning soumis', `${planning.user.name} — soumis par l'administration`, `/planning/${req.params.id}`
-            );
-        }
+        await notifyConsolidatorsForProject(req.prisma, req, planning.user?.projectId, {
+            type: 'PLANNING_SUBMITTED',
+            emailType: 'PLANNING_SUBMITTED',
+            emailArgs: (c) => [c, req.params.id],
+            title: 'Nouveau planning soumis',
+            message: `${planning.user.name} — soumis par l'administration`,
+            link: `/planning/${req.params.id}`,
+        });
         await notificationService.createNotification(
             req.prisma, planning.userId, 'PLANNING_SUBMITTED', 'Planning soumis', 'Votre planning a été soumis par l\'administration.', `/planning/${req.params.id}`
         );
@@ -250,7 +263,11 @@ router.get('/:id', async (req, res) => {
         const planning = await req.prisma.planning.findUnique({
             where: { id: req.params.id },
             include: {
-                user: true,
+                user: {
+                    include: {
+                        project: { select: { id: true, name: true, consolidatorId: true } },
+                    },
+                },
                 events: { include: PLANNING_EVENT_INCLUDE },
             },
         });
@@ -266,10 +283,17 @@ router.get('/:id', async (req, res) => {
             ROLES.SECRETAIRE_GENERAL,
             ROLES.DG,
         ];
-        const canView =
+        let canView =
             planning.userId === viewerId ||
             isPrivilegedAdmin(role) ||
             validationViewerRoles.includes(role);
+        if (!canView && planning.user?.projectId) {
+            const ownerProject = await req.prisma.project.findUnique({
+                where: { id: planning.user.projectId },
+                select: { consolidatorId: true },
+            });
+            canView = ownerProject?.consolidatorId === viewerId;
+        }
         if (!canView) {
             return res.status(403).json({ error: 'Accès non autorisé à ce planning' });
         }
@@ -506,27 +530,18 @@ router.put('/:id/submit', async (req, res) => {
                 : `Planning ${req.params.id} soumis`
         );
 
-        const consolidators = await req.prisma.user.findMany({
-            where: { role: 'CONSOLIDATEUR', isActive: true },
-        });
-
         const submitLine = isAdmin
             ? `${planning.user.name} — soumis par l'administration`
             : `${req.user.name} a soumis son planning`;
 
-        for (const consolidator of consolidators) {
-            await notificationService.sendFullNotification(
-                req.prisma,
-                consolidator.id,
-                consolidator.email,
-                'PLANNING_SUBMITTED',
-                'PLANNING_SUBMITTED',
-                [consolidator, req.params.id],
-                'Nouveau planning soumis',
-                submitLine,
-                `/plannings/${req.params.id}`
-            );
-        }
+        await notifyConsolidatorsForProject(req.prisma, req, planning.user?.projectId, {
+            type: 'PLANNING_SUBMITTED',
+            emailType: 'PLANNING_SUBMITTED',
+            emailArgs: (c) => [c, req.params.id],
+            title: 'Nouveau planning soumis',
+            message: submitLine,
+            link: `/plannings/${req.params.id}`,
+        });
 
         const ownerMsg = isAdmin
             ? 'Votre planning a été soumis par l\'administration et est en attente de consolidation.'
@@ -573,13 +588,17 @@ router.put('/:id/submit', async (req, res) => {
  *       401:
  *         $ref: '#/components/responses/Unauthorized'
  */
-router.put('/:id/consolidate', roleMiddleware([ROLES.CONSOLIDATEUR, ROLES.ADMIN, ROLES.SUPER_ADMIN]), async (req, res) => {
+router.put('/:id/consolidate', async (req, res) => {
     try {
         const planning = await req.prisma.planning.findUnique({
             where: { id: req.params.id },
-            include: { user: true },
+            include: { user: { include: { project: { select: { id: true, consolidatorId: true } } } } },
         });
         if (!planning) return res.status(404).json({ error: 'Planning introuvable' });
+        const allowed = await canUserConsolidatePlanning(req.prisma, req.user, planning);
+        if (!allowed) {
+            return res.status(403).json({ error: 'Vous n\'êtes pas autorisé à consolider ce planning.' });
+        }
         if (planning.status !== 'SUBMITTED') {
             return res.status(400).json({ error: 'Seul un planning au statut « soumis » peut être consolidé.' });
         }

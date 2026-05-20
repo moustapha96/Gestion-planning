@@ -58,6 +58,7 @@ model User {
   directionDiscussionMemberships DirectionDiscussionMember[]
   projectMessages    ProjectMessage[]
   projectDiscussionMemberships ProjectDiscussionMember[]
+  projectsAsConsolidator Project[] @relation("ProjectConsolidator")
 
   @@index([directionId])
   @@index([projectId])
@@ -466,10 +467,13 @@ model Project {
   isActive      Boolean        @default(true)
   status        String         @default("ACTIVE") // ACTIVE | PAUSED | COMPLETED
   createdById   String?
+  /// Utilisateur désigné consolidateur du projet (validation réunions, plannings, etc.)
+  consolidatorId String?
   createdAt     DateTime       @default(now())
   updatedAt     DateTime       @updatedAt
 
   createdBy     User?          @relation("ProjectCreatedBy", fields: [createdById], references: [id], onDelete: SetNull)
+  consolidator  User?          @relation("ProjectConsolidator", fields: [consolidatorId], references: [id], onDelete: SetNull)
   meetings      Meeting[]
   missions      Mission[]
   planningEvents PlanningEvent[]
@@ -481,6 +485,7 @@ model Project {
   @@unique([name])
   @@index([status])
   @@index([createdById])
+  @@index([consolidatorId])
 }
 
 model ProjectMessage {
