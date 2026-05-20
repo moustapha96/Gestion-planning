@@ -20,6 +20,7 @@ const {
 const { emitToUsers, emitToMeetingRoom } = require('../realtime/socket');
 const { pdfOnlyMulterFileFilter, wrapMulterUpload } = require('../utils/pdfUpload');
 const { resolveMeetingEventTypeId } = require('../services/eventType.service');
+const { buildPublicApiUrl } = require('../utils/appUrls');
 
 const EVENT_TYPE_INCLUDE = { select: { id: true, name: true, code: true, color: true } };
 
@@ -97,8 +98,7 @@ function buildInvitationActionUrl(req, invitationId, status) {
         process.env.JWT_SECRET,
         { expiresIn: '7d' }
     );
-    const backendBase = process.env.BACKEND_URL || `http://localhost:${process.env.PORT || 3001}`;
-    return `${backendBase}/api/public/meeting-invitations/respond?token=${encodeURIComponent(token)}`;
+    return buildPublicApiUrl('/public/meeting-invitations/respond', { token });
 }
 
 /** Publie une réunion (réservation salle + convocations + statut SENT). */
