@@ -14,6 +14,8 @@ const { createAuditLog } = require('../utils/audit');
 const { ROLES, isPrivilegedAdmin, isSuperAdmin } = require('../config/roles');
 const {
     canPublishMeeting,
+    canEditMeeting,
+    canManageMeeting,
     requiresConsolidatorApproval,
     meetingListWhereForUser,
 } = require('../config/meetingVisibility');
@@ -584,8 +586,8 @@ router.delete('/:id/files/:fileId', async (req, res) => {
         if (file.meeting.status === 'CANCELLED' || file.meeting.status === 'COMPLETED') {
             return res.status(400).json({ error: 'Réunion finalisée : suppression de fichier impossible.' });
         }
-        if (file.uploadedById !== req.user.id && !isSuperAdmin(req.user.role)) {
-            return res.status(403).json({ error: 'Seul l\'utilisateur ayant ajouté ce fichier peut le supprimer.' });
+        if (file.uploadedById !== req.user.id && !isPrivilegedAdmin(req.user.role)) {
+            return res.status(403).json({ error: 'Seul l\'utilisateur ayant ajouté ce fichier ou un administrateur peut le supprimer.' });
         }
 
         await req.prisma.meetingFile.delete({ where: { id: file.id } });
@@ -677,10 +679,10 @@ router.put('/:id', async (req, res) => {
             return res.status(404).json({ error: 'Réunion introuvable' });
         }
 
-        if (meeting.organizerId !== req.user.id) {
-            return res.status(403).json({ error: 'Seul l\'organisateur peut modifier cette réunion' });
-        }
-        if (meeting.status === 'CANCELLED' || meeting.status === 'COMPLETED') {
+        if (!canEditMeeting(meeting, req.user)) {
+            if (!canManageMeeting(meeting, req.user)) {
+                return res.status(403).json({ error: 'Seul l\'organisateur ou un administrateur peut modifier cette réunion' });
+            }
             return res.status(400).json({ error: 'Réunion finalisée : modification impossible.' });
         }
 
@@ -1521,8 +1523,8 @@ router.post('/:id/participants', async (req, res) => {
  */
 router.delete('/:id', async (req, res) => {
     try {
-        if (!isSuperAdmin(req.user?.role)) {
-            return res.status(403).json({ error: 'Suppression définitive réservée au super administrateur.' });
+        if (!isPrivilegedAdmin(req.user?.role)) {
+            return res.status(403).json({ error: 'Suppression définitive réservée aux administrateurs.' });
         }
         const meeting = await req.prisma.meeting.findUnique({ where: { id: req.params.id } });
         if (!meeting) return res.status(404).json({ error: 'Réunion introuvable' });

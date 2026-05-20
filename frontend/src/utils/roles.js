@@ -22,6 +22,33 @@ export function canSuperAdminForceDelete(role) {
     return isSuperAdmin(role);
 }
 
+/** Suppression définitive réunion / mission (admin + super admin). */
+export function canPrivilegedForceDelete(role) {
+    return isPrivilegedAdmin(role);
+}
+
+export function canManageMeeting(meeting, user) {
+    if (!meeting || !user?.id) return false;
+    return meeting.organizerId === user.id || isPrivilegedAdmin(user.role);
+}
+
+export function canEditMeeting(meeting, user) {
+    if (!canManageMeeting(meeting, user)) return false;
+    return meeting.status !== 'CANCELLED' && meeting.status !== 'COMPLETED';
+}
+
+export function canManageMission(mission, user) {
+    if (!mission || !user?.id) return false;
+    return mission.createdById === user.id || isPrivilegedAdmin(user.role);
+}
+
+/** Modifier une mission (admin peut aussi rouvrir une mission annulée via le formulaire). */
+export function canEditMission(mission, user) {
+    if (!canManageMission(mission, user)) return false;
+    if (isPrivilegedAdmin(user.role)) return true;
+    return mission.status !== 'CANCELLED';
+}
+
 /** Répertoire : liste, édition, création de comptes (admin, super admin, DG). */
 export function canManageRepertoire(role) {
     return role === ROLES.ADMIN || role === ROLES.SUPER_ADMIN || role === ROLES.DG;

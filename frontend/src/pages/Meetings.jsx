@@ -1,11 +1,16 @@
 import { useEffect, useState } from 'react';
 import { Table, Tag, Button, Card, Typography, Space, Modal, Form, Input, Select, DatePicker, App, Row, Col, Alert } from 'antd';
-import { PlusOutlined, StopOutlined, CheckCircleOutlined, RollbackOutlined, VideoCameraOutlined, DeleteOutlined } from '@ant-design/icons';
+import { PlusOutlined, StopOutlined, CheckCircleOutlined, RollbackOutlined, VideoCameraOutlined, DeleteOutlined, EditOutlined } from '@ant-design/icons';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import dayjs from 'dayjs';
 import api from '../api/client';
 import { useAuth } from '../context/AuthContext';
-import { isPrivilegedAdmin, canSuperAdminForceDelete, meetingNeedsConsolidatorApproval } from '../utils/roles';
+import {
+    canManageMeeting,
+    canEditMeeting,
+    canPrivilegedForceDelete,
+    meetingNeedsConsolidatorApproval,
+} from '../utils/roles';
 import { forceDeleteDescription, forceDeleteTitle } from '../utils/deleteConfirm';
 
 const { Title, Text } = Typography;
@@ -214,7 +219,7 @@ export default function Meetings() {
         }
     };
 
-    const isSuperAdmin = canSuperAdminForceDelete(user?.role);
+    const canForceDelete = canPrivilegedForceDelete(user?.role);
 
     const handleCancel = (id) => {
         modal.confirm({
@@ -344,22 +349,32 @@ export default function Meetings() {
                     <Button size="small" type="link" onClick={() => navigate(`/meetings/${record.id}`)}>
                         Détail
                     </Button>
-                    {record.status !== 'CANCELLED' && record.status !== 'COMPLETED' && (record.organizerId === user?.id || isPrivilegedAdmin(user?.role)) && (
+                    {canEditMeeting(record, user) && (
+                        <Button
+                            size="small"
+                            type="link"
+                            icon={<EditOutlined />}
+                            onClick={() => navigate(`/meetings/${record.id}/edit`)}
+                        >
+                            Modifier
+                        </Button>
+                    )}
+                    {record.status !== 'CANCELLED' && record.status !== 'COMPLETED' && canManageMeeting(record, user) && (
                         <Button size="small" type="default" icon={<CheckCircleOutlined />} onClick={() => handleComplete(record.id)}>
                             Terminer
                         </Button>
                     )}
-                    {record.status !== 'CANCELLED' && record.status !== 'COMPLETED' && (record.organizerId === user?.id || isPrivilegedAdmin(user?.role)) && (
+                    {record.status !== 'CANCELLED' && record.status !== 'COMPLETED' && canManageMeeting(record, user) && (
                         <Button size="small" danger icon={<StopOutlined />} onClick={() => handleCancel(record.id)}>
                             Annuler
                         </Button>
                     )}
-                    {record.status === 'COMPLETED' && (record.organizerId === user?.id || isPrivilegedAdmin(user?.role) || user?.role === 'RESPONSABLE') && (
+                    {record.status === 'COMPLETED' && (canManageMeeting(record, user) || user?.role === 'RESPONSABLE') && (
                         <Button size="small" icon={<RollbackOutlined />} onClick={() => handleReopen(record.id)}>
                             Rouvrir
                         </Button>
                     )}
-                    {isSuperAdmin && (
+                    {canForceDelete && (
                         <Button
                             size="small"
                             danger

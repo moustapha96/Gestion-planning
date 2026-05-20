@@ -19,7 +19,7 @@ import dayjs from 'dayjs';
 import api from '../api/client';
 import { useAuth } from '../context/AuthContext';
 import {
-    isPrivilegedAdmin, canSuperAdminForceDelete, canViewAllMissions, canCreateMission,
+    canManageMission, canEditMission, canPrivilegedForceDelete, canViewAllMissions, canCreateMission,
 } from '../utils/roles';
 import { forceDeleteDescription, forceDeleteTitle } from '../utils/deleteConfirm';
 import ForceDeletePopconfirm from '../components/ForceDeletePopconfirm';
@@ -84,11 +84,8 @@ export default function Missions() {
         fetchMissions();
     }, [searchText, directionFilter, projectFilter, page, pageSize]);
 
-    const isAdmin = isPrivilegedAdmin(user?.role);
-    const isSuperAdmin = canSuperAdminForceDelete(user?.role);
+    const canForceDelete = canPrivilegedForceDelete(user?.role);
     const viewAllMissions = canViewAllMissions(user?.role);
-    const canManageMission = (record) =>
-        isAdmin || record.createdById === user?.id;
 
     const handleCancelMission = async (missionId) => {
         setActionLoadingId(missionId);
@@ -195,35 +192,39 @@ export default function Missions() {
                     >
                         Détail
                     </Button>
-                    {canManageMission(record) && (
+                    {canManageMission(record, user) && (
                         <>
-                            <Button
-                                type="link"
-                                size="small"
-                                icon={<EditOutlined />}
-                                onClick={() => navigate(`/missions/${record.id}/edit`)}
-                            >
-                                Modifier
-                            </Button>
-                            <Popconfirm
-                                title="Annuler cette mission ?"
-                                description="La mission sera marquée comme annulée."
-                                onConfirm={() => handleCancelMission(record.id)}
-                                okText="Oui, annuler"
-                                cancelText="Non"
-                                okButtonProps={{ danger: true, loading: actionLoadingId === record.id }}
-                            >
+                            {canEditMission(record, user) && (
                                 <Button
                                     type="link"
                                     size="small"
-                                    danger
-                                    icon={<DeleteOutlined />}
-                                    loading={actionLoadingId === record.id}
+                                    icon={<EditOutlined />}
+                                    onClick={() => navigate(`/missions/${record.id}/edit`)}
                                 >
-                                    Annuler
+                                    Modifier
                                 </Button>
-                            </Popconfirm>
-                            {isSuperAdmin && (
+                            )}
+                            {record.status !== 'CANCELLED' && (
+                                <Popconfirm
+                                    title="Annuler cette mission ?"
+                                    description="La mission sera marquée comme annulée."
+                                    onConfirm={() => handleCancelMission(record.id)}
+                                    okText="Oui, annuler"
+                                    cancelText="Non"
+                                    okButtonProps={{ danger: true, loading: actionLoadingId === record.id }}
+                                >
+                                    <Button
+                                        type="link"
+                                        size="small"
+                                        danger
+                                        icon={<DeleteOutlined />}
+                                        loading={actionLoadingId === record.id}
+                                    >
+                                        Annuler
+                                    </Button>
+                                </Popconfirm>
+                            )}
+                            {canForceDelete && (
                                 <ForceDeletePopconfirm
                                     title={forceDeleteTitle('cette mission')}
                                     description={forceDeleteDescription({ entityLabel: 'cette mission' })}

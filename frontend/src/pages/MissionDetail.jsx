@@ -25,11 +25,12 @@ import {
     FilePdfOutlined,
     FileTextOutlined,
     PaperClipOutlined,
+    RollbackOutlined,
 } from '@ant-design/icons';
 import dayjs from 'dayjs';
 import api, { API_BASE } from '../api/client';
 import { useAuth } from '../context/AuthContext';
-import { isPrivilegedAdmin, canSuperAdminForceDelete } from '../utils/roles';
+import { isPrivilegedAdmin, canManageMission, canEditMission, canPrivilegedForceDelete } from '../utils/roles';
 import { forceDeleteDescription, forceDeleteTitle } from '../utils/deleteConfirm';
 import ForceDeletePopconfirm from '../components/ForceDeletePopconfirm';
 import { PDF_ACCEPT, isAcceptedPdfFile } from '../utils/pdfAttachment';
@@ -46,6 +47,7 @@ export default function MissionDetail() {
     const [loading, setLoading] = useState(true);
     const [cancelLoading, setCancelLoading] = useState(false);
     const [permanentDeleteLoading, setPermanentDeleteLoading] = useState(false);
+    const [reactivateLoading, setReactivateLoading] = useState(false);
     const [uploadLoading, setUploadLoading] = useState(false);
 
     const fetchMission = async () => {
@@ -64,12 +66,12 @@ export default function MissionDetail() {
         fetchMission();
     }, [id]);
 
-    const isCreator = mission?.createdById === user?.id;
     const isAdmin = isPrivilegedAdmin(user?.role);
-    const isSuperAdmin = canSuperAdminForceDelete(user?.role);
-    const canEdit = (isCreator || isAdmin) && mission?.status !== 'CANCELLED';
+    const canManage = canManageMission(mission, user);
+    const canEdit = canEditMission(mission, user);
+    const canForceDelete = canPrivilegedForceDelete(user?.role);
     const canUpload = mission?.status !== 'CANCELLED' && (
-        isCreator ||
+        mission?.createdById === user?.id ||
         isAdmin ||
         mission?.assignments?.some((a) => a.userId === user?.id)
     );
@@ -84,6 +86,19 @@ export default function MissionDetail() {
             message.error(err.response?.data?.error || 'Erreur');
         } finally {
             setCancelLoading(false);
+        }
+    };
+
+    const handleReactivateMission = async () => {
+        setReactivateLoading(true);
+        try {
+            await api.put(`/missions/${id}`, { status: 'CONFIRMED' });
+            message.success('Mission réactivée');
+            await fetchMission();
+        } catch (err) {
+            message.error(err.response?.data?.error || 'Erreur');
+        } finally {
+            setReactivateLoading(false);
         }
     };
 
@@ -167,23 +182,36 @@ export default function MissionDetail() {
                     </Space>
                 }
                 extra={
-                    (canEdit || isSuperAdmin) && (
+                    canManage && (
                         <Space>
-                            <Button icon={<EditOutlined />} onClick={() => navigate(`/missions/${id}/edit`)}>
-                                Modifier
-                            </Button>
-                            <Popconfirm
-                                title="Annuler cette mission ?"
-                                onConfirm={handleCancelMission}
-                                okText="Oui, annuler"
-                                cancelText="Non"
-                                okButtonProps={{ danger: true, loading: cancelLoading }}
-                            >
-                                <Button danger icon={<DeleteOutlined />}>
-                                    Annuler la mission
+                            {canEdit && (
+                                <Button icon={<EditOutlined />} onClick={() => navigate(`/missions/${id}/edit`)}>
+                                    Modifier
                                 </Button>
-                            </Popconfirm>
-                            {isSuperAdmin && (
+                            )}
+                            {mission.status === 'CANCELLED' && isAdmin && (
+                                <Button
+                                    icon={<RollbackOutlined />}
+                                    loading={reactivateLoading}
+                                    onClick={handleReactivateMission}
+                                >
+                                    Réactiver la mission
+                                </Button>
+                            )}
+                            {mission.status !== 'CANCELLED' && (
+                                <Popconfirm
+                                    title="Annuler cette mission ?"
+                                    onConfirm={handleCancelMission}
+                                    okText="Oui, annuler"
+                                    cancelText="Non"
+                                    okButtonProps={{ danger: true, loading: cancelLoading }}
+                                >
+                                    <Button danger icon={<DeleteOutlined />}>
+                                        Annuler la mission
+                                    </Button>
+                                </Popconfirm>
+                            )}
+                            {canForceDelete && (
                                 <ForceDeletePopconfirm
                                     title={forceDeleteTitle('cette mission')}
                                     description={forceDeleteDescription({ entityLabel: 'cette mission' })}

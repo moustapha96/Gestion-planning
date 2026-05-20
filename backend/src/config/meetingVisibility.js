@@ -52,6 +52,18 @@ function canPublishMeeting(meeting, user) {
     return meeting.organizerId === user.id;
 }
 
+/** Annuler, terminer, rouvrir, participants, pièces jointes. */
+function canManageMeeting(meeting, user) {
+    if (!meeting || !user?.id) return false;
+    return meeting.organizerId === user.id || isPrivilegedAdmin(user?.role);
+}
+
+/** Modifier le contenu / créneau (hors réunion annulée ou terminée). */
+function canEditMeeting(meeting, user) {
+    if (!canManageMeeting(meeting, user)) return false;
+    return meeting.status !== 'CANCELLED' && meeting.status !== 'COMPLETED';
+}
+
 module.exports = {
     PUBLISHED_MEETING_STATUSES,
     isPublishedMeetingStatus,
@@ -60,4 +72,6 @@ module.exports = {
     meetingListWhereForUser,
     requiresConsolidatorApproval,
     canPublishMeeting,
+    canManageMeeting,
+    canEditMeeting,
 };

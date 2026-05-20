@@ -40,6 +40,8 @@ const ROLE_PERMISSIONS = {
     ],
     [ROLES.ADMIN]: [
         'Tout ce que peut faire un Dir. Général',
+        'Gérer toutes les réunions et missions (modifier, annuler, terminer, rouvrir, supprimer définitivement)',
+        'Valider et envoyer les convocations de réunion (y compris celles d\'autres organisateurs)',
         'Gérer les utilisateurs (créer, modifier, désactiver, rôles)',
         'Envoyer un lien de réinitialisation de mot de passe',
         'Gérer les salles (créer, modifier, activer/désactiver)',

@@ -43,7 +43,15 @@ import dayjs from 'dayjs';
 import api, { API_BASE } from '../api/client';
 import { useAuth } from '../context/AuthContext';
 import { enqueueRealtimeTask } from '../realtime/socket';
-import { isPrivilegedAdmin, canSuperAdminForceDelete, canApproveMeeting, meetingNeedsConsolidatorApproval } from '../utils/roles';
+import {
+    isPrivilegedAdmin,
+    canPrivilegedForceDelete,
+    canSuperAdminForceDelete,
+    canApproveMeeting,
+    canManageMeeting,
+    canEditMeeting,
+    meetingNeedsConsolidatorApproval,
+} from '../utils/roles';
 import { forceDeleteDescription, forceDeleteTitle } from '../utils/deleteConfirm';
 import ForceDeletePopconfirm from '../components/ForceDeletePopconfirm';
 import { PDF_ACCEPT, isAcceptedPdfFile } from '../utils/pdfAttachment';
@@ -648,13 +656,14 @@ export default function MeetingDetail() {
 
     const isOrganizer = meeting.organizerId === user?.id;
     const needsConsolidator = meetingNeedsConsolidatorApproval(meeting);
-    const canSend = canApproveMeeting(meeting, user) && isOrganizer && !needsConsolidator;
+    const canManage = canManageMeeting(meeting, user);
+    const canSend = canApproveMeeting(meeting, user) && !needsConsolidator && (isOrganizer || isPrivilegedAdmin(user?.role));
     const canApprove = canApproveMeeting(meeting, user) && needsConsolidator;
-    const canManage = isOrganizer || isPrivilegedAdmin(user?.role);
     const canComplete = canManage && meeting.status !== 'CANCELLED' && meeting.status !== 'COMPLETED';
     const canCancel = canManage && meeting.status !== 'CANCELLED' && meeting.status !== 'COMPLETED';
     const canReopen = meeting.status === 'COMPLETED' && (canManage || user?.role === 'RESPONSABLE');
-    const canEdit = isOrganizer && meeting.status !== 'CANCELLED' && meeting.status !== 'COMPLETED';
+    const canEdit = canEditMeeting(meeting, user);
+    const canForceDelete = canPrivilegedForceDelete(user?.role);
     const isInvitedAccepted = meeting.invitations?.some((inv) => inv.userId === user?.id && inv.status === 'ACCEPTED');
     const canChat = meeting.status !== 'CANCELLED' && meeting.status !== 'COMPLETED' && (isOrganizer || isInvitedAccepted || isPrivilegedAdmin(user?.role));
     const canUseVisio = integratedVisioEnabled && meeting.status !== 'CANCELLED' && meeting.status !== 'COMPLETED' && (isOrganizer || isInvitedAccepted || isPrivilegedAdmin(user?.role));
@@ -695,7 +704,7 @@ export default function MeetingDetail() {
                         Rouvrir la réunion
                     </Button>
                 )}
-                {isSuperAdmin && (
+                {canForceDelete && (
                     <ForceDeletePopconfirm
                         title={forceDeleteTitle('cette réunion')}
                         description={forceDeleteDescription({ entityLabel: 'cette réunion' })}

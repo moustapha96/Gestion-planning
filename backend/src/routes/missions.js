@@ -283,8 +283,14 @@ router.put('/:id', async (req, res) => {
         if (!canEditMission(mission, req.user)) {
             return res.status(403).json({ error: 'Seul le créateur ou un administrateur peut modifier cette mission.' });
         }
-        const { title, description, location, startTime, endTime, userIds, directionId, projectId } = req.body || {};
+        const { title, description, location, startTime, endTime, userIds, directionId, projectId, status } = req.body || {};
         const data = {};
+        if (status != null && isPrivilegedAdmin(req.user?.role)) {
+            const nextStatus = String(status).trim();
+            if (['CONFIRMED', 'CANCELLED'].includes(nextStatus)) {
+                data.status = nextStatus;
+            }
+        }
         if (title != null) data.title = title;
         if (description != null) data.description = description;
         if (location != null) data.location = location;
@@ -386,7 +392,7 @@ router.delete('/:id', async (req, res) => {
             return res.status(403).json({ error: 'Seul le créateur ou un administrateur peut annuler cette mission.' });
         }
 
-        const permanent = isSuperAdmin(req.user?.role) && ['1', 'true'].includes(String(req.query.permanent || ''));
+        const permanent = isPrivilegedAdmin(req.user?.role) && ['1', 'true'].includes(String(req.query.permanent || ''));
         if (permanent) {
             await req.prisma.mission.delete({ where: { id: req.params.id } });
             await createAuditLog(req, 'MISSION_DELETED', 'Mission', req.params.id, `Mission ${mission.title} supprimée définitivement (super admin)`);
