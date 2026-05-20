@@ -64,7 +64,8 @@ export default defineConfig({
             devOptions: { enabled: true, type: 'module' },
         }),
     ],
-    base: './',
+    // '/' obligatoire avec BrowserRouter + Nginx : évite page blanche / 404 au F5 sur /meetings, etc.
+    base: '/',
     /** Même proxy qu’en dev : `vite preview` (service systemd) relaie /api vers le backend local. */
     preview: {
         port: 9000,

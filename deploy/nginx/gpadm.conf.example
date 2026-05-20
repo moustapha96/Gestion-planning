@@ -1,0 +1,73 @@
+# Exemple Nginx — /etc/nginx/sites-available/gpadm
+# Copier sur la VM, adapter server_name, puis :
+#   sudo ln -sf /etc/nginx/sites-available/gpadm /etc/nginx/sites-enabled/
+#   sudo nginx -t && sudo systemctl reload nginx
+#
+# IMPORTANT : ^~ sur /uploads/ et /api/ empêche le bloc regex *.png
+# de voler les requêtes /uploads/project-logos/xxx.png (cause fréquente de 404).
+
+server {
+    listen 80;
+    listen [::]:80;
+    server_name 10.5.49.131;   # ← IP ou nom de domaine de la VM
+
+    client_max_body_size 50M;
+
+    access_log /var/log/nginx/gpadm_access.log;
+    error_log  /var/log/nginx/gpadm_error.log;
+
+    # --- Frontend (build Vite) ---
+    root /var/www/gpadm/frontend/dist;
+    index index.html;
+
+    # SPA React : toute URL (/meetings, /calendar…) → index.html si pas de fichier physique
+    location / {
+        try_files $uri $uri/ /index.html;
+    }
+
+    # --- API → backend PM2 (:3001) ---
+    # ^~ = priorité sur les location regex (png, js, …)
+    location ^~ /api/ {
+        proxy_pass http://127.0.0.1:3001/api/;
+        proxy_http_version 1.1;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+        proxy_read_timeout 60s;
+        proxy_buffering off;
+    }
+
+    # --- Fichiers uploadés (logos, avatars, PDF…) ---
+    location ^~ /uploads/ {
+        alias /var/www/gpadm/backend/uploads/;
+        expires 7d;
+        add_header Cache-Control "public";
+        access_log off;
+    }
+
+    # --- Socket.IO ---
+    location ^~ /socket.io/ {
+        proxy_pass http://127.0.0.1:3001;
+        proxy_http_version 1.1;
+        proxy_set_header Upgrade $http_upgrade;
+        proxy_set_header Connection "upgrade";
+        proxy_set_header Host $host;
+        proxy_cache_bypass $http_upgrade;
+    }
+
+    # --- Swagger (optionnel) ---
+    location ^~ /api/docs/ {
+        proxy_pass http://127.0.0.1:3001/api/docs/;
+        proxy_http_version 1.1;
+        proxy_set_header Host $host;
+    }
+
+    # Cache assets du frontend UNIQUEMENT (pas /uploads/ grâce à ^~ ci-dessus)
+    location ~* \.(js|css|png|jpg|jpeg|gif|ico|svg|woff|woff2|ttf|eot|map)$ {
+        expires 1y;
+        add_header Cache-Control "public, immutable";
+        access_log off;
+        try_files $uri =404;
+    }
+}
