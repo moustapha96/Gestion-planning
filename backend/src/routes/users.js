@@ -209,7 +209,9 @@ router.post('/', roleMiddleware(ADMIN_ROUTE_ROLES), async (req, res) => {
         }
         if (user.projectId) {
             await syncProjectDiscussionMembers(req.prisma, user.projectId);
-            await assignUserAsProjectConsolidator(req.prisma, user.projectId, user.id);
+            await assignUserAsProjectConsolidator(req.prisma, user.projectId, user.id, {
+                assignedByName: req.user?.name,
+            });
         }
 
         logger.info('USER_CREATED', `Utilisateur ${email} créé par admin ${req.user.id}`, {
@@ -366,7 +368,9 @@ router.put('/:id', roleMiddleware(ADMIN_ROUTE_ROLES), async (req, res) => {
         }
         if (nextProjectId) {
             await syncProjectDiscussionMembers(req.prisma, nextProjectId);
-            await assignUserAsProjectConsolidator(req.prisma, nextProjectId, updated.id);
+            await assignUserAsProjectConsolidator(req.prisma, nextProjectId, updated.id, {
+                assignedByName: req.user?.name,
+            });
         }
 
         // Si le rôle a changé : email + notification in-app à l'utilisateur concerné

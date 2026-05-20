@@ -463,6 +463,39 @@ const emailTemplates = {
     `,
   }),
 
+  PROJECT_CONSOLIDATOR_ASSIGNED: (user, project, assignedByName) => {
+    const projectLabel = project.code ? `${project.name} (${project.code})` : project.name;
+    const url = `${process.env.FRONTEND_URL || 'http://localhost:5173'}/projects/${project.id}`;
+    return {
+      subject: `📋 Consolidateur du projet « ${project.name} »`,
+      html: `
+      <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto;">
+        <div style="background: linear-gradient(135deg, #1F5C8B 0%, #2a7cb8 100%); color: white; padding: 20px; text-align: center;">
+          <h1>Gestion Planning</h1>
+        </div>
+        <div style="padding: 20px;">
+          <p>Bonjour ${user.name},</p>
+          <p><strong>${assignedByName || 'L\'administration'}</strong> vous a désigné(e) <strong>consolidateur(trice)</strong> du projet suivant :</p>
+          <div style="background: #f3e5f5; padding: 20px; border-left: 4px solid #722ed1; margin: 20px 0;">
+            <h3 style="margin: 0 0 10px 0;">${projectLabel}</h3>
+            <p style="margin: 0; font-size: 14px; color: #555;">
+              Vous êtes responsable de la validation des réunions, plannings et demandes liées à ce projet.
+            </p>
+          </div>
+          <p>
+            <a href="${url}" style="display: inline-block; background: #1F5C8B; color: white; padding: 12px 24px; text-decoration: none; border-radius: 5px; font-weight: bold;">
+              Voir le projet
+            </a>
+          </p>
+        </div>
+        <div style="border-top: 1px solid #ddd; padding: 20px; text-align: center; font-size: 12px; color: #666;">
+          <p>© 2026 Gestion Planning - Tous droits réservés</p>
+        </div>
+      </div>
+    `,
+    };
+  },
+
   ROLE_CHANGED: (user, newRoleLabel, previousRoleLabel) => ({
     subject: '👤 Votre rôle a été modifié - Gestion Planning',
     html: `

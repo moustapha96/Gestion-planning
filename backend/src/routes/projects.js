@@ -3,7 +3,11 @@ const path = require('path');
 const fs = require('fs');
 const multer = require('multer');
 const { isPrivilegedAdmin, ROLES } = require('../config/roles');
-const { validateConsolidatorId, PROJECT_CONSOLIDATOR_INCLUDE } = require('../services/projectConsolidator.service');
+const {
+    validateConsolidatorId,
+    PROJECT_CONSOLIDATOR_INCLUDE,
+    notifyProjectConsolidatorAssigned,
+} = require('../services/projectConsolidator.service');
 const { pdfOnlyMulterFileFilter, wrapMulterUpload } = require('../utils/pdfUpload');
 
 const router = express.Router();
@@ -138,6 +142,11 @@ router.post('/', async (req, res) => {
             },
             include: PROJECT_CONSOLIDATOR_INCLUDE,
         });
+        if (project.consolidatorId) {
+            await notifyProjectConsolidatorAssigned(req.prisma, project.id, project.consolidatorId, {
+                assignedByName: req.user?.name,
+            });
+        }
         res.status(201).json(project);
     } catch (err) {
         if (err.code === 'P2002') return res.status(409).json({ error: 'Un projet avec ce nom existe déjà' });
@@ -160,13 +169,15 @@ router.put('/:id', async (req, res) => {
         const lu = String(logoUrlBody || '').trim();
         data.logoUrl = lu || '/logo-gp.png';
     }
+    let nextConsolidatorId;
     if (consolidatorIdRaw !== undefined) {
         if (!canSetProjectConsolidator(project, req.user)) {
             return res.status(403).json({ error: 'Vous n\'êtes pas autorisé à désigner le consolidateur de ce projet.' });
         }
         const consolidatorCheck = await validateConsolidatorId(req.prisma, consolidatorIdRaw);
         if (!consolidatorCheck.ok) return res.status(400).json({ error: consolidatorCheck.error });
-        data.consolidatorId = consolidatorCheck.value ?? null;
+        nextConsolidatorId = consolidatorCheck.value ?? null;
+        data.consolidatorId = nextConsolidatorId;
     }
 
     try {
@@ -175,6 +186,11 @@ router.put('/:id', async (req, res) => {
             data,
             include: PROJECT_CONSOLIDATOR_INCLUDE,
         });
+        if (consolidatorIdRaw !== undefined && updated.consolidatorId && updated.consolidatorId !== project.consolidatorId) {
+            await notifyProjectConsolidatorAssigned(req.prisma, updated.id, updated.consolidatorId, {
+                assignedByName: req.user?.name,
+            });
+        }
         res.json(updated);
     } catch (err) {
         if (err.code === 'P2002') return res.status(409).json({ error: 'Un projet avec ce nom existe déjà' });

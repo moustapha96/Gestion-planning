@@ -1,5 +1,6 @@
 const { ROLES, isPrivilegedAdmin } = require('../config/roles');
 const { notificationService } = require('./notification.service');
+const { logger } = require('../utils/logger');
 
 const CONSOLIDATOR_USER_SELECT = {
     id: true,
@@ -101,13 +102,58 @@ async function canUserConsolidatePlanning(prisma, user, planning) {
     return isUserProjectConsolidator(user, project);
 }
 
-/** Affecte l'utilisateur comme consolidateur du projet (ex. rattachement projet sur fiche user). */
-async function assignUserAsProjectConsolidator(prisma, projectId, userId) {
+/** Email + notification in-app : nouvel consolidateur désigné pour un projet. */
+async function notifyProjectConsolidatorAssigned(prisma, projectId, userId, options = {}) {
     if (!projectId || !userId) return;
+    const [user, project] = await Promise.all([
+        prisma.user.findFirst({
+            where: { id: userId, isDeleted: false },
+            select: CONSOLIDATOR_USER_SELECT,
+        }),
+        prisma.project.findUnique({
+            where: { id: projectId },
+            select: { id: true, name: true, code: true },
+        }),
+    ]);
+    if (!user?.email || !project) return;
+
+    const assignedByName = options.assignedByName || 'L\'administration';
+    const link = `/projects/${project.id}`;
+    const title = 'Consolidateur de projet';
+    const body = `Vous êtes désigné(e) consolidateur(trice) du projet « ${project.name} ». Vous validez les réunions, plannings et demandes liées à ce projet.`;
+
+    try {
+        await notificationService.sendFullNotification(
+            prisma,
+            user.id,
+            user.email,
+            'PROJECT_CONSOLIDATOR_ASSIGNED',
+            'PROJECT_CONSOLIDATOR_ASSIGNED',
+            [user, project, assignedByName],
+            title,
+            body,
+            link,
+        );
+    } catch (err) {
+        logger.warn('PROJECT_CONSOLIDATOR_NOTIFY_FAILED', err.message, { projectId, userId });
+    }
+}
+
+/** Affecte l'utilisateur comme consolidateur du projet (ex. rattachement projet sur fiche user). */
+async function assignUserAsProjectConsolidator(prisma, projectId, userId, options = {}) {
+    if (!projectId || !userId) return;
+    const before = await prisma.project.findUnique({
+        where: { id: projectId },
+        select: { consolidatorId: true },
+    });
+    const changed = before?.consolidatorId !== userId;
     await prisma.project.update({
         where: { id: projectId },
         data: { consolidatorId: userId },
     });
+    if (changed) {
+        await notifyProjectConsolidatorAssigned(prisma, projectId, userId, options);
+    }
 }
 
 /** Retire le consolidateur du projet si c'était cet utilisateur (changement de projet). */
@@ -141,6 +187,7 @@ module.exports = {
     canActAsConsolidator,
     canUserConsolidatePlanning,
     validateConsolidatorId,
+    notifyProjectConsolidatorAssigned,
     assignUserAsProjectConsolidator,
     clearProjectConsolidatorIfUser,
 };

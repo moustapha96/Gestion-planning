@@ -7,7 +7,11 @@ const { ROLES, ADMIN_ROUTE_ROLES, isPrivilegedAdmin, isSuperAdmin } = require('.
 const { meetingCalendarWhereForUser } = require('../config/meetingVisibility');
 const { detachProjectReferences, detachDirectionReferences } = require('../utils/forceDelete');
 const { syncDirectionDiscussionMembers } = require('../services/directionDiscussion.service');
-const { validateConsolidatorId, PROJECT_CONSOLIDATOR_INCLUDE } = require('../services/projectConsolidator.service');
+const {
+    validateConsolidatorId,
+    PROJECT_CONSOLIDATOR_INCLUDE,
+    notifyProjectConsolidatorAssigned,
+} = require('../services/projectConsolidator.service');
 
 const router = express.Router();
 const directionLogosDir = path.join(__dirname, '../../uploads/directions');
@@ -448,6 +452,11 @@ router.post('/projects', async (req, res) => {
             },
             include: PROJECT_CONSOLIDATOR_INCLUDE,
         });
+        if (created.consolidatorId) {
+            await notifyProjectConsolidatorAssigned(req.prisma, created.id, created.consolidatorId, {
+                assignedByName: req.user?.name,
+            });
+        }
         res.status(201).json(created);
     } catch (error) {
         res.status(400).json({ error: error.message });
@@ -526,6 +535,11 @@ router.put('/directions/:id', async (req, res) => {
 router.put('/projects/:id', async (req, res) => {
     try {
         if (!isPrivilegedAdmin(req.user?.role)) return res.status(403).json({ error: 'Acces reserve admin.' });
+        const existing = await req.prisma.project.findUnique({
+            where: { id: req.params.id },
+            select: { id: true, consolidatorId: true },
+        });
+        if (!existing) return res.status(404).json({ error: 'Projet introuvable.' });
         const name = req.body?.name !== undefined ? String(req.body.name || '').trim() : undefined;
         const code = req.body?.code !== undefined ? (String(req.body.code || '').trim() || null) : undefined;
         const description = req.body?.description !== undefined ? (String(req.body.description || '').trim() || null) : undefined;
@@ -561,6 +575,11 @@ router.put('/projects/:id', async (req, res) => {
             data,
             include: PROJECT_CONSOLIDATOR_INCLUDE,
         });
+        if (req.body?.consolidatorId !== undefined && updated.consolidatorId && updated.consolidatorId !== existing.consolidatorId) {
+            await notifyProjectConsolidatorAssigned(req.prisma, updated.id, updated.consolidatorId, {
+                assignedByName: req.user?.name,
+            });
+        }
         res.json(updated);
     } catch (error) {
         res.status(400).json({ error: error.message });

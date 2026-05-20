@@ -28,6 +28,7 @@ const TYPE_META = {
     MISSION_ASSIGNED:      { color: 'volcano', label: 'Mission assignée',     dot: '#fa541c' },
     MISSION_CANCELLED:     { color: 'red',     label: 'Mission annulée',      dot: '#ff4d4f' },
     ROLE_CHANGED:          { color: 'purple',  label: 'Rôle modifié',         dot: '#722ed1' },
+    PROJECT_CONSOLIDATOR_ASSIGNED: { color: 'purple', label: 'Consolidateur projet', dot: '#722ed1' },
     ACCOUNT_ACTIVATED:     { color: 'green',   label: 'Compte activé',        dot: '#52c41a' },
     ACCOUNT_DEACTIVATED:   { color: 'red',     label: 'Compte désactivé',     dot: '#ff4d4f' },
     ADMIN_BROADCAST:       { color: 'blue',    label: 'Message admin',        dot: '#1565C0' },
