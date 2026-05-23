@@ -13,10 +13,9 @@ import api, { API_BASE } from '../api/client';
 import { useAuth } from '../context/AuthContext';
 import { PDF_ACCEPT, isAcceptedPdfFile } from '../utils/pdfAttachment';
 import { resolveImageSrc } from '../utils/mediaUrl';
+import { canManageProjects } from '../utils/roles';
 
 const { Title, Text } = Typography;
-
-const CAN_EDIT = ['ADMIN', 'SUPER_ADMIN', 'DG'];
 const STATUS_COLORS = { ACTIVE: 'success', PAUSED: 'warning', COMPLETED: 'default' };
 const STATUS_LABELS = { ACTIVE: 'Actif', PAUSED: 'En pause', COMPLETED: 'Terminé' };
 
@@ -45,16 +44,7 @@ export default function Projects() {
     const [allUsers,      setAllUsers]      = useState([]);
     const [form] = Form.useForm();
 
-    const canEdit = CAN_EDIT.includes(user?.role);
-    const canCreateProject = canEdit || user?.role === 'RESPONSABLE';
-    const canManageProjectRow = (p) =>
-        Boolean(p) && (canEdit || user?.role === 'RESPONSABLE' || p.createdById === user?.id);
-    const canSetConsolidator = (p) =>
-        canEdit || user?.role === 'RESPONSABLE' || (p && p.createdById === user?.id) || (!p && canCreateProject);
-    const canUploadProjectFiles = (project) =>
-        Boolean(project) && project.status !== 'COMPLETED' && (
-            canEdit || user?.role === 'RESPONSABLE' || project.createdById === user?.id
-        );
+    const canManage = canManageProjects(user?.role);
 
     // ── Fetch ─────────────────────────────────────────────────────
     const load = useCallback(async () => {
@@ -72,11 +62,11 @@ export default function Projects() {
     useEffect(() => { load(); }, [load]);
 
     useEffect(() => {
-        if (!canCreateProject) return;
+        if (!canManage) return;
         api.get('/users/participants')
             .then((res) => setAllUsers(res.data || []))
             .catch(() => setAllUsers([]));
-    }, [canCreateProject]);
+    }, [canManage]);
 
     // ── Ouvrir formulaire création/édition ────────────────────────
     const openCreate = () => {
@@ -96,16 +86,18 @@ export default function Projects() {
             isActive: p.isActive,
             logoUrl: p.logoUrl || '',
             consolidatorId: p.consolidatorId || undefined,
+            coordinatorId: p.coordinatorId || undefined,
         });
         setModalOpen(true);
     };
 
     const handleSave = async () => {
         const values = await form.validateFields();
-        const { logoUrl, consolidatorId, ...rest } = values;
+        const { logoUrl, consolidatorId, coordinatorId, ...rest } = values;
         const payload = { ...rest };
-        if (canSetConsolidator(editTarget)) {
+        if (canManage) {
             payload.consolidatorId = consolidatorId || null;
+            payload.coordinatorId = coordinatorId || null;
         }
         if (editTarget) {
             if (logoUrl !== undefined) {
@@ -373,27 +365,27 @@ export default function Projects() {
                     <Tooltip title="Voir détail">
                         <Button size="small" icon={<EyeOutlined />} onClick={() => openDetail(row)} />
                     </Tooltip>
-                    {canManageProjectRow(row) && (
+                    {canManage && (
                         <Tooltip title="Modifier">
                             <Button size="small" icon={<EditOutlined />} onClick={() => openEdit(row)} />
                         </Tooltip>
                     )}
-                    {(canEdit || user?.role === 'RESPONSABLE' || row.createdById === user?.id) && row.status !== 'COMPLETED' && (
+                    {canManage && row.status !== 'COMPLETED' && (
                         <Tooltip title="Mettre en pause">
                             <Button size="small" icon={<PauseCircleOutlined />} onClick={() => handleStatus(row, 'PAUSED')} />
                         </Tooltip>
                     )}
-                    {(canEdit || user?.role === 'RESPONSABLE' || row.createdById === user?.id) && row.status !== 'COMPLETED' && (
+                    {canManage && row.status !== 'COMPLETED' && (
                         <Tooltip title="Terminer">
                             <Button size="small" icon={<CheckCircleOutlined />} onClick={() => handleStatus(row, 'COMPLETED')} />
                         </Tooltip>
                     )}
-                    {(canEdit || user?.role === 'RESPONSABLE' || row.createdById === user?.id) && row.status !== 'ACTIVE' && (
+                    {canManage && row.status !== 'ACTIVE' && (
                         <Tooltip title="Réactiver">
                             <Button size="small" type="default" icon={<StopOutlined />} onClick={() => handleStatus(row, 'ACTIVE')} />
                         </Tooltip>
                     )}
-                    {canEdit && (
+                    {canManage && (
                         <Popconfirm
                             title="Supprimer ce projet ?"
                             description="Les missions et réunions liées seront détachées."
@@ -418,7 +410,7 @@ export default function Projects() {
                 <Title level={3} style={{ margin: 0 }}>
                     <ProjectOutlined style={{ marginRight: 8 }} />Projets
                 </Title>
-                {canCreateProject && (
+                {canManage && (
                     <Button type="primary" icon={<PlusOutlined />} onClick={openCreate}>
                         Nouveau projet
                     </Button>
@@ -551,23 +543,41 @@ export default function Projects() {
                             <Switch checkedChildren="Actif" unCheckedChildren="Inactif" />
                         </Form.Item>
                     )}
-                    {canSetConsolidator(editTarget) && (
-                        <Form.Item
-                            name="consolidatorId"
-                            label="Consolidateur du projet"
-                            extra="Utilisateur qui valide réunions, plannings et demandes pour ce projet (tout rôle)."
-                        >
-                            <Select
-                                allowClear
-                                showSearch
-                                placeholder="Choisir un utilisateur"
-                                optionFilterProp="label"
-                                options={allUsers.map((u) => ({
-                                    value: u.id,
-                                    label: `${u.name} (${u.email}) — ${u.role}`,
-                                }))}
-                            />
-                        </Form.Item>
+                    {canManage && (
+                        <>
+                            <Form.Item
+                                name="consolidatorId"
+                                label="Consolidateur du projet"
+                                extra="Valide les réunions en brouillon et consolide les plannings soumis."
+                            >
+                                <Select
+                                    allowClear
+                                    showSearch
+                                    placeholder="Choisir un utilisateur"
+                                    optionFilterProp="label"
+                                    options={allUsers.map((u) => ({
+                                        value: u.id,
+                                        label: `${u.name} (${u.email}) — ${u.role}`,
+                                    }))}
+                                />
+                            </Form.Item>
+                            <Form.Item
+                                name="coordinatorId"
+                                label="Coordinateur du projet"
+                                extra="Valide définitivement plannings, missions et autres demandes du projet."
+                            >
+                                <Select
+                                    allowClear
+                                    showSearch
+                                    placeholder="Choisir un utilisateur"
+                                    optionFilterProp="label"
+                                    options={allUsers.map((u) => ({
+                                        value: u.id,
+                                        label: `${u.name} (${u.email}) — ${u.role}`,
+                                    }))}
+                                />
+                            </Form.Item>
+                        </>
                     )}
                 </Form>
             </Modal>
@@ -578,7 +588,7 @@ export default function Projects() {
                 onClose={() => setDrawerProject(null)}
                 extra={drawerProject?.id ? (
                     <Space>
-                        {canManageProjectRow(drawerProject) && (
+                        {canManage && (
                             <Button
                                 size="small"
                                 icon={<EditOutlined />}
@@ -720,7 +730,7 @@ export default function Projects() {
                             size="small"
                             title={<><FileAddOutlined style={{ color: '#1565C0', marginRight: 6 }} />Pièces jointes PDF ({drawerProject._count?.files || 0})</>}
                             extra={
-                                canUploadProjectFiles(drawerProject) && (
+                                canManage && drawerProject.status !== 'COMPLETED' && (
                                     <Upload
                                         showUploadList={false}
                                         accept={PDF_ACCEPT}
@@ -744,7 +754,7 @@ export default function Projects() {
                                     renderItem={(f) => (
                                         <List.Item
                                             actions={[
-                                                canUploadProjectFiles(drawerProject) && (
+                                                canManage && drawerProject.status !== 'COMPLETED' && (
                                                     <Popconfirm
                                                         key="del"
                                                         title="Supprimer ce fichier ?"

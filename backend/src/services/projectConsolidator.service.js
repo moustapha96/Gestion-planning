@@ -1,4 +1,5 @@
 const { ROLES, isPrivilegedAdmin } = require('../config/roles');
+const { userMayConsolidate } = require('./roleConfig.service');
 const { notificationService } = require('./notification.service');
 const { logger } = require('../utils/logger');
 
@@ -83,13 +84,13 @@ function isUserProjectConsolidator(user, projectOrConsolidatorId) {
 function canActAsConsolidator(user, projectOrConsolidatorId) {
     if (!user) return false;
     if (isPrivilegedAdmin(user.role)) return true;
-    if (user.role === ROLES.CONSOLIDATEUR) return true;
+    if (userMayConsolidate(user)) return true;
     return isUserProjectConsolidator(user, projectOrConsolidatorId);
 }
 
 async function canUserConsolidatePlanning(prisma, user, planning) {
     if (!user || !planning) return false;
-    if (isPrivilegedAdmin(user.role) || user.role === ROLES.CONSOLIDATEUR) return true;
+    if (isPrivilegedAdmin(user.role) || userMayConsolidate(user)) return true;
     const owner = planning.user || await prisma.user.findUnique({
         where: { id: planning.userId },
         select: { projectId: true },

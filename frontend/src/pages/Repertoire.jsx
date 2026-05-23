@@ -13,9 +13,8 @@ import {
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
 import api from '../api/client';
-import { canManageRepertoire } from '../utils/roles';
-import jsPDF from 'jspdf';
-import autoTable from 'jspdf-autotable';
+import { canAccessRepertoire, canManageRepertoire } from '../utils/roles';
+import { exportRepertoirePdf, downloadRepertoireDocx } from '../utils/repertoireExport';
 
 const { Title, Text } = Typography;
 
@@ -60,16 +59,17 @@ export default function Repertoire() {
   const [form] = Form.useForm();
   const [accountForm] = Form.useForm();
 
+  const canAccess = canAccessRepertoire(user?.role);
   const canManage = canManageRepertoire(user?.role);
   const canEdit = canManage;
   const canDelete = canManage;
   const canCreateAppAccount = canManage;
 
   useEffect(() => {
-    if (user && !canManage) {
+    if (user && !canAccess) {
       navigate('/dashboard', { replace: true });
     }
-  }, [user, canManage, navigate]);
+  }, [user, canAccess, navigate]);
 
   // ── Map name→direction pour enrichissement visuel ─────────────────────────
   const orgDirByName = useMemo(() => {
@@ -226,15 +226,11 @@ export default function Repertoire() {
     return undefined;
   };
 
-  // ── Export DOCX ───────────────────────────────────────────────────────────
   const exportDocx = async () => {
     setExportingDocx(true);
     try {
-      const resp = await api.get('/repertoire/export/docx', { responseType: 'blob' });
-      const url  = URL.createObjectURL(new Blob([resp.data]));
-      const a    = document.createElement('a');
-      a.href = url; a.download = 'Repertoire_ADM_2026.docx'; a.click();
-      URL.revokeObjectURL(url);
+      const exportSearch = search?.trim() || filterDir || '';
+      await downloadRepertoireDocx(api, { search: exportSearch, publicExport: false });
       msg.success('Export Word téléchargé');
     } catch {
       msg.error('Erreur export Word');
@@ -243,78 +239,14 @@ export default function Repertoire() {
     }
   };
 
-  // ── Export PDF ────────────────────────────────────────────────────────────
-  const exportPdf = () => {
+  const exportPdf = async () => {
     setExportingPdf(true);
     try {
-      const doc = new jsPDF({ orientation: 'landscape', unit: 'mm', format: 'a4' });
-      const img = new Image();
-      img.src = '/adm_logo.png';
-
-      const buildPdf = () => {
-        doc.setFillColor(10, 39, 68);
-        doc.rect(0, 0, 297, 18, 'F');
-        try { doc.addImage(img, 'PNG', 4, 2, 14, 14); } catch { /* logo absent */ }
-        doc.setTextColor(255, 255, 255);
-        doc.setFontSize(13); doc.setFont('helvetica', 'bold');
-        doc.text('AGENCE DE DEVELOPPEMENT MUNICIPAL (ADM) — 2026', 22, 11);
-        doc.setTextColor(10, 39, 68); doc.setFontSize(11);
-        doc.text('RÉPERTOIRE TÉLÉPHONIQUE — PERSONNEL ADM', 297 / 2, 23, { align: 'center' });
-
-        const groups = {};
-        for (const c of contacts) {
-          const label = c.directionLabel || '(Sans direction)';
-          if (!groups[label]) groups[label] = [];
-          groups[label].push(c);
-        }
-
-        const tableBody = [];
-        for (const [dir, members] of Object.entries(groups)) {
-          const orgDir = getOrgDir(dir);
-          const header = orgDir?.code ? `${dir.toUpperCase()}  (${orgDir.code})` : dir.toUpperCase();
-          tableBody.push([{
-            content: header, colSpan: 7,
-            styles: { fillColor: [62, 124, 188], textColor: [255, 255, 255], fontStyle: 'bold', fontSize: 9 },
-          }]);
-          for (const c of members) {
-            tableBody.push([
-              { content: c.numero ? String(c.numero).padStart(2, '0') : '', styles: { halign: 'center' } },
-              c.prenomNom || '', c.fonction || '', c.poste || '', c.directe || '', c.portable || '', c.email || '',
-            ]);
-          }
-        }
-
-        autoTable(doc, {
-          startY: 28,
-          head: [['N°', 'Prénoms et Nom', 'Fonction', 'Poste', 'Directe', 'Portable', 'E-mail']],
-          body: tableBody, theme: 'grid',
-          styles: { fontSize: 7, cellPadding: 1.5, font: 'helvetica' },
-          headStyles: { fillColor: [10, 39, 68], textColor: [255, 255, 255], fontStyle: 'bold', fontSize: 8 },
-          columnStyles: {
-            0: { cellWidth: 10, halign: 'center' },
-            1: { cellWidth: 42 },
-            2: { cellWidth: 52 },
-            3: { cellWidth: 14, halign: 'center' },
-            4: { cellWidth: 24, halign: 'center' },
-            5: { cellWidth: 24, halign: 'center' },
-            6: { cellWidth: 48 },
-          },
-          alternateRowStyles: { fillColor: [232, 240, 249] },
-          margin: { top: 28, left: 5, right: 5 },
-          didDrawPage: (data) => {
-            doc.setFontSize(7); doc.setTextColor(120, 120, 120);
-            doc.text(`Répertoire ADM 2026 — Page ${data.pageNumber}`, 297 / 2, 205, { align: 'center' });
-            doc.setDrawColor(62, 124, 188); doc.line(5, 203, 292, 203);
-          },
-        });
-        doc.save('Repertoire_ADM_2026.pdf');
-        msg.success('Export PDF téléchargé');
-      };
-
-      if (img.complete) buildPdf();
-      else { img.onload = buildPdf; img.onerror = buildPdf; }
+      await exportRepertoirePdf(filtered, { orgDirByName });
+      msg.success('Export PDF téléchargé');
     } catch (err) {
-      msg.error('Erreur export PDF'); console.error(err);
+      msg.error('Erreur export PDF');
+      console.error(err);
     } finally {
       setExportingPdf(false);
     }

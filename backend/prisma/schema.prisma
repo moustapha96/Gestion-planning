@@ -59,6 +59,7 @@ model User {
   projectMessages    ProjectMessage[]
   projectDiscussionMemberships ProjectDiscussionMember[]
   projectsAsConsolidator Project[] @relation("ProjectConsolidator")
+  projectsAsCoordinator  Project[] @relation("ProjectCoordinator")
 
   @@index([directionId])
   @@index([projectId])
@@ -409,6 +410,7 @@ model Direction {
   users         User[]           @relation("DirectionMembers")
   messages      DirectionMessage[]
   discussion    DirectionDiscussion?
+  roleDirectionRules RoleDirectionRule[]
 
   @@unique([name])
 }
@@ -467,13 +469,16 @@ model Project {
   isActive      Boolean        @default(true)
   status        String         @default("ACTIVE") // ACTIVE | PAUSED | COMPLETED
   createdById   String?
-  /// Utilisateur désigné consolidateur du projet (validation réunions, plannings, etc.)
+  /// Utilisateur désigné consolidateur du projet (validation réunions brouillon, consolidation planning)
   consolidatorId String?
+  /// Utilisateur désigné coordinateur du projet (validation finale planning, missions, etc.)
+  coordinatorId  String?
   createdAt     DateTime       @default(now())
   updatedAt     DateTime       @updatedAt
 
   createdBy     User?          @relation("ProjectCreatedBy", fields: [createdById], references: [id], onDelete: SetNull)
   consolidator  User?          @relation("ProjectConsolidator", fields: [consolidatorId], references: [id], onDelete: SetNull)
+  coordinator   User?          @relation("ProjectCoordinator", fields: [coordinatorId], references: [id], onDelete: SetNull)
   meetings      Meeting[]
   missions      Mission[]
   planningEvents PlanningEvent[]
@@ -486,6 +491,22 @@ model Project {
   @@index([status])
   @@index([createdById])
   @@index([consolidatorId])
+  @@index([coordinatorId])
+}
+
+/// Association rôle applicatif ↔ directions éligibles (configuration dynamique).
+model RoleDirectionRule {
+  id          String    @id @default(cuid())
+  role        String
+  directionId String
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+
+  direction   Direction @relation(fields: [directionId], references: [id], onDelete: Cascade)
+
+  @@unique([role, directionId])
+  @@index([role])
+  @@index([directionId])
 }
 
 model ProjectMessage {

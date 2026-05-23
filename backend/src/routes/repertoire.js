@@ -8,18 +8,13 @@ const { logger } = require('../utils/logger');
 const { notificationService } = require('../services/notification.service');
 const { createAuditLog } = require('../utils/audit');
 const {
-  ROLES, isValidRole, REPERTOIRE_MANAGE_ROLES, isSuperAdmin,
+  ROLES, isValidRole, REPERTOIRE_VIEW_ROLES, REPERTOIRE_MANAGE_ROLES, isSuperAdmin,
 } = require('../config/roles');
 const { validatePasswordStrength } = require('../utils/passwordUtils');
 const { syncDirectionDiscussionMembers } = require('../services/directionDiscussion.service');
-const {
-  Document, Packer, Paragraph, TextRun, Table, TableRow, TableCell,
-  AlignmentType, BorderStyle, WidthType, ShadingType, VerticalAlign,
-  Header, Footer, PageNumber, ImageRun,
-} = require('docx');
-const path = require('path');
-const fs   = require('fs');
+const { fetchRepertoireContacts, buildRepertoireDocxBuffer } = require('../utils/repertoireDocxExport');
 
+const VIEW_ROLES = REPERTOIRE_VIEW_ROLES;
 const MANAGE_ROLES = REPERTOIRE_MANAGE_ROLES;
 
 const MAX_USER_PHONE = 40;
@@ -43,8 +38,8 @@ function parseOptionalEmail(value) {
   return s;
 }
 
-// ── GET /api/repertoire — liste des contacts (admin, super admin, DG) ─────────
-router.get('/', authMiddleware, roleMiddleware(MANAGE_ROLES), async (req, res) => {
+// ── GET /api/repertoire — liste des contacts (lecture) ─────────────────────────
+router.get('/', authMiddleware, roleMiddleware(VIEW_ROLES), async (req, res) => {
   try {
     const { search, direction } = req.query;
     const prisma = req.prisma;
@@ -78,7 +73,7 @@ router.get('/', authMiddleware, roleMiddleware(MANAGE_ROLES), async (req, res) =
 
 // ── GET /api/repertoire/directions — directions organisationnelles actives ────
 // Retourne les Direction du modèle organisationnel (pas les labels libres)
-router.get('/directions', authMiddleware, roleMiddleware(MANAGE_ROLES), async (req, res) => {
+router.get('/directions', authMiddleware, roleMiddleware(VIEW_ROLES), async (req, res) => {
   try {
     const prisma = req.prisma;
     const dirs = await prisma.direction.findMany({
@@ -312,176 +307,11 @@ router.delete('/:id', authMiddleware, roleMiddleware(MANAGE_ROLES), async (req, 
 });
 
 // ── GET /api/repertoire/export/docx ──────────────────────────────────────────
-router.get('/export/docx', authMiddleware, roleMiddleware(MANAGE_ROLES), async (req, res) => {
+router.get('/export/docx', authMiddleware, roleMiddleware(VIEW_ROLES), async (req, res) => {
   try {
-    const prisma = req.prisma;
-    const contacts = await prisma.repertoireContact.findMany({
-      orderBy: [{ directionLabel: 'asc' }, { ordre: 'asc' }, { numero: 'asc' }],
-    });
-
-    // Grouper par direction
-    const groups = {};
-    for (const c of contacts) {
-      const label = c.directionLabel || '(Sans direction)';
-      if (!groups[label]) groups[label] = [];
-      groups[label].push(c);
-    }
-
-    const ADM_BLUE = '3e7cbc';
-    const ADM_DARK = '0A2744';
-    const WHITE    = 'FFFFFF';
-    const LBLUE    = 'E8F0F9';
-    const FONT     = 'Calibri';
-    const B  = { style: BorderStyle.SINGLE, size: 4, color: '9EC6E0' };
-    const BH = { style: BorderStyle.SINGLE, size: 6, color: ADM_DARK };
-    const BORDERS = { top: B,  bottom: B,  left: B,  right: B  };
-    const BHDRS   = { top: BH, bottom: BH, left: BH, right: BH };
-    const COLS    = [600, 2400, 2800, 1600, 1450, 1450, 2600];
-
-    function hCell(text, w) {
-      return new TableCell({
-        borders: BHDRS,
-        width: { size: w, type: WidthType.DXA },
-        shading: { fill: ADM_DARK, type: ShadingType.CLEAR },
-        margins: { top: 80, bottom: 80, left: 120, right: 120 },
-        verticalAlign: VerticalAlign.CENTER,
-        children: [new Paragraph({
-          alignment: AlignmentType.CENTER,
-          children: [new TextRun({ text, font: FONT, size: 18, bold: true, color: WHITE })],
-        })],
-      });
-    }
-
-    function dCell(text, w, even, center = false) {
-      return new TableCell({
-        borders: BORDERS,
-        width: { size: w, type: WidthType.DXA },
-        shading: { fill: even ? LBLUE : WHITE, type: ShadingType.CLEAR },
-        margins: { top: 60, bottom: 60, left: 100, right: 100 },
-        verticalAlign: VerticalAlign.CENTER,
-        children: [new Paragraph({
-          alignment: center ? AlignmentType.CENTER : AlignmentType.LEFT,
-          children: [new TextRun({ text: text || '', font: FONT, size: 18, color: '1A1A1A' })],
-        })],
-      });
-    }
-
-    function groupHeaderRow(label) {
-      const totalW = COLS.reduce((a, b) => a + b, 0);
-      return new TableRow({
-        children: [new TableCell({
-          borders: {
-            top:    { style: BorderStyle.SINGLE, size: 8, color: ADM_BLUE },
-            bottom: { style: BorderStyle.SINGLE, size: 8, color: ADM_BLUE },
-            left:   { style: BorderStyle.SINGLE, size: 8, color: ADM_BLUE },
-            right:  { style: BorderStyle.SINGLE, size: 8, color: ADM_BLUE },
-          },
-          width: { size: totalW, type: WidthType.DXA },
-          columnSpan: 7,
-          shading: { fill: ADM_BLUE, type: ShadingType.CLEAR },
-          margins: { top: 80, bottom: 80, left: 200, right: 200 },
-          children: [new Paragraph({
-            children: [new TextRun({ text: label.toUpperCase(), font: FONT, size: 20, bold: true, color: WHITE })],
-          })],
-        })],
-      });
-    }
-
-    const logoPath = path.join(__dirname, '../../../frontend/public/adm_logo.png');
-    let logoData = null;
-    try { logoData = fs.readFileSync(logoPath); } catch { /* logo absent */ }
-
-    const rows = [];
-    rows.push(new TableRow({
-      tableHeader: true,
-      children: [
-        hCell('N°',             COLS[0]),
-        hCell('Prénoms et Nom', COLS[1]),
-        hCell('Fonction',       COLS[2]),
-        hCell('Poste',          COLS[3]),
-        hCell('Directe',        COLS[4]),
-        hCell('Portable',       COLS[5]),
-        hCell('E-mail',         COLS[6]),
-      ],
-    }));
-
-    let rowIdx = 0;
-    for (const [label, members] of Object.entries(groups)) {
-      rows.push(groupHeaderRow(label));
-      for (const c of members) {
-        const even = rowIdx % 2 === 1;
-        rows.push(new TableRow({
-          children: [
-            dCell(c.numero ? String(c.numero).padStart(2, '0') : '', COLS[0], even, true),
-            dCell(c.prenomNom || '', COLS[1], even),
-            dCell(c.fonction  || '', COLS[2], even),
-            dCell(c.poste     || '', COLS[3], even, true),
-            dCell(c.directe   || '', COLS[4], even, true),
-            dCell(c.portable  || '', COLS[5], even, true),
-            dCell(c.email     || '', COLS[6], even),
-          ],
-        }));
-        rowIdx++;
-      }
-    }
-
-    const totalW = COLS.reduce((a, b) => a + b, 0);
-    const doc = new Document({
-      styles: { default: { document: { run: { font: FONT, size: 20 } } } },
-      sections: [{
-        properties: {
-          page: {
-            size: { width: 16838, height: 11906 },
-            margin: { top: 720, right: 720, bottom: 720, left: 720 },
-          },
-        },
-        headers: {
-          default: new Header({
-            children: [new Paragraph({
-              alignment: AlignmentType.CENTER,
-              spacing: { before: 0, after: 100 },
-              border: { bottom: { style: BorderStyle.SINGLE, size: 6, color: ADM_BLUE, space: 1 } },
-              children: [
-                ...(logoData ? [new ImageRun({
-                  type: 'png', data: logoData,
-                  transformation: { width: 50, height: 50 },
-                  altText: { title: 'ADM', description: 'Logo ADM', name: 'ADM Logo' },
-                })] : []),
-                new TextRun({
-                  text: '  AGENCE DE DEVELOPPEMENT MUNICIPAL (ADM) — 2026',
-                  font: FONT, size: 22, bold: true, color: ADM_DARK,
-                }),
-              ],
-            })],
-          }),
-        },
-        footers: {
-          default: new Footer({
-            children: [new Paragraph({
-              alignment: AlignmentType.CENTER,
-              border: { top: { style: BorderStyle.SINGLE, size: 4, color: ADM_BLUE, space: 1 } },
-              children: [
-                new TextRun({ text: 'REPERTOIRE TELEPHONES — PERSONNEL ADM  |  Page ', font: FONT, size: 16, color: '555555' }),
-                new TextRun({ children: [PageNumber.CURRENT], font: FONT, size: 16, color: '555555' }),
-              ],
-            })],
-          }),
-        },
-        children: [
-          new Paragraph({
-            alignment: AlignmentType.CENTER,
-            spacing: { before: 0, after: 200 },
-            children: [new TextRun({
-              text: 'REPERTOIRE TELEPHONES — PERSONNEL ADM',
-              font: FONT, size: 28, bold: true, color: ADM_DARK,
-            })],
-          }),
-          new Table({ width: { size: totalW, type: WidthType.DXA }, columnWidths: COLS, rows }),
-        ],
-      }],
-    });
-
-    const buffer = await Packer.toBuffer(doc);
+    const search = String(req.query.search || '').trim();
+    const contacts = await fetchRepertoireContacts(req.prisma, { search });
+    const buffer = await buildRepertoireDocxBuffer(contacts);
     res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.wordprocessingml.document');
     res.setHeader('Content-Disposition', 'attachment; filename="Repertoire_ADM_2026.docx"');
     res.send(buffer);

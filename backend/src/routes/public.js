@@ -172,6 +172,8 @@ router.get('/week-planning', async (req, res) => {
     }
 });
 
+const { fetchRepertoireContacts, buildRepertoireDocxBuffer, buildRepertoireSearchWhere } = require('../utils/repertoireDocxExport');
+
 // GET /api/public/repertoire — annuaire (page d'accueil publique, lecture seule)
 router.get('/repertoire', async (req, res) => {
     try {
@@ -179,20 +181,8 @@ router.get('/repertoire', async (req, res) => {
             return res.status(200).json([]);
         }
         const search = String(req.query.search || '').trim();
-        const where = {};
-        if (search) {
-            where.OR = [
-                { prenomNom: { contains: search, mode: 'insensitive' } },
-                { fonction: { contains: search, mode: 'insensitive' } },
-                { directionLabel: { contains: search, mode: 'insensitive' } },
-                { portable: { contains: search, mode: 'insensitive' } },
-                { poste: { contains: search, mode: 'insensitive' } },
-                { directe: { contains: search, mode: 'insensitive' } },
-                { email: { contains: search, mode: 'insensitive' } },
-            ];
-        }
         const contacts = await req.prisma.repertoireContact.findMany({
-            where,
+            where: buildRepertoireSearchWhere(search),
             orderBy: [{ directionLabel: 'asc' }, { ordre: 'asc' }, { numero: 'asc' }],
             select: {
                 id: true,
@@ -210,6 +200,24 @@ router.get('/repertoire', async (req, res) => {
     } catch (error) {
         logger.error('PUBLIC_REPERTOIRE', error.message);
         res.status(200).json([]);
+    }
+});
+
+// GET /api/public/repertoire/export/docx — export Word (page d'accueil, sans authentification)
+router.get('/repertoire/export/docx', async (req, res) => {
+    try {
+        if (!req.prisma) {
+            return res.status(503).json({ error: 'Service indisponible' });
+        }
+        const search = String(req.query.search || '').trim();
+        const contacts = await fetchRepertoireContacts(req.prisma, { search });
+        const buffer = await buildRepertoireDocxBuffer(contacts);
+        res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.wordprocessingml.document');
+        res.setHeader('Content-Disposition', 'attachment; filename="Repertoire_ADM_2026.docx"');
+        res.send(buffer);
+    } catch (error) {
+        logger.error('PUBLIC_REPERTOIRE_EXPORT_DOCX', error.message);
+        res.status(500).json({ error: 'Erreur génération DOCX' });
     }
 });
 

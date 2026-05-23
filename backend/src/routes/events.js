@@ -3,8 +3,8 @@ const fs = require('fs');
 const path = require('path');
 const multer = require('multer');
 const roleMiddleware = require('../middlewares/role.middleware');
-const { ROLES, ADMIN_ROUTE_ROLES, isPrivilegedAdmin, isSuperAdmin } = require('../config/roles');
-const { meetingCalendarWhereForUser } = require('../config/meetingVisibility');
+const { ROLES, ADMIN_ROUTE_ROLES, isPrivilegedAdmin, isSuperAdmin, canManageProjects, missionScopeWhere, planningScopeWhere } = require('../config/roles');
+const { meetingListWhereForUser } = require('../config/meetingVisibility');
 const { detachProjectReferences, detachDirectionReferences } = require('../utils/forceDelete');
 const { syncDirectionDiscussionMembers } = require('../services/directionDiscussion.service');
 const {
@@ -44,18 +44,7 @@ const uploadProjectLogo = multer({
 });
 
 function canManageDirections(role) {
-    return isPrivilegedAdmin(role) || role === ROLES.DG;
-}
-
-function canViewAllPlannings(role) {
-    return [
-        ROLES.ADMIN,
-        ROLES.SUPER_ADMIN,
-        ROLES.CONSOLIDATEUR,
-        ROLES.COORDINATEUR_PROJET,
-        ROLES.SECRETAIRE_GENERAL,
-        ROLES.DG,
-    ].includes(role);
+    return isPrivilegedAdmin(role);
 }
 
 function normalizeDate(value, endOfDay = false) {
@@ -129,11 +118,47 @@ async function ensureDefaultEventTypes(prisma) {
     return { created, existed };
 }
 
+/** Types actifs en base (avec création des défauts si besoin). */
+async function loadActiveEventTypes(prisma) {
+    const required = ['REUNION', 'MISSION'];
+    const present = await prisma.eventType.findMany({
+        where: { code: { in: required } },
+        select: { code: true },
+    });
+    if (present.length < required.length) {
+        await ensureDefaultEventTypes(prisma);
+    }
+    return prisma.eventType.findMany({
+        where: { isActive: true },
+        orderBy: [{ sortOrder: 'asc' }, { name: 'asc' }],
+        select: { id: true, name: true, code: true, color: true, sortOrder: true },
+    });
+}
+
+function toCategoryPayload(et, fallback) {
+    if (et) {
+        return {
+            id: et.id,
+            name: et.name,
+            code: String(et.code || '').toUpperCase(),
+            color: et.color || '#1565C0',
+        };
+    }
+    if (fallback) {
+        return {
+            code: String(fallback.code || '').toUpperCase(),
+            name: fallback.name,
+            color: fallback.color || '#1565C0',
+        };
+    }
+    return null;
+}
+
 router.get('/unified', async (req, res) => {
     try {
         const q = String(req.query.q || '').trim();
         const source = String(req.query.source || '').trim().toUpperCase();
-        const eventType = String(req.query.eventType || '').trim().toUpperCase();
+        const categoryCode = String(req.query.categoryCode || req.query.eventType || '').trim().toUpperCase();
         const directionId = String(req.query.directionId || '').trim() || null;
         const projectId = String(req.query.projectId || '').trim() || null;
         const from = normalizeDate(req.query.from);
@@ -141,15 +166,15 @@ router.get('/unified', async (req, res) => {
         const limit = Math.min(100, Math.max(1, parseInt(req.query.limit, 10) || 25));
         const page = Math.max(1, parseInt(req.query.page, 10) || 1);
         const skip = (page - 1) * limit;
-        const userId = req.user?.id;
-        const role = req.user?.role;
-        const isAdmin = isPrivilegedAdmin(role);
-        const canAllPlannings = canViewAllPlannings(role);
+        const eventTypeCategories = await loadActiveEventTypes(req.prisma);
+        const planningFilter = planningScopeWhere(req.user);
+        const reunionType = eventTypeCategories.find((t) => t.code === 'REUNION');
+        const missionType = eventTypeCategories.find((t) => t.code === 'MISSION');
 
         const [meetings, missions, planningEvents] = await Promise.all([
             req.prisma.meeting.findMany({
                 where: {
-                    ...meetingCalendarWhereForUser(req.user),
+                    ...meetingListWhereForUser(req.user),
                     ...(from || to ? { startTime: { ...(from ? { gte: from } : {}), ...(to ? { lte: to } : {}) } } : {}),
                     ...(directionId ? { directionId } : {}),
                     ...(projectId ? { projectId } : {}),
@@ -167,12 +192,7 @@ router.get('/unified', async (req, res) => {
             }),
             req.prisma.mission.findMany({
                 where: {
-                    ...(isAdmin ? {} : {
-                        OR: [
-                            { createdById: userId },
-                            { assignments: { some: { userId } } },
-                        ],
-                    }),
+                    ...missionScopeWhere(req.user),
                     ...(from || to ? { startTime: { ...(from ? { gte: from } : {}), ...(to ? { lte: to } : {}) } } : {}),
                     status: { not: 'CANCELLED' },
                     ...(directionId ? { directionId } : {}),
@@ -190,7 +210,7 @@ router.get('/unified', async (req, res) => {
             req.prisma.planningEvent.findMany({
                 where: {
                     ...(from || to ? { startTime: { ...(from ? { gte: from } : {}), ...(to ? { lte: to } : {}) } } : {}),
-                    planning: canAllPlannings ? {} : { userId },
+                    ...(Object.keys(planningFilter).length ? { planning: planningFilter } : {}),
                     ...(directionId ? { directionId } : {}),
                     ...(projectId ? { projectId } : {}),
                 },
@@ -211,70 +231,81 @@ router.get('/unified', async (req, res) => {
         ]);
 
         let items = [
-            ...meetings.map((m) => ({
-                id: `MEETING:${m.id}`,
-                rawId: m.id,
-                sourceType: 'MEETING',
-                eventType: 'MEETING',
-                title: m.title,
-                description: m.agenda || '',
-                startAt: m.startTime,
-                endAt: m.endTime,
-                location: m.room?.name || '',
-                status: m.status,
-                responsibleUsers: m.organizer ? [m.organizer] : [],
-                participantsCount: 1 + (m.invitations || []).length,
-                link: `/meetings/${m.id}`,
-                project: m.project || null,
-                direction: m.direction || null,
-                category: m.eventType
-                    ? { id: m.eventType.id, name: m.eventType.name, code: m.eventType.code, color: m.eventType.color }
-                    : null,
-            })),
-            ...missions.map((m) => ({
-                id: `MISSION:${m.id}`,
-                rawId: m.id,
-                sourceType: 'MISSION',
-                eventType: 'MISSION',
-                title: m.title,
-                description: m.description || '',
-                startAt: m.startTime,
-                endAt: m.endTime,
-                location: m.location || '',
-                status: m.status,
-                responsibleUsers: m.createdBy ? [m.createdBy] : [],
-                participantsCount: 1 + (m.assignments || []).length,
-                link: `/missions/${m.id}`,
-                project: m.project || null,
-                direction: m.direction || null,
-            })),
-            ...planningEvents.map((e) => ({
-                id: `PLANNING_EVENT:${e.id}`,
-                rawId: e.id,
-                sourceType: 'PLANNING_EVENT',
-                eventType: String(e.type || 'PLANNING_EVENT').toUpperCase(),
-                title: e.title,
-                description: e.description || '',
-                startAt: e.startTime,
-                endAt: e.endTime,
-                location: e.room?.name || e.destination || '',
-                status: e.planning?.status || 'DRAFT',
-                responsibleUsers: e.planning?.user ? [e.planning.user] : [],
-                participantsCount: 1,
-                link: `/planning/${e.planningId}`,
-                project: e.project || null,
-                direction: e.direction || null,
-                category: e.eventType
-                    ? { id: e.eventType.id, name: e.eventType.name, code: e.eventType.code, color: e.eventType.color }
-                    : null,
-            })),
+            ...meetings.map((m) => {
+                const category = toCategoryPayload(m.eventType, reunionType || { code: 'REUNION', name: 'Réunion', color: '#1565C0' });
+                return {
+                    id: `MEETING:${m.id}`,
+                    rawId: m.id,
+                    sourceType: 'MEETING',
+                    categoryCode: category?.code || 'REUNION',
+                    title: m.title,
+                    description: m.agenda || '',
+                    startAt: m.startTime,
+                    endAt: m.endTime,
+                    location: m.room?.name || '',
+                    status: m.status,
+                    responsibleUsers: m.organizer ? [m.organizer] : [],
+                    participantsCount: 1 + (m.invitations || []).length,
+                    link: `/meetings/${m.id}`,
+                    project: m.project || null,
+                    direction: m.direction || null,
+                    category,
+                };
+            }),
+            ...missions.map((m) => {
+                const category = toCategoryPayload(missionType, { code: 'MISSION', name: 'Mission', color: '#722ed1' });
+                return {
+                    id: `MISSION:${m.id}`,
+                    rawId: m.id,
+                    sourceType: 'MISSION',
+                    categoryCode: category?.code || 'MISSION',
+                    title: m.title,
+                    description: m.description || '',
+                    startAt: m.startTime,
+                    endAt: m.endTime,
+                    location: m.location || '',
+                    status: m.status,
+                    responsibleUsers: m.createdBy ? [m.createdBy] : [],
+                    participantsCount: 1 + (m.assignments || []).length,
+                    link: `/missions/${m.id}`,
+                    project: m.project || null,
+                    direction: m.direction || null,
+                    category,
+                };
+            }),
+            ...planningEvents.map((e) => {
+                const category = toCategoryPayload(e.eventType, null);
+                const code = category?.code || String(e.type || 'PLANNING').toUpperCase();
+                return {
+                    id: `PLANNING_EVENT:${e.id}`,
+                    rawId: e.id,
+                    sourceType: 'PLANNING_EVENT',
+                    categoryCode: code,
+                    title: e.title,
+                    description: e.description || '',
+                    startAt: e.startTime,
+                    endAt: e.endTime,
+                    location: e.room?.name || e.destination || '',
+                    status: e.planning?.status || 'DRAFT',
+                    responsibleUsers: e.planning?.user ? [e.planning.user] : [],
+                    participantsCount: 1,
+                    link: `/planning/${e.planningId}`,
+                    project: e.project || null,
+                    direction: e.direction || null,
+                    category: category || (code ? { code, name: code, color: '#8c8c8c' } : null),
+                };
+            }),
         ];
 
         if (source) {
             items = items.filter((x) => x.sourceType === source);
         }
-        if (eventType) {
-            items = items.filter((x) => x.eventType === eventType);
+        if (categoryCode) {
+            if (['MEETING', 'MISSION', 'PLANNING_EVENT'].includes(categoryCode)) {
+                items = items.filter((x) => x.sourceType === categoryCode);
+            } else {
+                items = items.filter((x) => x.categoryCode === categoryCode);
+            }
         }
         if (q) {
             items = items.filter((x) =>
@@ -291,8 +322,7 @@ router.get('/unified', async (req, res) => {
         items.sort((a, b) => new Date(b.startAt) - new Date(a.startAt));
         const total = items.length;
         const paged = items.slice(skip, skip + limit);
-        const [eventTypes, directions, projects] = await Promise.all([
-            Promise.resolve(Array.from(new Set(items.map((x) => x.eventType))).sort()),
+        const [directions, projects] = await Promise.all([
             req.prisma.direction.findMany({
                 where: { isActive: true },
                 select: { id: true, name: true, code: true },
@@ -314,7 +344,7 @@ router.get('/unified', async (req, res) => {
             filtersMeta: {
                 directions,
                 projects,
-                eventTypes,
+                eventTypeCategories,
                 sourceTypes: ['MEETING', 'MISSION', 'PLANNING_EVENT'],
             },
         });
@@ -325,19 +355,8 @@ router.get('/unified', async (req, res) => {
 
 router.get('/filters/meta', async (req, res) => {
     try {
-        const eventTypesRaw = await req.prisma.planningEvent.groupBy({
-            by: ['type'],
-            _count: { id: true },
-        });
-        const planningTypes = (eventTypesRaw || []).map((x) => String(x.type || '').toUpperCase()).filter(Boolean);
-        const dbTypeRows = await req.prisma.eventType.findMany({
-            where: { isActive: true },
-            select: { code: true },
-            orderBy: { sortOrder: 'asc' },
-        });
-        const dbCodes = (dbTypeRows || []).map((x) => String(x.code || '').toUpperCase()).filter(Boolean);
-        const [eventTypes, directions, projects] = await Promise.all([
-            Promise.resolve(Array.from(new Set(['MEETING', 'MISSION', ...planningTypes, ...dbCodes])).sort()),
+        const [eventTypeCategories, directions, projects] = await Promise.all([
+            loadActiveEventTypes(req.prisma),
             req.prisma.direction.findMany({
                 where: { isActive: true },
                 select: { id: true, name: true, code: true },
@@ -352,7 +371,7 @@ router.get('/filters/meta', async (req, res) => {
         res.json({
             directions,
             projects,
-            eventTypes,
+            eventTypeCategories,
             sourceTypes: ['MEETING', 'MISSION', 'PLANNING_EVENT'],
         });
     } catch (error) {
@@ -430,7 +449,7 @@ router.get('/directions/:id', async (req, res) => {
 
 router.post('/projects', async (req, res) => {
     try {
-        if (!isPrivilegedAdmin(req.user?.role)) return res.status(403).json({ error: 'Acces reserve admin.' });
+        if (!canManageProjects(req.user?.role)) return res.status(403).json({ error: 'Accès réservé à la DG et à l\'administration.' });
         const name = String(req.body?.name || '').trim();
         const code = String(req.body?.code || '').trim() || null;
         const description = String(req.body?.description || '').trim() || null;
@@ -465,7 +484,7 @@ router.post('/projects', async (req, res) => {
 
 router.post('/projects/logo', uploadProjectLogo.single('logo'), async (req, res) => {
     try {
-        if (!isPrivilegedAdmin(req.user?.role)) return res.status(403).json({ error: 'Acces reserve admin.' });
+        if (!canManageProjects(req.user?.role)) return res.status(403).json({ error: 'Accès réservé à la DG et à l\'administration.' });
         if (!req.file) return res.status(400).json({ error: 'Aucun logo reçu.' });
         if (req.file.mimetype && !req.file.mimetype.startsWith('image/')) {
             return res.status(400).json({ error: 'Le logo doit être une image.' });
@@ -534,7 +553,7 @@ router.put('/directions/:id', async (req, res) => {
 
 router.put('/projects/:id', async (req, res) => {
     try {
-        if (!isPrivilegedAdmin(req.user?.role)) return res.status(403).json({ error: 'Acces reserve admin.' });
+        if (!canManageProjects(req.user?.role)) return res.status(403).json({ error: 'Accès réservé à la DG et à l\'administration.' });
         const existing = await req.prisma.project.findUnique({
             where: { id: req.params.id },
             select: { id: true, consolidatorId: true },
@@ -588,7 +607,7 @@ router.put('/projects/:id', async (req, res) => {
 
 router.delete('/projects/:id', async (req, res) => {
     try {
-        if (!isPrivilegedAdmin(req.user?.role)) return res.status(403).json({ error: 'Acces reserve admin.' });
+        if (!canManageProjects(req.user?.role)) return res.status(403).json({ error: 'Accès réservé à la DG et à l\'administration.' });
         const projectId = req.params.id;
         const [meetingCount, missionCount, planningEventCount] = await Promise.all([
             req.prisma.meeting.count({ where: { projectId } }),

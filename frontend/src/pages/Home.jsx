@@ -2,12 +2,13 @@ import { useEffect, useState, useMemo } from 'react';
 import { useNavigate } from 'react-router-dom';
 import {
     Layout, Typography, Button, Card, Row, Col, Spin, Tag, Space, Badge, Tooltip, Segmented,
-    Input, Empty,
+    Input, Empty, App,
 } from 'antd';
 import {
     HomeOutlined, CalendarOutlined, LoginOutlined, FlagOutlined,
     TeamOutlined, EnvironmentOutlined, ReloadOutlined, ClockCircleOutlined,
     CheckCircleOutlined, SearchOutlined, PhoneOutlined, MobileOutlined, MailOutlined,
+    FileWordOutlined, FilePdfOutlined,
 } from '@ant-design/icons';
 import api from '../api/client';
 import {
@@ -15,6 +16,7 @@ import {
 } from '../utils/datetime';
 import { minutesFromTimeStr, isSlotActiveNow } from '../utils/roomSlots';
 import { segmentEventForDay } from '../utils/calendarEvents';
+import { exportRepertoirePdf, downloadRepertoireDocx } from '../utils/repertoireExport';
 
 const { Content } = Layout;
 const { Title, Text } = Typography;
@@ -227,6 +229,7 @@ function DayTimeline({ events }) {
 // ── Page publique ────────────────────────────────────────────────
 export default function Home() {
     const navigate = useNavigate();
+    const { message } = App.useApp();
 
     const [loading,   setLoading]   = useState(true);
     const [rooms,     setRooms]     = useState([]);
@@ -241,6 +244,8 @@ export default function Home() {
     const [repertoireContacts, setRepertoireContacts] = useState([]);
     const [repertoireTotal, setRepertoireTotal] = useState(0);
     const [repertoireLoading, setRepertoireLoading] = useState(false);
+    const [exportingPdf, setExportingPdf] = useState(false);
+    const [exportingDocx, setExportingDocx] = useState(false);
 
     // ── Recherche (debounced) ────────────────────────────────────
     const [searchInput, setSearchInput] = useState('');
@@ -538,6 +543,38 @@ export default function Home() {
     const searchPlaceholder = activeTab === 'repertoire'
         ? 'Rechercher un nom, une direction, un poste, un numéro…'
         : 'Rechercher une salle, une réunion, une mission, un lieu, une personne…';
+
+    const handleExportRepertoirePdf = async () => {
+        if (!repertoireContacts.length) {
+            message.warning('Aucun contact à exporter.');
+            return;
+        }
+        setExportingPdf(true);
+        try {
+            await exportRepertoirePdf(repertoireContacts);
+            message.success('Export PDF téléchargé');
+        } catch {
+            message.error('Erreur export PDF');
+        } finally {
+            setExportingPdf(false);
+        }
+    };
+
+    const handleExportRepertoireDocx = async () => {
+        if (!repertoireContacts.length) {
+            message.warning('Aucun contact à exporter.');
+            return;
+        }
+        setExportingDocx(true);
+        try {
+            await downloadRepertoireDocx(api, { search, publicExport: true });
+            message.success('Export Word téléchargé');
+        } catch {
+            message.error('Erreur export Word');
+        } finally {
+            setExportingDocx(false);
+        }
+    };
 
     const tabs = [
         { key: 'rooms',      label: 'Salles',      icon: <HomeOutlined />     },
@@ -978,13 +1015,43 @@ export default function Home() {
                                 {/* ── ONGLET RÉPERTOIRE ── */}
                                 {activeTab === 'repertoire' && (
                                     <>
-                                        <Text type="secondary" style={{ display: 'block', marginBottom: 16 }}>
-                                            {repertoireContacts.length} contact(s)
-                                            {repertoireGrouped.length > 0
-                                                ? ` — ${repertoireGrouped.length} direction(s).`
-                                                : '.'}
-                                            {' '}Filtrez par nom, direction, poste ou numéro via la recherche en haut de page.
-                                        </Text>
+                                        <div style={{
+                                            display: 'flex',
+                                            flexWrap: 'wrap',
+                                            alignItems: 'center',
+                                            justifyContent: 'space-between',
+                                            gap: 12,
+                                            marginBottom: 16,
+                                        }}>
+                                            <Text type="secondary" style={{ flex: '1 1 240px', margin: 0 }}>
+                                                {repertoireContacts.length} contact(s)
+                                                {repertoireGrouped.length > 0
+                                                    ? ` — ${repertoireGrouped.length} direction(s).`
+                                                    : '.'}
+                                                {' '}Filtrez par nom, direction, poste ou numéro via la recherche en haut de page.
+                                                {isSearching && ' L’export inclut les résultats filtrés.'}
+                                            </Text>
+                                            <Space wrap>
+                                                <Button
+                                                    icon={<FileWordOutlined />}
+                                                    onClick={handleExportRepertoireDocx}
+                                                    loading={exportingDocx}
+                                                    disabled={!repertoireContacts.length}
+                                                    style={{ background: '#2B579A', borderColor: '#2B579A', color: '#fff' }}
+                                                >
+                                                    Export Word
+                                                </Button>
+                                                <Button
+                                                    icon={<FilePdfOutlined />}
+                                                    onClick={handleExportRepertoirePdf}
+                                                    loading={exportingPdf}
+                                                    disabled={!repertoireContacts.length}
+                                                    style={{ background: '#CC0000', borderColor: '#CC0000', color: '#fff' }}
+                                                >
+                                                    Export PDF
+                                                </Button>
+                                            </Space>
+                                        </div>
                                         {repertoireGrouped.length === 0 ? (
                                             <Empty
                                                 image={Empty.PRESENTED_IMAGE_SIMPLE}

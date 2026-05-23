@@ -18,6 +18,7 @@ const {
     canManageMeeting,
     requiresConsolidatorApproval,
     meetingListWhereForUser,
+    canViewMeetingForUser,
 } = require('../config/meetingVisibility');
 const { emitToUsers, emitToMeetingRoom } = require('../realtime/socket');
 const { pdfOnlyMulterFileFilter, wrapMulterUpload } = require('../utils/pdfUpload');
@@ -45,10 +46,7 @@ async function canUseMeetingFiles(prisma) {
 }
 
 function canViewMeeting(meeting, user) {
-    if (!meeting || !user) return false;
-    // Tout utilisateur authentifié peut voir le détail d'une réunion
-    // (le calendrier expose déjà toutes les réunions à tous les utilisateurs)
-    return true;
+    return canViewMeetingForUser(meeting, user);
 }
 
 function isParticipant(meeting, user) {

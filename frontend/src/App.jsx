@@ -18,10 +18,10 @@ import AdminRequireSuper from './pages/admin/AdminRequireSuper';
 import {
     UsersTab,
     RoomsTab,
-    RolesPermissionsTab,
     SecurityTab,
     AppConfigTab,
 } from './pages/admin/AdminSections';
+import AdminRoleConfigTab from './pages/admin/AdminRoleConfigTab';
 import AdminTaxonomyPage from './pages/admin/AdminTaxonomyPage';
 import AdminEventTypesPage from './pages/admin/AdminEventTypesPage';
 import DirectionDetailPage from './pages/admin/DirectionDetailPage';
@@ -49,7 +49,7 @@ import NotFound from './pages/NotFound';
 import Home from './pages/Home';
 import PWAInstallPrompt from './components/PWAInstallPrompt';
 import MobileInit from './components/MobileInit';
-import { isPrivilegedAdmin, canManageRepertoire, ROLES } from './utils/roles';
+import { isPrivilegedAdmin, canAccessRepertoire, ROLES } from './utils/roles';
 
 function ProtectedRoute() {
     const { user } = useAuth();
@@ -65,7 +65,7 @@ function AdminRoute() {
 
 function RepertoireRoute() {
     const { user } = useAuth();
-    if (!canManageRepertoire(user?.role)) return <Navigate to="/dashboard" replace />;
+    if (!canAccessRepertoire(user?.role)) return <Navigate to="/dashboard" replace />;
     return <Repertoire />;
 }
 
@@ -120,7 +120,7 @@ export default function App() {
                                 <Route path="rooms" element={<RoomsTab />} />
                                 <Route path="notifications" element={<AdminNotifTab />} />
                                 <Route path="audit" element={<AdminAuditTab />} />
-                                <Route path="roles" element={<RolesPermissionsTab />} />
+                                <Route path="roles" element={<AdminRoleConfigTab />} />
                                 <Route path="security" element={<SecurityTab />} />
                                 <Route path="config" element={<AppConfigTab />} />
                                 <Route path="directions" element={<AdminTaxonomyPage variant="directions" />} />

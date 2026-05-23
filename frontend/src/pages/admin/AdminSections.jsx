@@ -15,15 +15,14 @@ import { useAuth } from '../../context/AuthContext';
 
 const { Title, Text } = Typography;
 export const ROLE_COLORS = {
-    RESPONSABLE: 'blue', CONSOLIDATEUR: 'purple', COORDINATEUR_PROJET: 'geekblue', SECRETAIRE_GENERAL: 'cyan',
-    DG: 'gold', ADMIN: 'red', SUPER_ADMIN: 'magenta',
+    RESPONSABLE: 'blue',
+    CONSOLIDATEUR: 'purple',
+    ADMIN: 'red',
+    SUPER_ADMIN: 'magenta',
 };
 export const ROLE_LABELS = {
     RESPONSABLE: 'Responsable',
     CONSOLIDATEUR: 'Consolidateur',
-    COORDINATEUR_PROJET: 'Coordinateur de projet',
-    SECRETAIRE_GENERAL: 'Secrétaire général',
-    DG: 'Dir. Général',
     ADMIN: 'Administrateur',
     SUPER_ADMIN: 'Super administrateur',
 };
@@ -911,7 +910,7 @@ export function RolesPermissionsTab() {
             .finally(() => setLoading(false));
     }, []);
 
-    const roleOrder = ['RESPONSABLE', 'CONSOLIDATEUR', 'COORDINATEUR_PROJET', 'SECRETAIRE_GENERAL', 'DG', 'ADMIN', 'SUPER_ADMIN'];
+    const roleOrder = ['RESPONSABLE', 'CONSOLIDATEUR', 'ADMIN', 'SUPER_ADMIN'];
 
     if (loading) return <div style={{ textAlign: 'center', padding: 24 }}><Spin /></div>;
 

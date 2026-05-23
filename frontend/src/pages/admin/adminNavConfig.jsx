@@ -22,7 +22,7 @@ export const ADMIN_NAV_ITEMS = [
     { path: '/admin/rooms', label: 'Salles', icon: BankOutlined, superOnly: false },
     { path: '/admin/notifications', label: 'Notifications', icon: BellOutlined, superOnly: false },
     { path: '/admin/audit', label: 'Journaux d\'audit', icon: FileTextOutlined, superOnly: false },
-    { path: '/admin/roles', label: 'Rôles & permissions', icon: SafetyCertificateOutlined, superOnly: false },
+    { path: '/admin/roles', label: 'Rôles & directions', icon: SafetyCertificateOutlined, superOnly: false },
     { path: '/admin/security', label: 'Sécurité', icon: SafetyCertificateOutlined, superOnly: false },
     { path: '/admin/config', label: 'Configuration globale', icon: SettingOutlined, superOnly: false },
     { path: '/admin/directions', label: 'Directions', icon: ApartmentOutlined, superOnly: false },

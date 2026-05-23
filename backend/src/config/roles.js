@@ -1,62 +1,109 @@
 const ROLES = {
     RESPONSABLE: 'RESPONSABLE',
     CONSOLIDATEUR: 'CONSOLIDATEUR',
-    /** Première étape de validation du planning (après consolidation). */
-    COORDINATEUR_PROJET: 'COORDINATEUR_PROJET',
-    /** Deuxième étape de validation du planning. */
-    SECRETAIRE_GENERAL: 'SECRETAIRE_GENERAL',
-    DG: 'DG',
     ADMIN: 'ADMIN',
-    /** Accès total : même périmètre qu'ADMIN + audit messagerie, promotion du rôle, modération messages */
     SUPER_ADMIN: 'SUPER_ADMIN',
 };
 
-const ALL_ROLES = Object.values(ROLES);
+/** Anciens rôles (migration) → rôle stocké. */
+const LEGACY_ROLE_MAP = {
+    COORDINATEUR_PROJET: ROLES.CONSOLIDATEUR,
+    SECRETAIRE_GENERAL: ROLES.ADMIN,
+    DG: ROLES.ADMIN,
+};
 
-/** Rôles autorisés sur les routes « administration » (pages /admin, /users, etc.) */
+const ALL_ROLES = [...Object.values(ROLES), ...Object.keys(LEGACY_ROLE_MAP)];
+
+/** Routes administration (menu /admin). */
 const ADMIN_ROUTE_ROLES = [ROLES.ADMIN, ROLES.SUPER_ADMIN];
 
-/** Répertoire téléphonique : consultation / édition / création de comptes */
-const REPERTOIRE_MANAGE_ROLES = [ROLES.ADMIN, ROLES.SUPER_ADMIN, ROLES.DG];
+/** Répertoire : consultation. */
+const REPERTOIRE_VIEW_ROLES = [
+    ROLES.ADMIN,
+    ROLES.SUPER_ADMIN,
+    ROLES.CONSOLIDATEUR,
+    ROLES.RESPONSABLE,
+];
 
-function isValidRole(role) {
-    return ALL_ROLES.includes(role);
-}
+/** Répertoire : édition. */
+const REPERTOIRE_MANAGE_ROLES = [ROLES.ADMIN, ROLES.SUPER_ADMIN];
 
-function isPrivilegedAdmin(role) {
-    return role === ROLES.ADMIN || role === ROLES.SUPER_ADMIN;
-}
+/** Projets : création et modification. */
+const PROJECT_MANAGE_ROLES = [ROLES.ADMIN, ROLES.SUPER_ADMIN];
 
-function isSuperAdmin(role) {
-    return role === ROLES.SUPER_ADMIN;
-}
-
-/** Suppression définitive / forcée (contournement des garde-fous métier). */
-function canSuperAdminForceDelete(role) {
-    return role === ROLES.SUPER_ADMIN;
-}
-
-function canManageRepertoire(role) {
-    return REPERTOIRE_MANAGE_ROLES.includes(role);
-}
-
-/** Voir toutes les missions (pas seulement les siennes / assignées). */
+/** Voir toutes les missions. */
 const MISSION_VIEW_ALL_ROLES = [
     ROLES.ADMIN,
     ROLES.SUPER_ADMIN,
     ROLES.CONSOLIDATEUR,
-    ROLES.COORDINATEUR_PROJET,
-    ROLES.DG,
 ];
 
-function canViewAllMissions(role) {
-    return MISSION_VIEW_ALL_ROLES.includes(role);
+/** Voir tous les plannings. */
+const PLANNING_VIEW_ALL_ROLES = [
+    ROLES.ADMIN,
+    ROLES.SUPER_ADMIN,
+    ROLES.CONSOLIDATEUR,
+];
+
+function normalizeStoredRole(role) {
+    if (!role) return ROLES.RESPONSABLE;
+    if (LEGACY_ROLE_MAP[role]) return LEGACY_ROLE_MAP[role];
+    if (Object.values(ROLES).includes(role)) return role;
+    return ROLES.RESPONSABLE;
 }
 
-/** Filtre Prisma pour la liste / calendrier des missions. */
+function isValidRole(role) {
+    const n = normalizeStoredRole(role);
+    return Object.values(ROLES).includes(n);
+}
+
+function isPrivilegedAdmin(role) {
+    const n = normalizeStoredRole(role);
+    return n === ROLES.ADMIN || n === ROLES.SUPER_ADMIN;
+}
+
+function isSuperAdmin(role) {
+    return normalizeStoredRole(role) === ROLES.SUPER_ADMIN;
+}
+
+function canSuperAdminForceDelete(role) {
+    return isSuperAdmin(role);
+}
+
+function canAccessRepertoire(role) {
+    return REPERTOIRE_VIEW_ROLES.includes(normalizeStoredRole(role));
+}
+
+function canManageRepertoire(role) {
+    return REPERTOIRE_MANAGE_ROLES.includes(normalizeStoredRole(role));
+}
+
+function canManageProjects(role) {
+    return PROJECT_MANAGE_ROLES.includes(normalizeStoredRole(role));
+}
+
+function canManageDirections(role) {
+    return isPrivilegedAdmin(role);
+}
+
+function canViewAllMissions(role) {
+    return MISSION_VIEW_ALL_ROLES.includes(normalizeStoredRole(role));
+}
+
+function canViewAllPlannings(role) {
+    return PLANNING_VIEW_ALL_ROLES.includes(normalizeStoredRole(role));
+}
+
+function isResponsable(role) {
+    return normalizeStoredRole(role) === ROLES.RESPONSABLE;
+}
+
 function missionScopeWhere(user) {
     if (canViewAllMissions(user?.role)) return {};
     const userId = user?.id;
+    if (isResponsable(user?.role)) {
+        return { createdById: userId };
+    }
     return {
         OR: [
             { createdById: userId },
@@ -65,17 +112,44 @@ function missionScopeWhere(user) {
     };
 }
 
+function planningScopeWhere(user) {
+    if (canViewAllPlannings(user?.role)) return {};
+    return { userId: user.id };
+}
+
+function canViewMission(mission, user) {
+    if (!mission || !user?.id) return false;
+    if (canViewAllMissions(user.role)) return true;
+    if (isResponsable(user.role)) return mission.createdById === user.id;
+    return (
+        mission.createdById === user.id
+        || (mission.assignments || []).some((a) => a.userId === user.id)
+    );
+}
+
 module.exports = {
     ROLES,
+    LEGACY_ROLE_MAP,
     ALL_ROLES,
     ADMIN_ROUTE_ROLES,
+    REPERTOIRE_VIEW_ROLES,
     REPERTOIRE_MANAGE_ROLES,
+    PROJECT_MANAGE_ROLES,
+    MISSION_VIEW_ALL_ROLES,
+    PLANNING_VIEW_ALL_ROLES,
+    normalizeStoredRole,
     isValidRole,
     isPrivilegedAdmin,
     isSuperAdmin,
     canSuperAdminForceDelete,
+    canAccessRepertoire,
     canManageRepertoire,
-    MISSION_VIEW_ALL_ROLES,
+    canManageProjects,
+    canManageDirections,
     canViewAllMissions,
+    canViewAllPlannings,
+    isResponsable,
     missionScopeWhere,
+    planningScopeWhere,
+    canViewMission,
 };

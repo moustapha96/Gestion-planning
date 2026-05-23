@@ -8,6 +8,11 @@ const { z } = require('zod');
 const { notificationService } = require('../services/notification.service');
 const { logger, auditLogger } = require('../utils/logger');
 const authMiddleware = require('../middlewares/auth.middleware');
+const { normalizeStoredRole } = require('../config/roles');
+const {
+    resolveEffectiveRole,
+    resolveUserFunctionalCapabilities,
+} = require('../services/roleConfig.service');
 const {
     validatePasswordStrength,
     findUserByEmail,
@@ -75,6 +80,8 @@ function toAuthClientUser(u) {
         name: u.name,
         email: u.email,
         role: u.role,
+        storedRole: u.storedRole ?? u.role,
+        functionalCapabilities: u.functionalCapabilities || null,
         avatarUrl: u.avatarUrl,
         directionId: u.directionId || null,
         projectId: u.projectId || null,
@@ -84,6 +91,19 @@ function toAuthClientUser(u) {
         direction: u.direction || null,
         project: u.project || null,
     };
+}
+
+async function buildAuthClientUser(prisma, dbUser) {
+    const [effectiveRole, functionalCapabilities] = await Promise.all([
+        resolveEffectiveRole(prisma, dbUser),
+        resolveUserFunctionalCapabilities(prisma, dbUser),
+    ]);
+    return toAuthClientUser({
+        ...dbUser,
+        role: effectiveRole,
+        storedRole: normalizeStoredRole(dbUser.role),
+        functionalCapabilities,
+    });
 }
 
 const loginSchema = z.object({
@@ -187,10 +207,12 @@ router.post('/login', async (req, res) => {
         logger.logAuth('LOGIN', email, true);
         auditLogger.info('LOGIN', `Connexion de ${email}`, { userId: user.id, email, ip: req.ip });
 
+        const clientUser = await buildAuthClientUser(req.prisma, user);
+
         res.json({
             accessToken,
             refreshToken,
-            user: toAuthClientUser(user),
+            user: clientUser,
         });
 
         req.prisma.auditLog.create({
@@ -304,7 +326,7 @@ router.post('/2fa-login', async (req, res) => {
         res.json({
             accessToken,
             refreshToken,
-            user: toAuthClientUser(user),
+            user: await buildAuthClientUser(req.prisma, user),
         });
     } catch (error) {
         logger.error('2FA_LOGIN', error.message);
@@ -480,7 +502,7 @@ router.get('/me', authMiddleware, async (req, res) => {
             },
         });
         if (!user) return res.status(404).json({ error: 'Utilisateur non trouvé' });
-        res.json(user);
+        res.json(await buildAuthClientUser(req.prisma, user));
     } catch (error) {
         res.status(400).json({ error: error.message });
     }

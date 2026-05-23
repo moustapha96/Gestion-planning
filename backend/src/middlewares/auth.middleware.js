@@ -1,6 +1,7 @@
 const jwt = require('jsonwebtoken');
+const { enrichReqUser } = require('../services/roleConfig.service');
 
-const authMiddleware = (req, res, next) => {
+const authMiddleware = async (req, res, next) => {
     try {
         const token = req.headers.authorization?.split(' ')[1];
 
@@ -9,10 +10,15 @@ const authMiddleware = (req, res, next) => {
         }
 
         const decoded = jwt.verify(token, process.env.JWT_SECRET);
-        req.user = decoded;
+        if (req.prisma) {
+            req.user = await enrichReqUser(req.prisma, decoded);
+        } else {
+            req.user = decoded;
+        }
         next();
     } catch (error) {
-        return res.status(401).json({ error: 'Invalid token' });
+        const code = error.statusCode || 401;
+        return res.status(code).json({ error: error.message || 'Invalid token' });
     }
 };
 

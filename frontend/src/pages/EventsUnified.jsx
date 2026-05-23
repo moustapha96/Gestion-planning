@@ -36,10 +36,10 @@ export default function EventsUnified() {
     const [loading, setLoading] = useState(false);
     const [items, setItems] = useState([]);
     const [total, setTotal] = useState(0);
-    const [filtersMeta, setFiltersMeta] = useState({ directions: [], projects: [], eventTypes: [] });
+    const [filtersMeta, setFiltersMeta] = useState({ directions: [], projects: [], eventTypeCategories: [] });
     const [q, setQ] = useState('');
     const [sourceType, setSourceType] = useState(undefined);
-    const [eventType, setEventType] = useState(undefined);
+    const [categoryCode, setCategoryCode] = useState(undefined);
     const [directionId, setDirectionId] = useState(undefined);
     const [projectId, setProjectId] = useState(undefined);
     const [from, setFrom] = useState('');
@@ -52,8 +52,6 @@ export default function EventsUnified() {
 
     const [detailsOpen, setDetailsOpen] = useState(false);
     const [detailsItem, setDetailsItem] = useState(null);
-    const [createTypes, setCreateTypes] = useState([]); // types d'événement actifs pour le menu "Créer"
-
     const openDetails = (row) => {
         setDetailsItem(row);
         setDetailsOpen(true);
@@ -148,7 +146,7 @@ export default function EventsUnified() {
                 params: {
                     q: q || undefined,
                     source: sourceType || undefined,
-                    eventType: eventType || undefined,
+                    categoryCode: categoryCode || undefined,
                     directionId: directionId || undefined,
                     projectId: projectId || undefined,
                     from: from || undefined,
@@ -159,7 +157,7 @@ export default function EventsUnified() {
             });
             setItems(data?.items || []);
             setTotal(data?.total || 0);
-            setFiltersMeta(data?.filtersMeta || { directions: [], projects: [], eventTypes: [] });
+            setFiltersMeta(data?.filtersMeta || { directions: [], projects: [], eventTypeCategories: [] });
         } finally {
             setLoading(false);
         }
@@ -167,29 +165,40 @@ export default function EventsUnified() {
 
     useEffect(() => {
         load();
-    }, [q, sourceType, eventType, directionId, projectId, from, to, page, pageSize]);
+    }, [q, sourceType, categoryCode, directionId, projectId, from, to, page, pageSize]);
 
-    // Charge les types d'événement (pour le menu "Créer un événement")
-    useEffect(() => {
-        let active = true;
-        (async () => {
-            try {
-                const { data } = await api.get('/events/event-types');
-                if (active) setCreateTypes(Array.isArray(data) ? data.filter((t) => t.isActive !== false) : []);
-            } catch {
-                if (active) setCreateTypes([]);
-            }
-        })();
-        return () => { active = false; };
-    }, []);
+    const eventTypeCategories = useMemo(
+        () => (filtersMeta.eventTypeCategories || []).slice().sort((a, b) => (a.sortOrder ?? 0) - (b.sortOrder ?? 0)),
+        [filtersMeta.eventTypeCategories],
+    );
+
+    const categoryLabel = (code) => {
+        const t = eventTypeCategories.find((x) => x.code === code);
+        return t?.name || code;
+    };
+
+    const renderCategoryTag = (category) => {
+        if (!category?.name) return <Tag>—</Tag>;
+        return (
+            <Tag style={{ margin: 0, borderColor: category.color, color: category.color }}>
+                {category.name}
+            </Tag>
+        );
+    };
 
     const columns = useMemo(() => ([
         {
-            title: 'Type',
+            title: 'Catégorie',
+            key: 'category',
+            width: 140,
+            render: (_, row) => renderCategoryTag(row.category),
+        },
+        {
+            title: 'Source',
             dataIndex: 'sourceType',
             key: 'sourceType',
-            width: 120,
-            render: (v) => <Tag>{SOURCE_LABELS[v] || v}</Tag>,
+            width: 110,
+            render: (v) => <Tag color="default">{SOURCE_LABELS[v] || v}</Tag>,
         },
         {
             title: 'Statut',
@@ -256,7 +265,7 @@ export default function EventsUnified() {
                 </Button>
             ),
         },
-    ]), [statusColorMap]);
+    ]), [statusColorMap, eventTypeCategories]);
 
     const todayParam = useMemo(() => new Date().toISOString().split('T')[0], []);
 
@@ -286,9 +295,7 @@ export default function EventsUnified() {
     };
 
     const createMenu = useMemo(() => {
-        const items = (createTypes || [])
-            .slice()
-            .sort((a, b) => (a.sortOrder ?? 0) - (b.sortOrder ?? 0))
+        const items = eventTypeCategories
             .map((t) => ({
                 key: t.id,
                 icon: iconForTypeCode(t.code),
@@ -313,11 +320,11 @@ export default function EventsUnified() {
         return {
             items,
             onClick: ({ key }) => {
-                const t = createTypes.find((x) => x.id === key);
+                const t = eventTypeCategories.find((x) => x.id === key);
                 handleCreateByType(t);
             },
         };
-    }, [createTypes, todayParam]);
+    }, [eventTypeCategories, todayParam]);
 
     return (
         <div>
@@ -340,6 +347,40 @@ export default function EventsUnified() {
                     </Space>
                 )}
             </div>
+
+            {eventTypeCategories.length > 0 && (
+                <Card size="small" style={{ marginBottom: 16 }}>
+                    <Text strong style={{ display: 'block', marginBottom: 8 }}>Types d&apos;événement</Text>
+                    <Space size={[8, 8]} wrap>
+                        <Tag
+                            style={{ cursor: 'pointer', margin: 0 }}
+                            color={!categoryCode ? 'processing' : 'default'}
+                            onClick={() => { setPage(1); setCategoryCode(undefined); }}
+                        >
+                            Tous
+                        </Tag>
+                        {eventTypeCategories.map((t) => (
+                            <Tag
+                                key={t.id || t.code}
+                                style={{
+                                    cursor: 'pointer',
+                                    margin: 0,
+                                    borderColor: t.color,
+                                    color: categoryCode === t.code ? '#fff' : t.color,
+                                    background: categoryCode === t.code ? (t.color || '#1565C0') : 'transparent',
+                                }}
+                                onClick={() => {
+                                    setPage(1);
+                                    setCategoryCode(categoryCode === t.code ? undefined : t.code);
+                                }}
+                            >
+                                {t.name}
+                            </Tag>
+                        ))}
+                    </Space>
+                </Card>
+            )}
+
             <Card style={{ marginBottom: 16 }}>
                 <Row gutter={[12, 12]} style={{ marginBottom: 8 }}>
                     <Col xs={24}>
@@ -401,11 +442,16 @@ export default function EventsUnified() {
                     <Col xs={24} sm={12} md={4} lg={3}>
                         <Select
                             allowClear
+                            showSearch
+                            optionFilterProp="label"
                             style={{ width: '100%' }}
-                            placeholder="Type d'événement"
-                            value={eventType}
-                            onChange={(v) => { setPage(1); setEventType(v); }}
-                            options={(filtersMeta.eventTypes || []).map((x) => ({ value: x, label: x }))}
+                            placeholder="Catégorie"
+                            value={categoryCode}
+                            onChange={(v) => { setPage(1); setCategoryCode(v); }}
+                            options={eventTypeCategories.map((t) => ({
+                                value: t.code,
+                                label: t.name,
+                            }))}
                         />
                     </Col>
                     <Col xs={12} sm={12} md={2} lg={3}>
@@ -427,7 +473,7 @@ export default function EventsUnified() {
                 </Row>
                 <div style={{ marginTop: 8 }}>
                     <Text type="secondary">
-                        Filtrez par source, type, direction, projet et période. Cliquez sur "Détails" pour afficher toutes les informations.
+                        Filtrez par catégorie (types configurés), source, direction, projet et période. Cliquez sur « Détails » pour afficher toutes les informations.
                     </Text>
                 </div>
             </Card>
@@ -446,12 +492,8 @@ export default function EventsUnified() {
                                             style={{ borderRadius: 12 }}
                                             title={(
                                                 <Space wrap>
-                                                    <Tag>{SOURCE_LABELS[row.sourceType] || row.sourceType}</Tag>
-                                                    {row.category?.name && (
-                                                        <Tag style={{ borderColor: row.category.color, color: row.category.color }}>
-                                                            {row.category.name}
-                                                        </Tag>
-                                                    )}
+                                                    {renderCategoryTag(row.category)}
+                                                    <Tag color="default">{SOURCE_LABELS[row.sourceType] || row.sourceType}</Tag>
                                                     <Tag color={statusColorMap[row.status] || 'default'}>{STATUS_LABELS[row.status] || row.status || '-'}</Tag>
                                                 </Space>
                                             )}
@@ -518,15 +560,16 @@ export default function EventsUnified() {
                             size="small"
                             column={isMobile ? 1 : 2}
                         >
-                            <Descriptions.Item label="Type">
-                                {SOURCE_LABELS[detailsItem.sourceType] || detailsItem.sourceType || '-'}
-                            </Descriptions.Item>
                             <Descriptions.Item label="Catégorie">
-                                {detailsItem.category?.name ? (
-                                    <Tag style={{ borderColor: detailsItem.category.color, color: detailsItem.category.color }}>
-                                        {detailsItem.category.name}
-                                    </Tag>
-                                ) : '—'}
+                                {renderCategoryTag(detailsItem.category)}
+                            </Descriptions.Item>
+                            <Descriptions.Item label="Source">
+                                {SOURCE_LABELS[detailsItem.sourceType] || detailsItem.sourceType || '-'}
+                                {detailsItem.categoryCode && (
+                                    <Text type="secondary" style={{ marginLeft: 8, fontSize: 12 }}>
+                                        ({categoryLabel(detailsItem.categoryCode)})
+                                    </Text>
+                                )}
                             </Descriptions.Item>
                             <Descriptions.Item label="Statut">
                                 <Tag color={statusColorMap[detailsItem.status] || 'default'}>

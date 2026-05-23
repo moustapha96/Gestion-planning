@@ -2,17 +2,26 @@ const express = require('express');
 const path = require('path');
 const fs = require('fs');
 const multer = require('multer');
-const { isPrivilegedAdmin, ROLES } = require('../config/roles');
+const { canManageProjects } = require('../config/roles');
 const {
     validateConsolidatorId,
     PROJECT_CONSOLIDATOR_INCLUDE,
     notifyProjectConsolidatorAssigned,
 } = require('../services/projectConsolidator.service');
+const {
+    validateCoordinatorId,
+    PROJECT_COORDINATOR_INCLUDE,
+    notifyProjectCoordinatorAssigned,
+} = require('../services/projectCoordinator.service');
+
+const PROJECT_PEOPLE_INCLUDE = {
+    ...PROJECT_CONSOLIDATOR_INCLUDE,
+    ...PROJECT_COORDINATOR_INCLUDE,
+};
 const { pdfOnlyMulterFileFilter, wrapMulterUpload } = require('../utils/pdfUpload');
 
 const router = express.Router();
 
-const ALLOWED_ROLES = ['ADMIN', 'SUPER_ADMIN', 'DG'];
 const PROJECT_STATUSES = ['ACTIVE', 'PAUSED', 'COMPLETED'];
 const uploadsDir = path.join(__dirname, '../../uploads/project-files');
 const projectLogosDir = path.join(__dirname, '../../uploads/project-logos');
@@ -46,25 +55,22 @@ const uploadProjectFile = multer({
     fileFilter: pdfOnlyMulterFileFilter,
 });
 
-function canManageProject(project, user) {
-    return Boolean(project && user && (isPrivilegedAdmin(user.role) || project.createdById === user.id || user.role === ROLES.RESPONSABLE));
+function canManageProject(_project, user) {
+    return canManageProjects(user?.role);
 }
 
 function canCreateProject(user) {
-    return Boolean(user && (ALLOWED_ROLES.includes(user.role) || user.role === ROLES.RESPONSABLE));
+    return canManageProjects(user?.role);
 }
 
-/** Créateur, responsable ou administration peuvent désigner le consolidateur. */
-function canSetProjectConsolidator(project, user) {
-    if (!user) return false;
-    if (ALLOWED_ROLES.includes(user.role) || user.role === ROLES.RESPONSABLE) return true;
-    return Boolean(project && project.createdById === user.id);
+function canSetProjectConsolidator(_project, user) {
+    return canManageProjects(user?.role);
 }
 
 function canAddProjectFile(project, user) {
     if (!project || !user) return false;
     if (project.status === 'COMPLETED') return false;
-    return isPrivilegedAdmin(user.role) || project.createdById === user.id || user.role === ROLES.RESPONSABLE;
+    return canManageProjects(user.role);
 }
 
 router.get('/', async (req, res) => {
@@ -78,7 +84,7 @@ router.get('/', async (req, res) => {
             where,
             include: {
                 createdBy: { select: { id: true, name: true, email: true } },
-                ...PROJECT_CONSOLIDATOR_INCLUDE,
+                ...PROJECT_PEOPLE_INCLUDE,
                 _count: { select: { missions: true, meetings: true, planningEvents: true, files: true } },
             },
             orderBy: { name: 'asc' },
@@ -95,7 +101,7 @@ router.get('/:id', async (req, res) => {
             where: { id: req.params.id },
             include: {
                 createdBy: { select: { id: true, name: true, email: true } },
-                ...PROJECT_CONSOLIDATOR_INCLUDE,
+                ...PROJECT_PEOPLE_INCLUDE,
                 missions: {
                     select: { id: true, title: true, status: true, startTime: true, endTime: true },
                     orderBy: { startTime: 'desc' },
@@ -123,11 +129,16 @@ router.get('/:id', async (req, res) => {
 
 router.post('/', async (req, res) => {
     if (!canCreateProject(req.user)) return res.status(403).json({ error: 'Accès refusé' });
-    const { name, code, description, logoUrl: logoUrlRaw, consolidatorId: consolidatorIdRaw } = req.body;
+    const {
+        name, code, description, logoUrl: logoUrlRaw,
+        consolidatorId: consolidatorIdRaw, coordinatorId: coordinatorIdRaw,
+    } = req.body;
     if (!name?.trim()) return res.status(400).json({ error: 'Le nom est requis' });
     const logoUrl = logoUrlRaw !== undefined ? String(logoUrlRaw || '').trim() : null;
     const consolidatorCheck = await validateConsolidatorId(req.prisma, consolidatorIdRaw ?? null);
     if (!consolidatorCheck.ok) return res.status(400).json({ error: consolidatorCheck.error });
+    const coordinatorCheck = await validateCoordinatorId(req.prisma, coordinatorIdRaw ?? null);
+    if (!coordinatorCheck.ok) return res.status(400).json({ error: coordinatorCheck.error });
     try {
         const project = await req.prisma.project.create({
             data: {
@@ -136,14 +147,20 @@ router.post('/', async (req, res) => {
                 description: description?.trim() || null,
                 ...(logoUrl ? { logoUrl } : {}),
                 consolidatorId: consolidatorCheck.value ?? null,
+                coordinatorId: coordinatorCheck.value ?? null,
                 status: 'ACTIVE',
                 isActive: true,
                 createdById: req.user?.id || null,
             },
-            include: PROJECT_CONSOLIDATOR_INCLUDE,
+            include: PROJECT_PEOPLE_INCLUDE,
         });
         if (project.consolidatorId) {
             await notifyProjectConsolidatorAssigned(req.prisma, project.id, project.consolidatorId, {
+                assignedByName: req.user?.name,
+            });
+        }
+        if (project.coordinatorId) {
+            await notifyProjectCoordinatorAssigned(req.prisma, project.id, project.coordinatorId, {
                 assignedByName: req.user?.name,
             });
         }
@@ -159,7 +176,10 @@ router.put('/:id', async (req, res) => {
     if (!project) return res.status(404).json({ error: 'Projet introuvable' });
     if (!canManageProject(project, req.user)) return res.status(403).json({ error: 'Accès refusé' });
 
-    const { name, code, description, isActive, logoUrl: logoUrlBody, consolidatorId: consolidatorIdRaw } = req.body;
+    const {
+        name, code, description, isActive, logoUrl: logoUrlBody,
+        consolidatorId: consolidatorIdRaw, coordinatorId: coordinatorIdRaw,
+    } = req.body;
     const data = {};
     if (name !== undefined) data.name = String(name || '').trim();
     if (code !== undefined) data.code = code?.trim() || null;
@@ -172,22 +192,35 @@ router.put('/:id', async (req, res) => {
     let nextConsolidatorId;
     if (consolidatorIdRaw !== undefined) {
         if (!canSetProjectConsolidator(project, req.user)) {
-            return res.status(403).json({ error: 'Vous n\'êtes pas autorisé à désigner le consolidateur de ce projet.' });
+            return res.status(403).json({ error: 'Seuls les administrateurs peuvent désigner le consolidateur de ce projet.' });
         }
         const consolidatorCheck = await validateConsolidatorId(req.prisma, consolidatorIdRaw);
         if (!consolidatorCheck.ok) return res.status(400).json({ error: consolidatorCheck.error });
         nextConsolidatorId = consolidatorCheck.value ?? null;
         data.consolidatorId = nextConsolidatorId;
     }
+    if (coordinatorIdRaw !== undefined) {
+        if (!canSetProjectConsolidator(project, req.user)) {
+            return res.status(403).json({ error: 'Seuls les administrateurs peuvent désigner le coordinateur de ce projet.' });
+        }
+        const coordinatorCheck = await validateCoordinatorId(req.prisma, coordinatorIdRaw);
+        if (!coordinatorCheck.ok) return res.status(400).json({ error: coordinatorCheck.error });
+        data.coordinatorId = coordinatorCheck.value ?? null;
+    }
 
     try {
         const updated = await req.prisma.project.update({
             where: { id: req.params.id },
             data,
-            include: PROJECT_CONSOLIDATOR_INCLUDE,
+            include: PROJECT_PEOPLE_INCLUDE,
         });
         if (consolidatorIdRaw !== undefined && updated.consolidatorId && updated.consolidatorId !== project.consolidatorId) {
             await notifyProjectConsolidatorAssigned(req.prisma, updated.id, updated.consolidatorId, {
+                assignedByName: req.user?.name,
+            });
+        }
+        if (coordinatorIdRaw !== undefined && updated.coordinatorId && updated.coordinatorId !== project.coordinatorId) {
+            await notifyProjectCoordinatorAssigned(req.prisma, updated.id, updated.coordinatorId, {
                 assignedByName: req.user?.name,
             });
         }
@@ -248,7 +281,7 @@ router.post('/:id/files', wrapMulterUpload(uploadProjectFile.single('file')), as
         const project = await req.prisma.project.findUnique({ where: { id: req.params.id } });
         if (!project) return res.status(404).json({ error: 'Projet introuvable' });
         if (!canAddProjectFile(project, req.user)) {
-            return res.status(403).json({ error: 'Seul le créateur, un admin ou un responsable peut ajouter des fichiers tant que le projet n’est pas terminé.' });
+            return res.status(403).json({ error: 'Seuls la DG et l\'administration peuvent ajouter des fichiers au projet.' });
         }
         const saved = await req.prisma.projectFile.create({
             data: {
@@ -287,7 +320,7 @@ router.delete('/:id/files/:fileId', async (req, res) => {
 });
 
 router.delete('/:id', async (req, res) => {
-    if (!ALLOWED_ROLES.includes(req.user?.role)) return res.status(403).json({ error: 'Accès refusé' });
+    if (!canManageProjects(req.user?.role)) return res.status(403).json({ error: 'Accès refusé' });
     try {
         await req.prisma.$transaction([
             req.prisma.mission.updateMany({ where: { projectId: req.params.id }, data: { projectId: null } }),

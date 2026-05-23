@@ -45,6 +45,7 @@ const meetingRoutes = require('./src/routes/meetings');
 const missionRoutes = require('./src/routes/missions');
 const roomRoutes = require('./src/routes/rooms');
 const userRoutes = require('./src/routes/users');
+const roleConfigRoutes = require('./src/routes/role-config');
 const dashboardRoutes = require('./src/routes/dashboard');
 const notificationRoutes = require('./src/routes/notifications');
 const calendarModule = require('./src/routes/calendar');
@@ -213,6 +214,7 @@ app.use('/api/meetings', authMiddleware, meetingRoutes);
 app.use('/api/missions', authMiddleware, missionRoutes);
 app.use('/api/rooms', authMiddleware, roomRoutes);
 app.use('/api/users', authMiddleware, userRoutes);
+app.use('/api/role-config', authMiddleware, roleConfigRoutes);
 app.use('/api/dashboard', authMiddleware, dashboardRoutes);
 app.use('/api/notifications', authMiddleware, notificationRoutes);
 // Routes calendrier : enregistrement explicite pour éviter 404

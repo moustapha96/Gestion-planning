@@ -189,6 +189,10 @@ export default function Planning() {
             .catch(() => setTaxonomyProjects([]));
     }, [user?.id]);
 
+    useEffect(() => {
+        if (isResponsable) setMineOnly(true);
+    }, [isResponsable]);
+
     useEffect(() => { fetchPlannings(selectedDate, mineOnly); }, [selectedDate, mineOnly]); // eslint-disable-line
 
     // ── Fetch ────────────────────────────────────────────────────

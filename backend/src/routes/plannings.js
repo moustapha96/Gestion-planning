@@ -6,20 +6,23 @@ const { logger } = require('../utils/logger');
 const { createAuditLog } = require('../utils/audit');
 
 const router = express.Router();
-const { ROLES, ADMIN_ROUTE_ROLES, isPrivilegedAdmin } = require('../config/roles');
+const { ROLES, ADMIN_ROUTE_ROLES, isPrivilegedAdmin, planningScopeWhere } = require('../config/roles');
 const {
-    CP_PENDING,
-    SG_PENDING,
-    DG_PENDING,
-    LEGACY_IN_CONSOLIDATION,
+    COORDINATOR_PENDING,
     STATUS_AFTER_CONSOLIDATION,
-    isPendingValidation,
+    isPendingCoordinatorValidation,
 } = require('../config/planningWorkflow');
 const { resolvePlanningEventTypeFields } = require('../services/eventType.service');
 const {
     notifyConsolidatorsForProject,
     canUserConsolidatePlanning,
 } = require('../services/projectConsolidator.service');
+const {
+    canUserCoordinatePlanning,
+    canUserReturnPlanning,
+    getProjectCoordinator,
+} = require('../services/projectCoordinator.service');
+const { userMayConsolidate } = require('../services/roleConfig.service');
 
 const PLANNING_EVENT_INCLUDE = {
     room: { select: { id: true, name: true } },
@@ -94,10 +97,12 @@ router.get('/week/:date', async (req, res) => {
         const weekStart = getMondayOfWeek(date);
         const weekEnd = new Date(weekStart.getTime() + 7 * 24 * 60 * 60 * 1000);
 
+        const scope = planningScopeWhere(req.user);
         const where = {
             weekStart: { gte: weekStart, lt: weekEnd },
+            ...scope,
         };
-        if (req.query.mine === '1' && req.user?.id) {
+        if (req.query.mine === '1' && req.user?.id && !scope.userId) {
             where.userId = req.user.id;
         }
 
@@ -277,22 +282,20 @@ router.get('/:id', async (req, res) => {
         }
 
         const { id: viewerId, role } = req.user;
-        const validationViewerRoles = [
-            ROLES.CONSOLIDATEUR,
-            ROLES.COORDINATEUR_PROJET,
-            ROLES.SECRETAIRE_GENERAL,
-            ROLES.DG,
-        ];
         let canView =
             planning.userId === viewerId ||
             isPrivilegedAdmin(role) ||
-            validationViewerRoles.includes(role);
+            userMayConsolidate(req.user);
         if (!canView && planning.user?.projectId) {
             const ownerProject = await req.prisma.project.findUnique({
                 where: { id: planning.user.projectId },
-                select: { consolidatorId: true },
+                select: { consolidatorId: true, coordinatorId: true },
             });
-            canView = ownerProject?.consolidatorId === viewerId;
+            canView = ownerProject?.consolidatorId === viewerId
+                || ownerProject?.coordinatorId === viewerId;
+        }
+        if (!canView) {
+            canView = await canUserCoordinatePlanning(req.prisma, req.user, planning);
         }
         if (!canView) {
             return res.status(403).json({ error: 'Accès non autorisé à ce planning' });
@@ -615,18 +618,17 @@ router.put('/:id/consolidate', async (req, res) => {
 
         await createAuditLog(req, 'PLANNING_CONSOLIDATED', 'Planning', req.params.id, `Planning ${req.params.id} consolidé`);
 
-        const coordinators = await req.prisma.user.findMany({
-            where: { role: ROLES.COORDINATEUR_PROJET, isActive: true, isDeleted: false },
-        });
-
-        for (const c of coordinators) {
+        const coordinator = planning.user?.projectId
+            ? await getProjectCoordinator(req.prisma, planning.user.projectId)
+            : null;
+        if (coordinator) {
             await notificationService.createNotification(
                 req.prisma,
-                c.id,
+                coordinator.id,
                 'PLANNING_SUBMITTED',
                 'Planning — validation coordinateur',
-                `Un planning consolidé attend votre validation (coordinateur de projet).`,
-                `/planning/${req.params.id}`
+                `Un planning consolidé attend votre validation en tant que coordinateur du projet.`,
+                `/planning/${req.params.id}`,
             );
         }
 
@@ -635,8 +637,8 @@ router.put('/:id/consolidate', async (req, res) => {
             planning.userId,
             'PLANNING_IN_CONSOLIDATION',
             'Planning consolidé',
-            'Votre planning a été consolidé et suit la chaîne de validation (coordinateur → accord SG ou direction → validation finale SG ou DG).',
-            `/planning/${req.params.id}`
+            'Votre planning a été consolidé et attend la validation du coordinateur de projet désigné.',
+            `/planning/${req.params.id}`,
         );
 
         res.json(updated);
@@ -649,111 +651,62 @@ router.put('/:id/consolidate', async (req, res) => {
     }
 });
 
-/** Première validation : coordinateur de projet */
-router.put('/:id/approve-cp', roleMiddleware([ROLES.COORDINATEUR_PROJET, ROLES.ADMIN, ROLES.SUPER_ADMIN]), async (req, res) => {
+/** Validation par le coordinateur de projet désigné (planning, missions, réunions — chaîne simplifiée). */
+async function handleCoordinatorApprove(req, res) {
     try {
         const planning = await req.prisma.planning.findUnique({
             where: { id: req.params.id },
-            include: { user: true },
+            include: { user: { include: { project: { select: { id: true, coordinatorId: true } } } } },
         });
         if (!planning) return res.status(404).json({ error: 'Planning introuvable' });
-        if (planning.status !== CP_PENDING && planning.status !== LEGACY_IN_CONSOLIDATION) {
-            return res.status(400).json({ error: 'Cette étape n\'est pas en attente du coordinateur de projet.' });
+
+        const allowed = await canUserCoordinatePlanning(req.prisma, req.user, planning);
+        if (!allowed) {
+            return res.status(403).json({ error: 'Seul le coordinateur du projet désigné peut valider ce planning.' });
+        }
+
+        if (!isPendingCoordinatorValidation(planning.status)) {
+            return res.status(400).json({
+                error: 'Ce planning n\'est pas en attente de validation par le coordinateur de projet.',
+            });
         }
 
         const updated = await req.prisma.planning.update({
             where: { id: req.params.id },
-            data: { status: SG_PENDING },
+            data: { status: 'VALIDATED', validatedAt: new Date() },
         });
 
-        await createAuditLog(req, 'PLANNING_APPROVE_CP', 'Planning', req.params.id, `Validation coordinateur projet par ${req.user.id}`);
+        await createAuditLog(
+            req,
+            'PLANNING_VALIDATED',
+            'Planning',
+            req.params.id,
+            `Planning validé par le coordinateur de projet (${req.user.id})`,
+        );
 
-        const sgDgUsers = await req.prisma.user.findMany({
-            where: {
-                role: { in: [ROLES.SECRETAIRE_GENERAL, ROLES.DG] },
-                isActive: true,
-                isDeleted: false,
-            },
-        });
-        for (const u of sgDgUsers) {
-            await notificationService.createNotification(
-                req.prisma,
-                u.id,
-                'PLANNING_SUBMITTED',
-                'Planning — validation secrétaire général / direction',
-                `Un planning attend votre validation (secrétaire général ou direction générale).`,
-                `/planning/${req.params.id}`
-            );
-        }
-
-        await notificationService.createNotification(
+        await notificationService.sendFullNotification(
             req.prisma,
             planning.userId,
-            'PLANNING_VALIDATION_STEP',
-            'Planning — étape coordinateur',
-            'Le coordinateur de projet a validé votre planning. Prochaine étape : secrétaire général ou direction générale.',
-            `/planning/${req.params.id}`
+            planning.user?.email,
+            'PLANNING_VALIDATED',
+            'PLANNING_VALIDATED',
+            [planning.user],
+            'Planning validé',
+            'Votre planning a été validé par le coordinateur de projet.',
+            `/planning/${req.params.id}`,
         );
 
         res.json(updated);
     } catch (error) {
-        logger.error('APPROVE_CP_PLANNING', error.message, { planningId: req.params.id });
+        logger.error('COORDINATOR_APPROVE_PLANNING', error.message, { planningId: req.params.id });
         res.status(400).json({ error: error.message });
     }
-});
+}
 
-/** Deuxième validation : secrétaire général ou direction générale (mêmes droits) */
-router.put('/:id/approve-sg', roleMiddleware([ROLES.SECRETAIRE_GENERAL, ROLES.DG, ROLES.ADMIN, ROLES.SUPER_ADMIN]), async (req, res) => {
-    try {
-        const planning = await req.prisma.planning.findUnique({
-            where: { id: req.params.id },
-            include: { user: true },
-        });
-        if (!planning) return res.status(404).json({ error: 'Planning introuvable' });
-        if (planning.status !== SG_PENDING) {
-            return res.status(400).json({ error: 'Cette étape n\'est pas en attente du secrétaire général / de la direction.' });
-        }
-
-        const updated = await req.prisma.planning.update({
-            where: { id: req.params.id },
-            data: { status: DG_PENDING },
-        });
-
-        await createAuditLog(req, 'PLANNING_APPROVE_SG', 'Planning', req.params.id, `Validation étape SG/Direction par ${req.user.id}`);
-
-        const sgDgUsers = await req.prisma.user.findMany({
-            where: {
-                role: { in: [ROLES.SECRETAIRE_GENERAL, ROLES.DG] },
-                isActive: true,
-                isDeleted: false,
-            },
-        });
-        for (const u of sgDgUsers) {
-            await notificationService.createNotification(
-                req.prisma,
-                u.id,
-                'PLANNING_SUBMITTED',
-                'Planning — validation finale',
-                `Un planning attend la validation finale (secrétaire général ou direction générale).`,
-                `/planning/${req.params.id}`
-            );
-        }
-
-        await notificationService.createNotification(
-            req.prisma,
-            planning.userId,
-            'PLANNING_VALIDATION_STEP',
-            'Planning — avant validation finale',
-            'L\'accord secrétaire général / direction a été enregistré. Prochaine étape : validation définitive (SG ou DG).',
-            `/planning/${req.params.id}`
-        );
-
-        res.json(updated);
-    } catch (error) {
-        logger.error('APPROVE_SG_PLANNING', error.message, { planningId: req.params.id });
-        res.status(400).json({ error: error.message });
-    }
-});
+router.put('/:id/approve-coordinator', handleCoordinatorApprove);
+/** Alias historiques */
+router.put('/:id/approve-cp', handleCoordinatorApprove);
+router.put('/:id/approve-sg', handleCoordinatorApprove);
 
 /**
  * @swagger
@@ -777,62 +730,26 @@ router.put('/:id/approve-sg', roleMiddleware([ROLES.SECRETAIRE_GENERAL, ROLES.DG
  *       401:
  *         $ref: '#/components/responses/Unauthorized'
  */
-router.put('/:id/validate', roleMiddleware([ROLES.DG, ROLES.SECRETAIRE_GENERAL, ROLES.ADMIN, ROLES.SUPER_ADMIN]), async (req, res) => {
-    try {
-        const planning = await req.prisma.planning.findUnique({
-            where: { id: req.params.id },
-            include: { user: true },
-        });
-        if (!planning) return res.status(404).json({ error: 'Planning introuvable' });
-
-        const privileged = isPrivilegedAdmin(req.user.role);
-        if (privileged) {
-            if (!isPendingValidation(planning.status)) {
-                return res.status(400).json({
-                    error: 'L\'administration ne peut valider définitivement qu\'un planning en attente (coordinateur, SG ou DG).',
-                });
+router.put('/:id/validate', async (req, res) => {
+    if (isPrivilegedAdmin(req.user.role)) {
+        try {
+            const planning = await req.prisma.planning.findUnique({ where: { id: req.params.id }, include: { user: true } });
+            if (!planning) return res.status(404).json({ error: 'Planning introuvable' });
+            if (!isPendingCoordinatorValidation(planning.status) && planning.status !== 'SUBMITTED') {
+                return res.status(400).json({ error: 'Statut incompatible avec la validation admin.' });
             }
-        } else if (req.user.role === ROLES.DG || req.user.role === ROLES.SECRETAIRE_GENERAL) {
-            if (planning.status !== DG_PENDING) {
-                return res.status(403).json({
-                    error: 'La validation définitive n\'est possible qu\'à l\'étape « attente direction » (après l\'accord SG/DG).',
-                });
-            }
+            const updated = await req.prisma.planning.update({
+                where: { id: req.params.id },
+                data: { status: 'VALIDATED', validatedAt: new Date() },
+            });
+            await createAuditLog(req, 'PLANNING_VALIDATED', 'Planning', req.params.id, 'Validation admin');
+            res.json(updated);
+        } catch (error) {
+            res.status(400).json({ error: error.message });
         }
-
-        const updated = await req.prisma.planning.update({
-            where: { id: req.params.id },
-            data: { status: 'VALIDATED', validatedAt: new Date() },
-        });
-
-        logger.info('PLANNING_VALIDATED', `Planning validé par ${req.user.id}`, {
-            planningId: req.params.id,
-            validatorId: req.user.id,
-            ownerId: planning.userId,
-        });
-
-        await createAuditLog(req, 'PLANNING_VALIDATED', 'Planning', req.params.id, `Planning ${req.params.id} validé définitivement`);
-
-        await notificationService.sendFullNotification(
-            req.prisma,
-            planning.userId,
-            planning.user.email,
-            'PLANNING_VALIDATED',
-            'PLANNING_VALIDATED',
-            [planning.user],
-            'Planning validé',
-            'Votre planning a été validé définitivement.',
-            `/planning/${req.params.id}`
-        );
-
-        res.json(updated);
-    } catch (error) {
-        logger.error('VALIDATE_PLANNING', 'Erreur validation planning', {
-            planningId: req.params.id,
-            error: error.message,
-        });
-        res.status(400).json({ error: error.message });
+        return;
     }
+    return handleCoordinatorApprove(req, res);
 });
 
 /**
@@ -868,15 +785,22 @@ router.put('/:id/validate', roleMiddleware([ROLES.DG, ROLES.SECRETAIRE_GENERAL, 
  *       401:
  *         $ref: '#/components/responses/Unauthorized'
  */
-router.put('/:id/return', roleMiddleware([ROLES.DG, ROLES.SECRETAIRE_GENERAL, ROLES.ADMIN, ROLES.SUPER_ADMIN]), async (req, res) => {
+router.put('/:id/return', async (req, res) => {
     try {
         const { comment } = req.body;
 
-        const existing = await req.prisma.planning.findUnique({ where: { id: req.params.id } });
+        const existing = await req.prisma.planning.findUnique({
+            where: { id: req.params.id },
+            include: { user: { include: { project: true } } },
+        });
         if (!existing) return res.status(404).json({ error: 'Planning introuvable' });
-        if (!isPendingValidation(existing.status)) {
+        const canReturn = await canUserReturnPlanning(req.prisma, req.user, existing);
+        if (!canReturn) {
+            return res.status(403).json({ error: 'Retour non autorisé pour ce planning.' });
+        }
+        if (!isPendingCoordinatorValidation(existing.status)) {
             return res.status(400).json({
-                error: 'Seuls les plannings en attente de validation (coordinateur, SG ou DG) peuvent être retournés.',
+                error: 'Seuls les plannings en attente du coordinateur de projet peuvent être retournés.',
             });
         }
 

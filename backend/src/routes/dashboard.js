@@ -1,7 +1,7 @@
 const express = require('express');
 const roleMiddleware = require('../middlewares/role.middleware');
 const {
-    ROLES, ADMIN_ROUTE_ROLES, isPrivilegedAdmin, isSuperAdmin, canViewAllMissions, missionScopeWhere,
+    ROLES, ADMIN_ROUTE_ROLES, isPrivilegedAdmin, isSuperAdmin, missionScopeWhere, planningScopeWhere, isResponsable,
 } = require('../config/roles');
 const { meetingListWhereForUser } = require('../config/meetingVisibility');
 
@@ -373,7 +373,7 @@ router.get('/search-global', async (req, res) => {
         if (selectedTypes.has('plannings')) {
             const plannings = await req.prisma.planning.findMany({
                 where: {
-                    ...(isAdmin ? {} : { userId }),
+                    ...planningScopeWhere(req.user),
                     ...(from || to ? { weekStart: { ...(from ? { gte: from } : {}), ...(to ? { lte: to } : {}) } } : {}),
                 },
                 include: {
@@ -426,9 +426,11 @@ router.get('/search-global', async (req, res) => {
                     where: {
                         body: contains,
                         ...(from || to ? { createdAt: { ...(from ? { gte: from } : {}), ...(to ? { lte: to } : {}) } } : {}),
-                        meeting: isAdmin
-                            ? {}
-                            : { OR: [{ organizerId: userId }, { invitations: { some: { userId } } }] },
+                        meeting: isResponsable(req.user?.role)
+                            ? { organizerId: userId }
+                            : (isAdmin
+                                ? {}
+                                : { OR: [{ organizerId: userId }, { invitations: { some: { userId } } }] }),
                     },
                     include: { meeting: { select: { id: true, title: true } } },
                     orderBy: { createdAt: 'desc' },

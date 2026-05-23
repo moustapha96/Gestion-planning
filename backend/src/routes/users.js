@@ -9,6 +9,8 @@ const {
     ROLES, isValidRole, ADMIN_ROUTE_ROLES, isPrivilegedAdmin, isSuperAdmin,
 } = require('../config/roles');
 const { ROLE_PERMISSIONS, ROLE_LABELS } = require('../config/rolePermissions');
+const { normalizeStoredRole } = require('../config/roles');
+const { validateUserRoleForDirection } = require('../services/roleConfig.service');
 const { syncDirectionDiscussionMembers } = require('../services/directionDiscussion.service');
 const { syncProjectDiscussionMembers } = require('../services/projectDiscussion.service');
 const {
@@ -142,11 +144,17 @@ router.post('/', roleMiddleware(ADMIN_ROUTE_ROLES), async (req, res) => {
     try {
         const { name, email, role, password, directionId, projectId, phone, jobTitle, cellUnit } = req.body;
 
-        if (!isValidRole(role)) {
+        const storedRole = normalizeStoredRole(role);
+        if (!isValidRole(storedRole)) {
             return res.status(400).json({ error: 'Rôle invalide' });
         }
 
-        if (role === ROLES.SUPER_ADMIN) {
+        const roleDirCheck = await validateUserRoleForDirection(
+            req.prisma, storedRole, directionId || null, jobTitle,
+        );
+        if (!roleDirCheck.ok) return res.status(400).json({ error: roleDirCheck.error });
+
+        if (storedRole === ROLES.SUPER_ADMIN) {
             const superCount = await req.prisma.user.count({
                 where: { role: ROLES.SUPER_ADMIN, isDeleted: false },
             });
@@ -193,7 +201,7 @@ router.post('/', roleMiddleware(ADMIN_ROUTE_ROLES), async (req, res) => {
             data: {
                 name,
                 email,
-                role: role || ROLES.RESPONSABLE,
+                role: storedRole,
                 passwordHash: hashedPassword,
                 isActive: false,
                 directionId: directionId || null,
@@ -261,14 +269,24 @@ router.put('/:id', roleMiddleware(ADMIN_ROUTE_ROLES), async (req, res) => {
     try {
         const { name, email, role, directionId, projectId, phone, jobTitle, cellUnit } = req.body;
 
-        if (role && !isValidRole(role)) {
+        const storedRole = role ? normalizeStoredRole(role) : null;
+        if (storedRole && !isValidRole(storedRole)) {
             return res.status(400).json({ error: 'Rôle invalide' });
         }
 
         const targetUser = await req.prisma.user.findUnique({ where: { id: req.params.id } });
         if (!targetUser) return res.status(404).json({ error: 'Utilisateur non trouvé' });
 
-        if (role === ROLES.SUPER_ADMIN) {
+        let nextDirectionId = directionId === undefined ? targetUser.directionId : (directionId || null);
+        const nextJobTitle = jobTitle !== undefined ? jobTitle : targetUser.jobTitle;
+        if (storedRole) {
+            const roleDirCheck = await validateUserRoleForDirection(
+                req.prisma, storedRole, nextDirectionId, nextJobTitle,
+            );
+            if (!roleDirCheck.ok) return res.status(400).json({ error: roleDirCheck.error });
+        }
+
+        if (storedRole === ROLES.SUPER_ADMIN) {
             const superCount = await req.prisma.user.count({
                 where: { role: ROLES.SUPER_ADMIN, isDeleted: false },
             });
@@ -282,11 +300,11 @@ router.put('/:id', roleMiddleware(ADMIN_ROUTE_ROLES), async (req, res) => {
         }
 
         // Empêcher un admin privilégié de retirer son propre rôle sans autre admin/super admin actif
-        if (targetUser.id === req.user.id && role && !isPrivilegedAdmin(role)) {
+        if (targetUser.id === req.user.id && storedRole && !isPrivilegedAdmin(storedRole)) {
             return res.status(400).json({ error: 'Vous ne pouvez pas retirer votre propre rôle d’administrateur' });
         }
 
-        if (isPrivilegedAdmin(targetUser.role) && role && !isPrivilegedAdmin(role)) {
+        if (isPrivilegedAdmin(targetUser.role) && storedRole && !isPrivilegedAdmin(storedRole)) {
             const activePrivileged = await req.prisma.user.count({
                 where: {
                     role: { in: [ROLES.ADMIN, ROLES.SUPER_ADMIN] },
@@ -325,7 +343,7 @@ router.put('/:id', roleMiddleware(ADMIN_ROUTE_ROLES), async (req, res) => {
         const updateData = {
             name: name || undefined,
             email: email || undefined,
-            role: role || undefined,
+            role: storedRole || undefined,
             directionId: directionId === undefined ? undefined : (directionId || null),
             projectId: projectId === undefined ? undefined : (projectId || null),
         };
@@ -353,7 +371,7 @@ router.put('/:id', roleMiddleware(ADMIN_ROUTE_ROLES), async (req, res) => {
             },
         });
 
-        const nextDirectionId = updated.directionId || null;
+        nextDirectionId = updated.directionId || null;
         if (previousDirectionId && previousDirectionId !== nextDirectionId) {
             await syncDirectionDiscussionMembers(req.prisma, previousDirectionId);
         }

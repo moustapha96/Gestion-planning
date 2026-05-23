@@ -6,7 +6,7 @@ const { logger } = require('../utils/logger');
 const { notificationService } = require('../services/notification.service');
 const { createAuditLog } = require('../utils/audit');
 const {
-    ROLES, isPrivilegedAdmin, isSuperAdmin, canViewAllMissions, missionScopeWhere,
+    ROLES, isPrivilegedAdmin, isSuperAdmin, canViewMission, missionScopeWhere,
 } = require('../config/roles');
 const { pdfOnlyMulterFileFilter, wrapMulterUpload } = require('../utils/pdfUpload');
 
@@ -138,12 +138,7 @@ router.get('/:id', async (req, res) => {
             },
         });
         if (!mission) return res.status(404).json({ error: 'Mission introuvable' });
-        const userId = req.user?.id;
-        const canView =
-            mission.createdById === userId ||
-            mission.assignments.some((a) => a.userId === userId) ||
-            canViewAllMissions(req.user?.role);
-        if (!canView) return res.status(403).json({ error: 'Accès non autorisé' });
+        if (!canViewMission(mission, req.user)) return res.status(403).json({ error: 'Accès non autorisé' });
         res.json(mission);
     } catch (error) {
         logger.error('GET_MISSION', error.message, { missionId: req.params.id });
@@ -442,12 +437,7 @@ router.post('/:id/files', wrapMulterUpload(uploadMissionFile.single('file')), as
         });
         if (!mission) return res.status(404).json({ error: 'Mission introuvable' });
 
-        const userId = req.user?.id;
-        const canView =
-            mission.createdById === userId ||
-            mission.assignments.some((a) => a.userId === userId) ||
-            canViewAllMissions(req.user?.role);
-        if (!canView) return res.status(403).json({ error: 'Accès non autorisé' });
+        if (!canViewMission(mission, req.user)) return res.status(403).json({ error: 'Accès non autorisé' });
 
         const kind = 'DOCUMENT';
         const fileUrl = `/uploads/missions/${req.file.filename}`;

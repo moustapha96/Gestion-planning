@@ -1,0 +1,13 @@
+Consolidateur par projet
+Chaque projet a maintenant un champ Consolidateur (consolidatorId) : un utilisateur actif, quel que soit son rôle, chargé de valider pour ce projet :
+
+réunions en brouillon (organisateur responsable),
+plannings soumis (responsables rattachés au projet),
+e-mails et notifications de validation envoyés à lui (et non plus à tous les comptes CONSOLIDATEUR).
+Où le définir
+Admin → Projets : colonne « Consolidateur », choix à la création / modification.
+Fiche projet (/projects/:id) : affichage + modification (admin / DG).
+Comportement technique
+Réunion : notification + droit de validation → consolidateur du projectId de la réunion.
+Planning : à la soumission → consolidateur du projet du responsable (user.projectId).
+Repli : si aucun consolidateur n’est défini sur le projet, l’ancien comportement reste (tous les utilisateurs au rôle CONSOLIDATEUR).

@@ -21,11 +21,11 @@ import api, { API_BASE } from '../api/client';
 import { useAuth } from '../context/AuthContext';
 import { PDF_ACCEPT, isAcceptedPdfFile } from '../utils/pdfAttachment';
 import { resolveImageSrc } from '../utils/mediaUrl';
+import { canManageProjects } from '../utils/roles';
 
 const { Title, Text } = Typography;
 const STATUS_COLORS = { ACTIVE: 'success', PAUSED: 'warning', COMPLETED: 'default' };
 const STATUS_LABELS = { ACTIVE: 'Actif', PAUSED: 'En pause', COMPLETED: 'Terminé' };
-const CAN_EDIT = ['ADMIN', 'SUPER_ADMIN', 'DG'];
 
 function isValidOptionalLogoUrl(value) {
     const v = String(value || '').trim();
@@ -47,14 +47,7 @@ export default function ProjectDetail() {
     const [allUsers, setAllUsers] = useState([]);
     const [form] = Form.useForm();
 
-    const canEdit = CAN_EDIT.includes(user?.role);
-    const canManageStatus = project && (canEdit || user?.role === 'RESPONSABLE' || project.createdById === user?.id);
-    const canSetConsolidator = Boolean(
-        project && (canEdit || user?.role === 'RESPONSABLE' || project.createdById === user?.id),
-    );
-    const canUploadFiles = project && project.status !== 'COMPLETED' && (
-        canEdit || user?.role === 'RESPONSABLE' || project.createdById === user?.id
-    );
+    const canManage = canManageProjects(user?.role);
 
     const load = async () => {
         setLoading(true);
@@ -72,11 +65,11 @@ export default function ProjectDetail() {
     useEffect(() => { load(); }, [id]);
 
     useEffect(() => {
-        if (!canSetConsolidator) return;
+        if (!canManage) return;
         api.get('/users/participants')
             .then((res) => setAllUsers(res.data || []))
             .catch(() => setAllUsers([]));
-    }, [canSetConsolidator]);
+    }, [canManage]);
 
     const handleUpload = async ({ file, onSuccess, onError }) => {
         if (!isAcceptedPdfFile(file)) {
@@ -205,12 +198,12 @@ export default function ProjectDetail() {
                         Messagerie du projet
                     </Button>
                 )}
-                {canManageStatus && (
+                {canManage && (
                     <Button icon={<EditOutlined />} onClick={openEdit}>
                         Modifier le projet
                     </Button>
                 )}
-                {canManageStatus && project.status !== 'COMPLETED' && (
+                {canManage && project.status !== 'COMPLETED' && (
                     <Popconfirm
                         title="Mettre ce projet en pause ?"
                         okText="Confirmer"
@@ -222,7 +215,7 @@ export default function ProjectDetail() {
                         </Button>
                     </Popconfirm>
                 )}
-                {canManageStatus && project.status !== 'COMPLETED' && (
+                {canManage && project.status !== 'COMPLETED' && (
                     <Popconfirm
                         title="Terminer ce projet ?"
                         description="Un projet terminé ne sera plus sélectionnable pour les missions/réunions."
@@ -236,7 +229,7 @@ export default function ProjectDetail() {
                         </Button>
                     </Popconfirm>
                 )}
-                {canManageStatus && project.status !== 'ACTIVE' && (
+                {canManage && project.status !== 'ACTIVE' && (
                     <Popconfirm
                         title="Réactiver ce projet ?"
                         okText="Réactiver"
@@ -248,7 +241,7 @@ export default function ProjectDetail() {
                         </Button>
                     </Popconfirm>
                 )}
-                {canEdit && (
+                {canManage && (
                     <Popconfirm
                         title="Supprimer ce projet ?"
                         description="Les missions et réunions liées seront détachées."
@@ -376,7 +369,7 @@ export default function ProjectDetail() {
             <Card
                 title={<><FileAddOutlined style={{ marginRight: 6 }} />Pièces jointes PDF ({project._count?.files || 0})</>}
                 extra={
-                    canUploadFiles && (
+                    canManage && project.status !== 'COMPLETED' && (
                         <Upload showUploadList={false} accept={PDF_ACCEPT} customRequest={handleUpload} disabled={uploading}>
                             <Button size="small" icon={<UploadOutlined />} loading={uploading}>Ajouter un PDF</Button>
                         </Upload>
@@ -393,7 +386,7 @@ export default function ProjectDetail() {
                         renderItem={(f) => (
                             <List.Item
                                 actions={[
-                                    canUploadFiles && (
+                                    canManage && project.status !== 'COMPLETED' && (
                                         <Popconfirm
                                             key="delete"
                                             title="Supprimer ce fichier ?"
@@ -486,7 +479,7 @@ export default function ProjectDetail() {
                     <Form.Item name="isActive" label="Actif" valuePropName="checked">
                         <Switch />
                     </Form.Item>
-                    {canSetConsolidator && (
+                    {canManage && (
                         <Form.Item
                             name="consolidatorId"
                             label="Consolidateur du projet"

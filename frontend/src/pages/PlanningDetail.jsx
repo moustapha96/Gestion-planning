@@ -14,7 +14,11 @@ import {
 import dayjs from 'dayjs';
 import api from '../api/client';
 import { useAuth } from '../context/AuthContext';
-import { isPrivilegedAdmin, canSuperAdminForceDelete, canConsolidatePlanning, isProjectConsolidator } from '../utils/roles';
+import {
+    isPrivilegedAdmin, canSuperAdminForceDelete, canConsolidatePlanning,
+    isProjectConsolidator, isProjectCoordinator, canCoordinatePlanning, canReturnPlanning,
+    isPendingCoordinatorStatus,
+} from '../utils/roles';
 import { forceDeleteDescription, forceDeleteTitle } from '../utils/deleteConfirm';
 import ForceDeletePopconfirm from '../components/ForceDeletePopconfirm';
 
@@ -26,6 +30,7 @@ const STATUS_COLORS = {
     DRAFT:            'default',
     SUBMITTED:        'blue',
     IN_CONSOLIDATION: 'purple',
+    COORDINATOR_PENDING: 'geekblue',
     CP_PENDING:       'geekblue',
     SG_PENDING:       'cyan',
     DG_PENDING:       'gold',
@@ -37,15 +42,14 @@ const STATUS_LABELS = {
     DRAFT:            'Brouillon',
     SUBMITTED:        'Soumis',
     IN_CONSOLIDATION: 'En consolidation',
+    COORDINATOR_PENDING: 'Att. coordinateur projet',
     CP_PENDING:       'Att. coordinateur projet',
-    SG_PENDING:       'Att. SG ou direction',
-    DG_PENDING:       'Att. validation finale (SG ou DG)',
+    SG_PENDING:       'Att. coordinateur (ancien)',
+    DG_PENDING:       'Att. coordinateur (ancien)',
     VALIDATED:        'Validé',
     RETURNED:         'Retourné',
     CANCELLED:        'Annulé',
 };
-
-const PENDING_VALIDATION = ['CP_PENDING', 'SG_PENDING', 'DG_PENDING', 'IN_CONSOLIDATION'];
 
 const EVENT_STYLES = {
     REUNION:     { bg: '#EFF6FF', border: '#1565C0', color: '#1D4ED8', label: 'Réunion'     },
@@ -58,15 +62,15 @@ const EVENT_STYLES = {
 // Workflow (sans RETURNED / CANCELLED)
 const WORKFLOW_STEPS = [
     { key: 'DRAFT',      title: 'Brouillon',              desc: 'En cours de rédaction' },
-    { key: 'SUBMITTED',  title: 'Soumis',                 desc: 'En attente de consolidation' },
-    { key: 'CP_PENDING', title: 'Coordinateur de projet', desc: 'Première validation' },
-    { key: 'SG_PENDING', title: 'SG / Direction',       desc: 'Accord (SG ou DG)' },
-    { key: 'DG_PENDING', title: 'SG / Direction',         desc: 'Validation définitive (SG ou DG)' },
+    { key: 'SUBMITTED',  title: 'Soumis',                 desc: 'Consolidateur du projet' },
+    { key: 'COORDINATOR_PENDING', title: 'Coordinateur', desc: 'Validation par le coordinateur désigné' },
     { key: 'VALIDATED',  title: 'Validé',                 desc: 'Circuit terminé' },
 ];
 
 function normalizePlanningStatus(status) {
-    if (status === 'IN_CONSOLIDATION') return 'CP_PENDING';
+    if (['IN_CONSOLIDATION', 'CP_PENDING', 'SG_PENDING', 'DG_PENDING'].includes(status)) {
+        return 'COORDINATOR_PENDING';
+    }
     return status;
 }
 
@@ -315,33 +319,11 @@ export default function PlanningDetail() {
         } finally { setActionLoading(false); }
     };
 
-    const handleApproveCp = async () => {
+    const handleValidateCoordinator = async () => {
         setActionLoading(true);
         try {
-            await api.put(`/plannings/${id}/approve-cp`);
-            message.success('Validation coordinateur enregistrée');
-            fetchPlanning();
-        } catch (err) {
-            message.error(err.response?.data?.error || 'Erreur');
-        } finally { setActionLoading(false); }
-    };
-
-    const handleApproveSg = async () => {
-        setActionLoading(true);
-        try {
-            await api.put(`/plannings/${id}/approve-sg`);
-            message.success('Accord SG / direction enregistré');
-            fetchPlanning();
-        } catch (err) {
-            message.error(err.response?.data?.error || 'Erreur');
-        } finally { setActionLoading(false); }
-    };
-
-    const handleValidate = async () => {
-        setActionLoading(true);
-        try {
-            await api.put(`/plannings/${id}/validate`);
-            message.success('Planning validé définitivement ✓');
+            await api.put(`/plannings/${id}/approve-coordinator`);
+            message.success('Planning validé par le coordinateur du projet ✓');
             fetchPlanning();
         } catch (err) {
             message.error(err.response?.data?.error || 'Erreur');
@@ -572,21 +554,14 @@ export default function PlanningDetail() {
 
     const isResponsable   = user?.role === 'RESPONSABLE';
     const isConsolidateur = user?.role === 'CONSOLIDATEUR';
-    const isCoordProjet   = user?.role === 'COORDINATEUR_PROJET';
-    const isSG            = user?.role === 'SECRETAIRE_GENERAL';
-    const isDG            = user?.role === 'DG';
     const isAdmin         = isPrivilegedAdmin(user?.role);
     const isOwner         = planning.userId === user?.id;
 
     const canEditEvents  = planning.status !== 'CANCELLED' && (isAdmin || (isOwner && (planning.status === 'DRAFT' || planning.status === 'RETURNED')));
     const canSubmit      = (isOwner || isAdmin) && (planning.status === 'DRAFT' || planning.status === 'RETURNED');
     const canConsolidate = canConsolidatePlanning(planning, user);
-    const canApproveCp   = (isCoordProjet || isAdmin)
-        && (planning.status === 'CP_PENDING' || planning.status === 'IN_CONSOLIDATION');
-    const canApproveSg   = (isSG || isDG || isAdmin) && planning.status === 'SG_PENDING';
-    const canValidateFinal = ((isSG || isDG) && planning.status === 'DG_PENDING')
-        || (isAdmin && PENDING_VALIDATION.includes(planning.status));
-    const canReturnDG    = (isSG || isDG || isAdmin) && PENDING_VALIDATION.includes(planning.status);
+    const canValidateCoordinator = canCoordinatePlanning(planning, user);
+    const showReturnButton = canReturnPlanning(planning, user);
     const canCancel      = isAdmin && planning.status !== 'CANCELLED';
     const canDelete      = (isOwner && planning.status === 'DRAFT') || isAdmin;
     const isSuperAdmin   = canSuperAdminForceDelete(user?.role);
@@ -644,35 +619,17 @@ export default function PlanningDetail() {
                     </Button>
                 )}
 
-                {canApproveCp && (
+                {canValidateCoordinator && (
                     <Button
                         type="primary" icon={<CheckOutlined />}
-                        onClick={handleApproveCp} loading={actionLoading}
-                        style={{ background: '#2f54eb', borderColor: '#2f54eb' }}
-                    >
-                        Accord coordinateur
-                    </Button>
-                )}
-                {canApproveSg && (
-                    <Button
-                        type="primary" icon={<CheckOutlined />}
-                        onClick={handleApproveSg} loading={actionLoading}
-                        style={{ background: '#13c2c2', borderColor: '#13c2c2' }}
-                    >
-                        Accord SG ou direction
-                    </Button>
-                )}
-                {canValidateFinal && (
-                    <Button
-                        type="primary" icon={<CheckOutlined />}
-                        onClick={handleValidate} loading={actionLoading}
+                        onClick={handleValidateCoordinator} loading={actionLoading}
                         style={{ background: '#52c41a', borderColor: '#52c41a' }}
                     >
-                        {isAdmin ? 'Valider définitivement (admin)' : 'Valider définitivement'}
+                        Valider (coordinateur projet)
                     </Button>
                 )}
 
-                {canReturnDG && (
+                {showReturnButton && (
                     <Button danger icon={<RollbackOutlined />} onClick={() => setReturnModal(true)}>
                         Retourner
                     </Button>
@@ -889,7 +846,7 @@ export default function PlanningDetail() {
                 )}
 
                 {/* ── Missions croisées ── */}
-                {(isAdmin || isConsolidateur || isCoordProjet || isSG || isDG || isOwner || isProjectConsolidator(planning, user)) && (
+                {(isAdmin || isConsolidateur || isOwner || isProjectConsolidator(planning, user) || isProjectCoordinator(planning, user)) && (
                     <>
                         <Divider style={{ margin: '24px 0 16px' }} />
                         <div style={{ marginBottom: 12 }}>
