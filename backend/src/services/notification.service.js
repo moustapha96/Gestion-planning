@@ -1165,6 +1165,86 @@ class NotificationService {
         }
     }
 
+    /** Résumé SMTP (sans secrets) pour l’administration. */
+    getSmtpConfigSummary() {
+        const user = process.env.SMTP_USER || '';
+        const maskUser = (value) => {
+            if (!value) return null;
+            if (value.includes('@')) {
+                const [local, domain] = value.split('@');
+                const head = local.length <= 2 ? '**' : `${local.slice(0, 2)}***`;
+                return `${head}@${domain}`;
+            }
+            return value.length <= 2 ? '***' : `${value.slice(0, 2)}***`;
+        };
+        return {
+            host: process.env.SMTP_HOST || 'localhost',
+            port: parseInt(process.env.SMTP_PORT || '1025', 10),
+            secure: process.env.SMTP_SECURE === 'true',
+            from: process.env.SMTP_FROM || 'noreply@gestionplanning.local',
+            user: maskUser(user),
+            authConfigured: Boolean(process.env.SMTP_USER && process.env.SMTP_PASS),
+        };
+    }
+
+    async verifySmtpConnection() {
+        await transporter.verify();
+        return { ok: true };
+    }
+
+    /**
+     * E-mail de test (Admin → Configuration).
+     */
+    async sendTestEmail(to, options = {}) {
+        const summary = this.getSmtpConfigSummary();
+        const sentAt = formatFrDateTime(new Date());
+        const adminName = options.adminName || 'Administrateur';
+        const appName = options.appName || 'Gestion Planning';
+        const frontendUrl = process.env.FRONTEND_URL || '—';
+
+        const html = `
+      <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto;">
+        <div style="background: linear-gradient(135deg, #1F5C8B 0%, #2a7cb8 100%); color: white; padding: 20px; text-align: center;">
+          <h1 style="margin:0;">${appName}</h1>
+          <p style="margin:8px 0 0; opacity:0.9;">Test d'envoi SMTP</p>
+        </div>
+        <div style="padding: 24px; color: #333;">
+          <p>Bonjour,</p>
+          <p>Ce message confirme que la configuration <strong>SMTP</strong> de l'application fonctionne correctement.</p>
+          <table style="width:100%; border-collapse: collapse; margin: 16px 0; font-size: 14px;">
+            <tr><td style="padding:8px; border:1px solid #e8e8e8; background:#fafafa;"><strong>Envoyé par</strong></td>
+                <td style="padding:8px; border:1px solid #e8e8e8;">${adminName}</td></tr>
+            <tr><td style="padding:8px; border:1px solid #e8e8e8; background:#fafafa;"><strong>Date</strong></td>
+                <td style="padding:8px; border:1px solid #e8e8e8;">${sentAt}</td></tr>
+            <tr><td style="padding:8px; border:1px solid #e8e8e8; background:#fafafa;"><strong>Serveur</strong></td>
+                <td style="padding:8px; border:1px solid #e8e8e8;">${summary.host}:${summary.port}${summary.secure ? ' (TLS)' : ''}</td></tr>
+            <tr><td style="padding:8px; border:1px solid #e8e8e8; background:#fafafa;"><strong>Expéditeur</strong></td>
+                <td style="padding:8px; border:1px solid #e8e8e8;">${summary.from}</td></tr>
+            <tr><td style="padding:8px; border:1px solid #e8e8e8; background:#fafafa;"><strong>URL application</strong></td>
+                <td style="padding:8px; border:1px solid #e8e8e8;">${frontendUrl}</td></tr>
+          </table>
+          <p style="font-size: 13px; color: #666;">Si vous recevez cet e-mail, les notifications (plannings, réunions, mots de passe, etc.) pourront être délivrées.</p>
+        </div>
+        <div style="border-top: 1px solid #ddd; padding: 16px; text-align: center; font-size: 12px; color: #666;">
+          <p>Message de test — ne pas répondre</p>
+        </div>
+      </div>
+    `;
+
+        const subject = `[Test] ${appName} — vérification SMTP`;
+        const branding = await getBrandingSettings();
+        const branded = applyBranding(subject, html, branding);
+        const info = await transporter.sendMail({
+            from: process.env.SMTP_FROM || 'noreply@gestionplanning.local',
+            to,
+            subject: branded.subject,
+            html: branded.html,
+            attachments: buildEmailLogoAttachments(),
+        });
+        logger.success('EMAIL_TEST', `E-mail de test envoyé à ${to}`, { to, messageId: info.messageId });
+        return { success: true, messageId: info.messageId };
+    }
+
     /**
      * Envoyer un email avec contenu HTML libre (ex: rapport hebdomadaire)
      */

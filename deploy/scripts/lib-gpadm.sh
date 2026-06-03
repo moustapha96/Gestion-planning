@@ -119,11 +119,18 @@ restart_services() {
         log "Redémarrage PM2 ($PM2_APP_NAME)"
         export TZ="${TZ:-Africa/Dakar}"
         export APP_TIMEZONE="${APP_TIMEZONE:-Africa/Dakar}"
+        export PM2_APP_NAME
         cd "$GPADM_ROOT/backend"
+        if [[ ! -f .env ]] && [[ -f .env.production ]]; then
+            warn "backend/.env absent — exécutez ./deploy/scripts/sync-env-gpadm.sh"
+        fi
         if pm2 describe "$PM2_APP_NAME" &>/dev/null; then
-            pm2 restart "$PM2_APP_NAME" --update-env
+            pm2 restart ecosystem.config.cjs --update-env
+        elif [[ -f ecosystem.config.cjs ]]; then
+            pm2 start ecosystem.config.cjs
+            pm2 save
         else
-            TZ="$TZ" APP_TIMEZONE="$APP_TIMEZONE" pm2 start server.js --name "$PM2_APP_NAME"
+            pm2 start server.js --name "$PM2_APP_NAME"
             pm2 save
         fi
         return 0

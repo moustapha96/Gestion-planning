@@ -2,9 +2,11 @@ const express = require('express');
 const fs = require('fs');
 const path = require('path');
 const multer = require('multer');
+const { z } = require('zod');
 const { logger } = require('../utils/logger');
 const { createAuditLog } = require('../utils/audit');
 const { isPrivilegedAdmin } = require('../config/roles');
+const { notificationService } = require('../services/notification.service');
 
 const router = express.Router();
 
@@ -155,6 +157,128 @@ router.put('/', async (req, res) => {
     } catch (error) {
         logger.error('PUT_ADMIN_SETTINGS', error.message, { userId: req.user?.id });
         res.status(500).json({ error: error.message });
+    }
+});
+
+const testEmailSchema = z.object({
+    to: z.string().email().optional(),
+    verifyOnly: z.boolean().optional(),
+});
+
+/**
+ * GET /api/admin/settings/email-config
+ * Résumé SMTP (sans mot de passe) — ADMIN uniquement
+ */
+router.get('/email-config', async (req, res) => {
+    try {
+        if (!isPrivilegedAdmin(req.user?.role)) {
+            return res.status(403).json({ error: 'Accès réservé aux administrateurs.' });
+        }
+        res.json({
+            smtp: notificationService.getSmtpConfigSummary(),
+            hint: 'Les paramètres SMTP se modifient dans backend/.env (SMTP_HOST, SMTP_PORT, SMTP_USER, SMTP_PASS, SMTP_FROM).',
+        });
+    } catch (error) {
+        logger.error('GET_ADMIN_EMAIL_CONFIG', error.message, { userId: req.user?.id });
+        res.status(500).json({ error: error.message });
+    }
+});
+
+/**
+ * POST /api/admin/settings/test-email
+ * Vérifie la connexion SMTP et/ou envoie un e-mail de test — ADMIN uniquement
+ * Body: { to?: string, verifyOnly?: boolean }
+ */
+router.post('/test-email', async (req, res) => {
+    try {
+        if (!isPrivilegedAdmin(req.user?.role)) {
+            return res.status(403).json({ error: 'Accès réservé aux administrateurs.' });
+        }
+
+        const parsed = testEmailSchema.safeParse(req.body || {});
+        if (!parsed.success) {
+            return res.status(400).json({ error: 'Adresse e-mail invalide.' });
+        }
+
+        const { verifyOnly } = parsed.data;
+        let to = parsed.data.to?.trim();
+
+        if (!verifyOnly) {
+            if (!to) {
+                const rows = await req.prisma.appSetting.findMany({
+                    where: { key: { in: ['app_contact_email'] } },
+                });
+                const contact = rows.find((r) => r.key === 'app_contact_email')?.value?.trim();
+                to = contact || req.user?.email;
+            }
+            if (!to) {
+                return res.status(400).json({
+                    error: 'Indiquez une adresse de destination ou renseignez l’e-mail de contact dans la configuration.',
+                });
+            }
+        }
+
+        const smtp = notificationService.getSmtpConfigSummary();
+        if (!smtp.authConfigured && smtp.host !== 'localhost') {
+            logger.warn('EMAIL_TEST', 'SMTP_USER ou SMTP_PASS manquant', { userId: req.user.id });
+        }
+
+        await notificationService.verifySmtpConnection();
+
+        if (verifyOnly) {
+            await createAuditLog(req, 'ADMIN_SMTP_VERIFY', 'AppSetting', 'smtp', 'Connexion SMTP vérifiée');
+            return res.json({
+                ok: true,
+                verified: true,
+                smtp,
+                message: 'Connexion au serveur SMTP réussie.',
+            });
+        }
+
+        const brandingRows = await req.prisma.appSetting.findMany({
+            where: { key: 'app_name' },
+        });
+        const appName = brandingRows[0]?.value || 'Gestion Planning';
+
+        const result = await notificationService.sendTestEmail(to, {
+            adminName: req.user?.name || req.user?.email,
+            appName,
+        });
+
+        if (!result.success) {
+            return res.status(502).json({
+                error: result.error || 'Échec d’envoi de l’e-mail de test.',
+                smtp,
+            });
+        }
+
+        await createAuditLog(
+            req, 'ADMIN_TEST_EMAIL', 'AppSetting', 'smtp',
+            `E-mail de test envoyé à ${to}`,
+        );
+
+        res.json({
+            ok: true,
+            verified: true,
+            sent: true,
+            to,
+            messageId: result.messageId,
+            smtp,
+            message: `E-mail de test envoyé à ${to}. Vérifiez la boîte de réception (et les spams).`,
+        });
+    } catch (error) {
+        logger.error('POST_ADMIN_TEST_EMAIL', error.message, { userId: req.user?.id });
+        const smtp = notificationService.getSmtpConfigSummary();
+        const hint = error.code === 'EAUTH'
+            ? 'Authentification SMTP refusée : vérifiez SMTP_USER et SMTP_PASS.'
+            : error.code === 'ECONNECTION' || error.code === 'ETIMEDOUT'
+                ? 'Impossible de joindre le serveur : vérifiez SMTP_HOST, SMTP_PORT et le pare-feu.'
+                : null;
+        res.status(502).json({
+            error: error.message || 'Échec du test e-mail.',
+            hint,
+            smtp,
+        });
     }
 });
 

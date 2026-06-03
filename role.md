@@ -1,5 +1,7 @@
 # Rôles et permissions — Gestion Planning
 
+> Guide utilisateur simplifié : [`docs/GUIDE_ROLES_ET_DIRECTIONS.md`](docs/GUIDE_ROLES_ET_DIRECTIONS.md)
+
 ## Rôles système (4)
 
 | Rôle | Description |

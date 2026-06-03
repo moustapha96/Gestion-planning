@@ -2,6 +2,7 @@ import { useEffect, useState, useMemo } from 'react';
 import {
     Table, Tag, Button, Card, Typography, Space, Modal, Form, Input, Select,
     Popconfirm, App, Tooltip, Row, Col, List, Spin, TimePicker, Switch, Upload, Grid,
+    Divider, Alert, Descriptions,
 } from 'antd';
 import {
     PlusOutlined, StopOutlined, CheckOutlined, KeyOutlined, EditOutlined,
@@ -13,7 +14,7 @@ import dayjs from 'dayjs';
 import api, { API_BASE } from '../../api/client';
 import { useAuth } from '../../context/AuthContext';
 
-const { Title, Text } = Typography;
+const { Title, Text, Paragraph } = Typography;
 export const ROLE_COLORS = {
     RESPONSABLE: 'blue',
     CONSOLIDATEUR: 'purple',
@@ -1024,15 +1025,26 @@ export function SecurityTab() {
 
 export function AppConfigTab() {
     const { message } = App.useApp();
+    const { user: currentUser } = useAuth();
     const [form] = Form.useForm();
     const appLogoUrl = Form.useWatch('app_logo_url', form);
+    const contactEmail = Form.useWatch('app_contact_email', form);
     const [loading, setLoading] = useState(true);
     const [saving, setSaving] = useState(false);
+    const [smtpInfo, setSmtpInfo] = useState(null);
+    const [smtpHint, setSmtpHint] = useState('');
+    const [testEmail, setTestEmail] = useState('');
+    const [testLoading, setTestLoading] = useState(false);
+    const [testResult, setTestResult] = useState(null);
 
     const load = async () => {
         setLoading(true);
         try {
-            const { data } = await api.get('/admin/settings');
+            const [settingsRes, emailRes] = await Promise.all([
+                api.get('/admin/settings'),
+                api.get('/admin/settings/email-config').catch(() => ({ data: null })),
+            ]);
+            const data = settingsRes.data;
             form.setFieldsValue({
                 app_name: data?.app_name || 'ADM GP',
                 app_contact_email: data?.app_contact_email || '',
@@ -1041,6 +1053,12 @@ export function AppConfigTab() {
                 app_footer_text: data?.app_footer_text || '© 2026 ADM GP - Tous droits réservés',
                 app_logo_url: data?.app_logo_url || '',
             });
+            setSmtpInfo(emailRes.data?.smtp || null);
+            setSmtpHint(emailRes.data?.hint || '');
+            const defaultTo = data?.app_contact_email?.trim()
+                || currentUser?.email
+                || '';
+            setTestEmail(defaultTo);
         } catch {
             message.error('Impossible de charger la configuration globale');
         } finally {
@@ -1056,6 +1074,9 @@ export function AppConfigTab() {
             setSaving(true);
             await api.put('/admin/settings', values);
             message.success('Configuration globale enregistrée');
+            if (values.app_contact_email?.trim()) {
+                setTestEmail(values.app_contact_email.trim());
+            }
         } catch (err) {
             if (!err?.errorFields) {
                 message.error(err?.response?.data?.error || 'Erreur sauvegarde');
@@ -1065,9 +1086,39 @@ export function AppConfigTab() {
         }
     };
 
+    const runEmailTest = async (verifyOnly) => {
+        const to = testEmail?.trim() || contactEmail?.trim() || currentUser?.email;
+        if (!verifyOnly && !to) {
+            message.warning('Indiquez une adresse e-mail de destination.');
+            return;
+        }
+        setTestLoading(true);
+        setTestResult(null);
+        try {
+            const { data } = await api.post('/admin/settings/test-email', {
+                to: to || undefined,
+                verifyOnly,
+            });
+            setTestResult({ type: 'success', ...data });
+            message.success(data.message || (verifyOnly ? 'Connexion SMTP OK' : 'E-mail envoyé'));
+        } catch (err) {
+            const payload = err?.response?.data || {};
+            setTestResult({
+                type: 'error',
+                error: payload.error || 'Échec du test',
+                hint: payload.hint,
+                smtp: payload.smtp,
+            });
+            message.error(payload.error || 'Échec du test e-mail');
+        } finally {
+            setTestLoading(false);
+        }
+    };
+
     if (loading) return <Spin />;
 
     return (
+        <Space direction="vertical" size={16} style={{ width: '100%' }}>
         <Card size="small" title={<><SettingOutlined /> Configuration globale</>}>
             <Form form={form} layout="vertical">
                 <Form.Item name="app_name" label="Nom de l'application" rules={[{ required: true, message: 'Champ requis' }]}>
@@ -1131,6 +1182,94 @@ export function AppConfigTab() {
                 </Button>
             </Form>
         </Card>
+
+        <Card
+            size="small"
+            title={<><MailOutlined /> Test d&apos;envoi des e-mails</>}
+        >
+            {/* <Paragraph type="secondary" style={{ marginBottom: 12, fontSize: 13 }}>
+                Vérifie la connexion au serveur SMTP (variables <Text code>SMTP_*</Text> dans{' '}
+                <Text code>backend/.env</Text> sur le serveur). Un e-mail de test reprend le nom
+                de l&apos;application et le logo configurés ci-dessus.
+            </Paragraph> */}
+
+            {smtpInfo && (
+                <Descriptions
+                    size="small"
+                    bordered
+                    column={1}
+                    style={{ marginBottom: 16 }}
+                    items={[
+                        { key: 'host', label: 'Serveur', children: `${smtpInfo.host}:${smtpInfo.port}${smtpInfo.secure ? ' (TLS)' : ''}` },
+                        { key: 'from', label: 'Expéditeur', children: smtpInfo.from },
+                        { key: 'user', label: 'Compte SMTP', children: smtpInfo.user || '—' },
+                        {
+                            key: 'auth',
+                            label: 'Authentification',
+                            children: smtpInfo.authConfigured
+                                ? <Tag color="green">Configurée</Tag>
+                                : <Tag color="orange">Non configurée (localhost / relais ouvert)</Tag>,
+                        },
+                    ]}
+                />
+            )}
+            {smtpHint && (
+                <Alert type="info" showIcon message={smtpHint} style={{ marginBottom: 16 }} />
+            )}
+
+            <Form layout="vertical" onFinish={() => runEmailTest(false)}>
+                <Form.Item
+                    label="Adresse de destination"
+                    extra="Par défaut : e-mail de contact ci-dessus, sinon votre compte connecté."
+                >
+                    <Input
+                        type="email"
+                        value={testEmail}
+                        onChange={(e) => setTestEmail(e.target.value)}
+                        placeholder="exemple@adm.gouv.sn"
+                        prefix={<MailOutlined />}
+                        allowClear
+                    />
+                </Form.Item>
+                <Space wrap>
+                    <Button
+                        type="primary"
+                        htmlType="submit"
+                        icon={<MailOutlined />}
+                        loading={testLoading}
+                    >
+                        Envoyer un e-mail de test
+                    </Button>
+                    <Button
+                        loading={testLoading}
+                        onClick={() => runEmailTest(true)}
+                    >
+                        Vérifier la connexion SMTP seulement
+                    </Button>
+                </Space>
+            </Form>
+
+            {testResult && (
+                <Alert
+                    style={{ marginTop: 16 }}
+                    type={testResult.type === 'success' ? 'success' : 'error'}
+                    showIcon
+                    message={testResult.type === 'success' ? 'Test réussi' : 'Test échoué'}
+                    description={
+                        <div>
+                            <div>{testResult.message || testResult.error}</div>
+                            {testResult.hint && <div style={{ marginTop: 8 }}>{testResult.hint}</div>}
+                            {testResult.messageId && (
+                                <Text type="secondary" style={{ fontSize: 12, display: 'block', marginTop: 8 }}>
+                                    ID message : {testResult.messageId}
+                                </Text>
+                            )}
+                        </div>
+                    }
+                />
+            )}
+        </Card>
+        </Space>
     );
 }
 

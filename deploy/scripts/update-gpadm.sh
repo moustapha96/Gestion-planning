@@ -11,6 +11,7 @@
 #   ./deploy/scripts/update-gpadm.sh --skip-git      # sans git (npm + build + restart)
 #   ./deploy/scripts/update-gpadm.sh --skip-frontend
 #   ./deploy/scripts/update-gpadm.sh --pm2           # redémarrage PM2 au lieu de systemd
+#   ./deploy/scripts/update-gpadm.sh --sync-env      # .env.production → .env puis mise à jour
 #   ./deploy/scripts/update-gpadm.sh --branch main
 #
 # Prérequis :
@@ -27,6 +28,7 @@ source "$SCRIPT_DIR/lib-gpadm.sh"
 GIT_MODE="pull"
 SKIP_GIT=0
 SKIP_FRONTEND=0
+SYNC_ENV=0
 RESTART_MODE="auto"
 GIT_BRANCH=""
 
@@ -44,6 +46,7 @@ while [[ $# -gt 0 ]]; do
         --skip-frontend) SKIP_FRONTEND=1; shift ;;
         --pm2)      RESTART_MODE="pm2"; shift ;;
         --systemd)  RESTART_MODE="systemd"; shift ;;
+        --sync-env) SYNC_ENV=1; shift ;;
         --branch)   GIT_BRANCH="${2:?--branch requiert un nom}"; shift 2 ;;
         *) die "Option inconnue : $1 ( --help )" ;;
     esac
@@ -89,6 +92,12 @@ fi
 
 fix_code_ownership
 fix_uploads_permissions
+
+if [[ "$SYNC_ENV" -eq 1 ]]; then
+    log "Synchronisation .env depuis .env.production"
+    bash "$SCRIPT_DIR/sync-env-gpadm.sh"
+fi
+
 backend_npm_update
 
 if [[ "$SKIP_FRONTEND" -eq 0 ]]; then

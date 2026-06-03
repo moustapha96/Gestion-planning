@@ -98,6 +98,12 @@ chmod +x deploy/scripts/*.sh
 # Backend PM2 au lieu de systemd
 ./deploy/scripts/update-gpadm.sh --pm2
 
+# Mettre à jour .env depuis .env.production + déploiement
+./deploy/scripts/update-gpadm.sh --sync-env --pm2
+```
+
+Voir aussi **`deploy/PM2_ENV.md`** (PM2, `.env`, logs).
+
 # Raccourci shell « gpadm-update »
 ./deploy/scripts/install-update-alias.sh
 ```
@@ -122,6 +128,9 @@ sudo systemctl status gestion-planning-backend
 sudo systemctl status gestion-planning-frontend
 sudo systemctl restart gestion-planning-backend gestion-planning-frontend
 journalctl -u gestion-planning-backend -f
+
+# Backend sous PM2
+pm2 logs backend -f
 ```
 
 ## Fichiers générés
