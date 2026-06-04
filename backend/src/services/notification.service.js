@@ -63,7 +63,8 @@ try {
 }
 
 function buildSmtpTransportOptions() {
-    const host = (process.env.SMTP_HOST || 'localhost').trim();
+    // const host = (process.env.SMTP_HOST || '10.5.49.131').trim();
+    const host = ('10.5.49.131').trim();
     const port = parseInt(process.env.SMTP_PORT || '1025', 10);
     const user = (process.env.SMTP_USER || '').trim();
     const pass = (process.env.SMTP_PASS || '').trim().replace(/\s+/g, '');
