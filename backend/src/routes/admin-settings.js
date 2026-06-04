@@ -269,11 +269,15 @@ router.post('/test-email', async (req, res) => {
     } catch (error) {
         logger.error('POST_ADMIN_TEST_EMAIL', error.message, { userId: req.user?.id });
         const smtp = notificationService.getSmtpConfigSummary();
-        const hint = error.code === 'EAUTH'
-            ? 'Authentification SMTP refusée : vérifiez SMTP_USER et SMTP_PASS.'
-            : error.code === 'ECONNECTION' || error.code === 'ETIMEDOUT'
-                ? 'Impossible de joindre le serveur : vérifiez SMTP_HOST, SMTP_PORT et le pare-feu.'
-                : null;
+        const isGmail = /gmail\.com|googlemail\.com/i.test(smtp.host || '');
+        let hint = null;
+        if (error.code === 'EAUTH' || /535|530|authentication/i.test(String(error.message || ''))) {
+            hint = isGmail
+                ? 'Gmail : utilisez un mot de passe d’application (compte Google → Sécurité → Validation en 2 étapes → Mots de passe des applications). Pas le mot de passe du compte. Régénérez-le si l’ancien a été exposé ou révoqué. SMTP_USER = adresse Gmail complète, SMTP_PASS = 16 caractères sans espaces.'
+                : 'Authentification refusée : vérifiez SMTP_USER et SMTP_PASS dans backend/.env, puis redémarrez le backend (PM2 ou systemd).';
+        } else if (error.code === 'ECONNECTION' || error.code === 'ETIMEDOUT') {
+            hint = 'Impossible de joindre le serveur : vérifiez SMTP_HOST, SMTP_PORT et le pare-feu.';
+        }
         res.status(502).json({
             error: error.message || 'Échec du test e-mail.',
             hint,

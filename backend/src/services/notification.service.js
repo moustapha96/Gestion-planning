@@ -62,21 +62,35 @@ try {
     logger.warn('FCM', `Firebase Admin non configuré (push natif désactivé) : ${e.message}`);
 }
 
+function buildSmtpTransportOptions() {
+    const host = (process.env.SMTP_HOST || 'localhost').trim();
+    const port = parseInt(process.env.SMTP_PORT || '1025', 10);
+    const user = (process.env.SMTP_USER || '').trim();
+    const pass = (process.env.SMTP_PASS || '').trim().replace(/\s+/g, '');
+    const secure = process.env.SMTP_SECURE === 'true';
+    const isGmail = /gmail\.com|googlemail\.com/i.test(host);
+
+    const options = {
+        host,
+        port,
+        secure,
+        tls: { rejectUnauthorized: false },
+    };
+
+    if (user) {
+        options.auth = { user, pass };
+    }
+
+    // Gmail / port 587 : STARTTLS (secure: false + requireTLS)
+    if (isGmail && port === 587 && !secure) {
+        options.requireTLS = true;
+    }
+
+    return options;
+}
+
 // Configuration de l'email
-const transporter = nodemailer.createTransport({
-    host: process.env.SMTP_HOST || 'localhost',
-    port: parseInt(process.env.SMTP_PORT || '1025'),
-    auth: process.env.SMTP_USER ?
-        {
-            user: process.env.SMTP_USER,
-            pass: process.env.SMTP_PASS,
-        } :
-        undefined,
-    secure: process.env.SMTP_SECURE === 'true',
-    tls: {
-        rejectUnauthorized: false,
-    },
-});
+const transporter = nodemailer.createTransport(buildSmtpTransportOptions());
 
 // Templates d'emails
 const emailTemplates = {
@@ -1167,7 +1181,7 @@ class NotificationService {
 
     /** Résumé SMTP (sans secrets) pour l’administration. */
     getSmtpConfigSummary() {
-        const user = process.env.SMTP_USER || '';
+        const user = (process.env.SMTP_USER || '').trim();
         const maskUser = (value) => {
             if (!value) return null;
             if (value.includes('@')) {
@@ -1183,7 +1197,7 @@ class NotificationService {
             secure: process.env.SMTP_SECURE === 'true',
             from: process.env.SMTP_FROM || 'noreply@gestionplanning.local',
             user: maskUser(user),
-            authConfigured: Boolean(process.env.SMTP_USER && process.env.SMTP_PASS),
+            authConfigured: Boolean(user && (process.env.SMTP_PASS || '').trim()),
         };
     }
 
