@@ -2,13 +2,13 @@ import { useEffect, useState, useMemo } from 'react';
 import { useNavigate } from 'react-router-dom';
 import {
     Layout, Typography, Button, Card, Row, Col, Spin, Tag, Space, Badge, Tooltip, Segmented,
-    Input, Empty, App,
+    Input, Empty, App, Modal, List, Avatar,
 } from 'antd';
 import {
     HomeOutlined, CalendarOutlined, LoginOutlined, FlagOutlined,
     TeamOutlined, EnvironmentOutlined, ReloadOutlined, ClockCircleOutlined,
     CheckCircleOutlined, SearchOutlined, PhoneOutlined, MobileOutlined, MailOutlined,
-    FileWordOutlined, FilePdfOutlined,
+    FileWordOutlined, FilePdfOutlined, UserOutlined,
 } from '@ant-design/icons';
 import api from '../api/client';
 import {
@@ -63,6 +63,94 @@ function formatTime(dateStr) {
 
 function toMinutesFromTimeStr(timeStr) {
     return minutesFromTimeStr(timeStr);
+}
+
+function buildMeetingParticipantList(meeting) {
+    if (!meeting) return [];
+    const list = [];
+    const seen = new Set();
+    const push = (person, role) => {
+        if (!person?.name || seen.has(person.id)) return;
+        seen.add(person.id);
+        list.push({ id: person.id, name: person.name, jobTitle: person.jobTitle, role });
+    };
+    push(meeting.organizer, 'Organisateur');
+    (meeting.invitations || []).forEach((inv) => push(inv.user, 'Participant'));
+    return list;
+}
+
+function MeetingParticipantsModal({ meeting, open, onClose }) {
+    if (!meeting) return null;
+    const participants = buildMeetingParticipantList(meeting);
+    const loc = meeting.room?.location
+        ? `${meeting.room?.name || 'Salle'} — ${meeting.room.location}`
+        : (meeting.room?.name || null);
+
+    return (
+        <Modal
+            title={(
+                <Space>
+                    <TeamOutlined style={{ color: '#1565C0' }} />
+                    <span>{meeting.title || 'Réunion'}</span>
+                </Space>
+            )}
+            open={open}
+            onCancel={onClose}
+            footer={<Button onClick={onClose}>Fermer</Button>}
+            width={520}
+        >
+            <Space direction="vertical" size={12} style={{ width: '100%' }}>
+                <Space wrap size={[16, 4]}>
+                    {(meeting.startTime || meeting.endTime) && (
+                        <Text type="secondary" style={{ fontSize: 13 }}>
+                            <ClockCircleOutlined style={{ marginRight: 6 }} />
+                            {formatTime(meeting.startTime)} – {formatTime(meeting.endTime)}
+                        </Text>
+                    )}
+                    {loc && (
+                        <Text type="secondary" style={{ fontSize: 13 }}>
+                            <EnvironmentOutlined style={{ marginRight: 6 }} />
+                            {loc}
+                        </Text>
+                    )}
+                    {meeting.eventType?.name && (
+                        <Tag color="blue">{meeting.eventType.name}</Tag>
+                    )}
+                </Space>
+
+                <div>
+                    <Text strong style={{ display: 'block', marginBottom: 8 }}>
+                        Participants ({participants.length})
+                    </Text>
+                    {participants.length === 0 ? (
+                        <Text type="secondary">Aucun participant renseigné.</Text>
+                    ) : (
+                        <List
+                            size="small"
+                            dataSource={participants}
+                            renderItem={(p) => (
+                                <List.Item style={{ padding: '8px 0' }}>
+                                    <List.Item.Meta
+                                        avatar={(
+                                            <Avatar
+                                                size="small"
+                                                style={{ backgroundColor: '#1565C0' }}
+                                                icon={<UserOutlined />}
+                                            >
+                                                {p.name?.[0]?.toUpperCase()}
+                                            </Avatar>
+                                        )}
+                                        title={p.name}
+                                        description={[p.jobTitle, p.role].filter(Boolean).join(' · ')}
+                                    />
+                                </List.Item>
+                            )}
+                        />
+                    )}
+                </div>
+            </Space>
+        </Modal>
+    );
 }
 
 // ── Barre d'occupation d'une salle (08:00 – 19:00) ──────────────
@@ -133,7 +221,7 @@ function parseMinTimeline(timeStr) {
     return minutesFromTimeStr(timeStr);
 }
 
-function DayTimeline({ events }) {
+function DayTimeline({ events, onMeetingClick }) {
     const nowMin = appNowMinutes();
     const nowTop = ((nowMin - TIMELINE_START * 60) / 60) * TIMELINE_HH;
     const showNow = nowTop > 0 && nowTop < TIMELINE_HOURS.length * TIMELINE_HH;
@@ -195,9 +283,21 @@ function DayTimeline({ events }) {
                         const duration = endMin ? endMin - startMin : 60;
                         const height   = Math.max((duration / 60) * TIMELINE_HH, 24);
                         const isMission = ev.type === 'mission';
+                        const isClickable = !isMission && ev.meeting && onMeetingClick;
 
                         return (
-                            <div key={ev.id} style={{
+                            <div
+                                key={ev.id}
+                                role={isClickable ? 'button' : undefined}
+                                tabIndex={isClickable ? 0 : undefined}
+                                onClick={isClickable ? () => onMeetingClick(ev.meeting) : undefined}
+                                onKeyDown={isClickable ? (e) => {
+                                    if (e.key === 'Enter' || e.key === ' ') {
+                                        e.preventDefault();
+                                        onMeetingClick(ev.meeting);
+                                    }
+                                } : undefined}
+                                style={{
                                 position: 'absolute',
                                 left: 8, right: 8,
                                 top: Math.max(0, top), height,
@@ -205,7 +305,16 @@ function DayTimeline({ events }) {
                                 borderLeft: `3px solid ${isMission ? '#722ed1' : '#1565C0'}`,
                                 borderRadius: 4, padding: '2px 8px',
                                 overflow: 'hidden', boxSizing: 'border-box',
-                            }}>
+                                cursor: isClickable ? 'pointer' : 'default',
+                                transition: 'box-shadow 0.15s',
+                            }}
+                                onMouseEnter={isClickable ? (e) => {
+                                    e.currentTarget.style.boxShadow = '0 2px 8px rgba(21,101,192,0.25)';
+                                } : undefined}
+                                onMouseLeave={isClickable ? (e) => {
+                                    e.currentTarget.style.boxShadow = 'none';
+                                } : undefined}
+                            >
                                 <Text style={{
                                     fontSize: 12, fontWeight: 600,
                                     color: isMission ? '#531dab' : '#1565C0',
@@ -246,6 +355,7 @@ export default function Home() {
     const [repertoireLoading, setRepertoireLoading] = useState(false);
     const [exportingPdf, setExportingPdf] = useState(false);
     const [exportingDocx, setExportingDocx] = useState(false);
+    const [selectedMeeting, setSelectedMeeting] = useState(null);
 
     // ── Recherche (debounced) ────────────────────────────────────
     const [searchInput, setSearchInput] = useState('');
@@ -420,7 +530,8 @@ export default function Home() {
                     m.room?.name,
                     m.room?.location,
                     m.eventType?.name,
-                    m.createdBy?.name,
+                    m.organizer?.name,
+                    ...(m.invitations || []).map((inv) => inv.user?.name),
                 )
             );
 
@@ -456,6 +567,7 @@ export default function Home() {
             list.push({
                 id:        `meeting-${m.id}`,
                 type:      'meeting',
+                meeting:   m,
                 title:     m.title || 'Réunion',
                 start:     seg.startTime,
                 end:       seg.endTime,
@@ -891,26 +1003,63 @@ export default function Home() {
 
                                                                             {hasBookings ? (
                                                                                 <div style={{ marginTop: 10 }}>
-                                                                                    {room.bookings.map((b, i) => (
+                                                                                    {room.bookings.map((b, i) => {
+                                                                                        const linkedMeeting = b.meetingId
+                                                                                            ? (block.meetings || []).find((m) => m.id === b.meetingId)
+                                                                                            : null;
+                                                                                        const clickable = Boolean(linkedMeeting);
+                                                                                        return (
                                                                                         <div
                                                                                             key={i}
+                                                                                            role={clickable ? 'button' : undefined}
+                                                                                            tabIndex={clickable ? 0 : undefined}
+                                                                                            onClick={clickable ? () => setSelectedMeeting(linkedMeeting) : undefined}
+                                                                                            onKeyDown={clickable ? (e) => {
+                                                                                                if (e.key === 'Enter' || e.key === ' ') {
+                                                                                                    e.preventDefault();
+                                                                                                    setSelectedMeeting(linkedMeeting);
+                                                                                                }
+                                                                                            } : undefined}
                                                                                             style={{
                                                                                                 display: 'flex', alignItems: 'center', gap: 8,
-                                                                                                padding: '4px 0',
+                                                                                                padding: '6px 8px',
+                                                                                                margin: '0 -8px',
                                                                                                 borderTop: i > 0 ? '1px solid #f5f5f5' : 'none',
+                                                                                                borderRadius: 6,
+                                                                                                cursor: clickable ? 'pointer' : 'default',
+                                                                                                transition: 'background 0.15s',
                                                                                             }}
+                                                                                            onMouseEnter={clickable ? (e) => {
+                                                                                                e.currentTarget.style.background = '#f0f7ff';
+                                                                                            } : undefined}
+                                                                                            onMouseLeave={clickable ? (e) => {
+                                                                                                e.currentTarget.style.background = 'transparent';
+                                                                                            } : undefined}
                                                                                         >
                                                                                             <ClockCircleOutlined style={{ color: '#8c8c8c', fontSize: 11, flexShrink: 0 }} />
                                                                                             <Text style={{ fontSize: 12, fontWeight: 500, whiteSpace: 'nowrap' }}>
                                                                                                 {b.startTime} – {b.endTime}
                                                                                             </Text>
                                                                                             {b.meetingTitle && (
-                                                                                                <Text type="secondary" style={{ fontSize: 12, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                                                                                                <Text
+                                                                                                    type={clickable ? undefined : 'secondary'}
+                                                                                                    style={{
+                                                                                                        fontSize: 12,
+                                                                                                        overflow: 'hidden',
+                                                                                                        textOverflow: 'ellipsis',
+                                                                                                        whiteSpace: 'nowrap',
+                                                                                                        color: clickable ? '#1565C0' : undefined,
+                                                                                                    }}
+                                                                                                >
                                                                                                     {b.meetingTitle}
+                                                                                                    {clickable && (
+                                                                                                        <TeamOutlined style={{ marginLeft: 6, fontSize: 11 }} />
+                                                                                                    )}
                                                                                                 </Text>
                                                                                             )}
                                                                                         </div>
-                                                                                    ))}
+                                                                                        );
+                                                                                    })}
                                                                                 </div>
                                                                             ) : (
                                                                                 <Text type="success" style={{ fontSize: 12, marginTop: 8, display: 'block' }}>
@@ -1182,7 +1331,10 @@ export default function Home() {
                                                                     : 'Aucun événement prévu aujourd&apos;hui.'}
                                                             </Text>
                                                         ) : (
-                                                            <DayTimeline events={dayEvents} />
+                                                            <DayTimeline
+                                                                events={dayEvents}
+                                                                onMeetingClick={setSelectedMeeting}
+                                                            />
                                                         )}
                                                     </div>
                                                 );
@@ -1194,6 +1346,12 @@ export default function Home() {
                             </div>
                         </Spin>
                     </Card>
+
+                    <MeetingParticipantsModal
+                        meeting={selectedMeeting}
+                        open={Boolean(selectedMeeting)}
+                        onClose={() => setSelectedMeeting(null)}
+                    />
 
                     {/* Pied de page */}
                     <Text style={{

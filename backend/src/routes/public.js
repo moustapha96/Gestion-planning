@@ -75,9 +75,14 @@ router.get('/day-planning', async (req, res) => {
                 ...timedEventOverlapsRange(todayStart, todayEnd),
             },
             include: {
-                organizer: { select: { name: true } },
+                organizer: { select: { id: true, name: true, jobTitle: true } },
                 room: { select: { id: true, name: true, location: true } },
                 eventType: { select: { id: true, name: true, code: true, color: true } },
+                invitations: {
+                    include: {
+                        user: { select: { id: true, name: true, jobTitle: true } },
+                    },
+                },
             },
             orderBy: { startTime: 'asc' },
         });
@@ -128,9 +133,14 @@ router.get('/week-planning', async (req, res) => {
                 ...timedEventOverlapsRange(monday, rangeEnd),
             },
             include: {
-                organizer: { select: { name: true } },
-                room: { select: { name: true, location: true } },
+                organizer: { select: { id: true, name: true, jobTitle: true } },
+                room: { select: { id: true, name: true, location: true } },
                 eventType: { select: { id: true, name: true, code: true, color: true } },
+                invitations: {
+                    include: {
+                        user: { select: { id: true, name: true, jobTitle: true } },
+                    },
+                },
             },
             orderBy: { startTime: 'asc' },
         });
