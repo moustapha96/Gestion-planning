@@ -35,7 +35,7 @@ export function segmentEventForDay(ev, dayYmd) {
     const start = appDayjs(rawStart);
     const end = appDayjs(ev.endTime || rawStart);
     const dayStart = appDayjs(dayYmd).startOf('day');
-    const dayEnd = day.endOf('day');
+    const dayEnd = dayStart.endOf('day');
 
     const segStart = start.isAfter(dayStart) ? start : dayStart;
     const segEnd = end.isBefore(dayEnd) ? end : dayEnd;
