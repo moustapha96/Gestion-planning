@@ -222,7 +222,7 @@ router.post('/', async (req, res) => {
                 assignments: { include: { user: { select: { id: true, name: true, email: true } } } },
             },
         });
-        const createdByName = missionWithRelations.createdBy.name;
+        const createdByName = missionWithRelations.createdBy?.name || req.user?.name || 'Un utilisateur';
         const link = `/missions/${mission.id}`;
         for (const a of missionWithRelations.assignments) {
             const u = a.user;

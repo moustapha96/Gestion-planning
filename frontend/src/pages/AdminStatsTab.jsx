@@ -169,7 +169,7 @@ export default function AdminStatsTab() {
                             suffix={<Text type="secondary" style={{ fontSize: 13 }}>/ {stats.missions}</Text>}
                             valueStyle={{ color: '#fa8c16' }}
                         />
-                        <Text type="secondary" style={{ fontSize: 12 }}>en cours aujourd'hui</Text>
+                        <Text type="secondary" style={{ fontSize: 12 }}>en cours aujourd\'hui.</Text>
                     </Card>
                 </Col>
 

@@ -286,7 +286,7 @@ export default function Dashboard() {
                     <Col xs={12} sm={6}>
                         <Card>
                             <Statistic
-                                title="Réunions aujourd'hui"
+                                title="Réunions aujourd\'hui."
                                 value={data?.meetingsToday ?? 0}
                                 valueStyle={{ color: '#1F5C8B' }}
                                 prefix={<CalendarOutlined />}
@@ -307,7 +307,7 @@ export default function Dashboard() {
 
                 <Row gutter={[16, 16]} style={{ marginBottom: 24 }}>
                     <Col xs={24} md={12}>
-                        <Card title="Taux d'occupation des salles (aujourd'hui)">
+                        <Card title="Taux d'occupation des salles (aujourd\'hui.)">
                             <Progress
                                 percent={occupancyPct}
                                 status={occupancyPct >= 80 ? 'exception' : 'active'}
@@ -354,7 +354,7 @@ export default function Dashboard() {
                                 onChange={setAgendaView}
                                 options={[
                                     { label: 'Semaine', value: 'week' },
-                                    { label: "Aujourd'hui", value: 'day' },
+                                    { label: "aujourd\'hui.", value: 'day' },
                                 ]}
                             />
                         </Space>
@@ -438,7 +438,7 @@ export default function Dashboard() {
                         ) : (
                             <Space orientation="vertical" size={10} style={{ width: '100%' }}>
                                 {agendaEvents.length === 0 ? (
-                                    <Text type="secondary">Aucun événement aujourd&apos;hui.</Text>
+                                    <Text type="secondary">Aucun événement aujourd\'hui..</Text>
                                 ) : (
                                     agendaEvents.map((ev) => (
                                         <div
@@ -462,7 +462,7 @@ export default function Dashboard() {
                     </Spin>
                 </Card>
 
-                <Card title="État des salles aujourd'hui">
+                <Card title="État des salles aujourd\'hui.">
                     <Table
                         columns={roomColumns}
                         dataSource={data?.rooms || []}

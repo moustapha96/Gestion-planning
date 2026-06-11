@@ -8,7 +8,7 @@ import {
     HomeOutlined, CalendarOutlined, LoginOutlined, FlagOutlined,
     TeamOutlined, EnvironmentOutlined, ReloadOutlined, ClockCircleOutlined,
     CheckCircleOutlined, SearchOutlined, PhoneOutlined, MobileOutlined, MailOutlined,
-    FileWordOutlined, FilePdfOutlined, UserOutlined,
+    FileWordOutlined, FilePdfOutlined, UserOutlined, AppstoreOutlined,
 } from '@ant-design/icons';
 import api from '../api/client';
 import {
@@ -79,6 +79,55 @@ function buildMeetingParticipantList(meeting) {
     return list;
 }
 
+function buildMissionParticipantList(mission) {
+    if (!mission) return [];
+    const list = [];
+    const seen = new Set();
+    const push = (person, role) => {
+        if (!person?.name || seen.has(person.id)) return;
+        seen.add(person.id);
+        list.push({ id: person.id, name: person.name, jobTitle: person.jobTitle, role });
+    };
+    (mission.assignments || []).forEach((a) => push(a.user, 'Intervenant'));
+    return list;
+}
+
+const PLANNING_EVENT_STYLES = {
+    ATELIER:     { bg: '#e6fffb', border: '#13c2c2', color: '#08979c', label: 'Atelier' },
+    FORMATION:   { bg: '#f6ffed', border: '#52c41a', color: '#389e0d', label: 'Formation' },
+    DEPLACEMENT: { bg: '#fff7e6', border: '#fa8c16', color: '#d46b08', label: 'Déplacement' },
+    AUDIENCE:    { bg: '#fffbe6', border: '#faad14', color: '#d48806', label: 'Audience' },
+    AUTRE:       { bg: '#f5f5f5', border: '#d9d9d9', color: '#595959', label: 'Autre' },
+};
+
+function resolvePlanningEventStyle(ev) {
+    const code = String(ev?.eventType?.code || ev?.type || 'AUTRE').toUpperCase();
+    const preset = PLANNING_EVENT_STYLES[code];
+    const color = ev?.eventType?.color || preset?.border || '#13c2c2';
+    if (preset) {
+        return { ...preset, label: ev?.eventType?.name || preset.label, border: color, color };
+    }
+    return {
+        bg: '#e6fffb',
+        border: color,
+        color,
+        label: ev?.eventType?.name || code,
+    };
+}
+
+function getPlanningEventLocation(ev) {
+    if (ev?.room?.name) {
+        return ev.room.location ? `${ev.room.name} — ${ev.room.location}` : ev.room.name;
+    }
+    return ev?.destination || '';
+}
+
+function buildPlanningEventResponsibleList(ev) {
+    const u = ev?.planning?.user;
+    if (!u?.name) return [];
+    return [{ id: u.id, name: u.name, jobTitle: u.jobTitle, role: 'Responsable' }];
+}
+
 function MeetingParticipantsModal({ meeting, open, onClose }) {
     if (!meeting) return null;
     const participants = buildMeetingParticipantList(meeting);
@@ -142,6 +191,168 @@ function MeetingParticipantsModal({ meeting, open, onClose }) {
                                         )}
                                         title={p.name}
                                         description={[p.jobTitle, p.role].filter(Boolean).join(' · ')}
+                                    />
+                                </List.Item>
+                            )}
+                        />
+                    )}
+                </div>
+            </Space>
+        </Modal>
+    );
+}
+
+function MissionParticipantsModal({ mission, open, onClose }) {
+    if (!mission) return null;
+    const participants = buildMissionParticipantList(mission);
+
+    return (
+        <Modal
+            title={(
+                <Space>
+                    <FlagOutlined style={{ color: '#722ed1' }} />
+                    <span>{mission.title || 'Mission'}</span>
+                </Space>
+            )}
+            open={open}
+            onCancel={onClose}
+            footer={<Button onClick={onClose}>Fermer</Button>}
+            width={520}
+        >
+            <Space direction="vertical" size={12} style={{ width: '100%' }}>
+                <Space wrap size={[16, 4]}>
+                    {(mission.startTime || mission.endTime) && (
+                        <Text type="secondary" style={{ fontSize: 13 }}>
+                            <ClockCircleOutlined style={{ marginRight: 6 }} />
+                            {formatTime(mission.startTime)} – {formatTime(mission.endTime)}
+                        </Text>
+                    )}
+                    {mission.location && (
+                        <Text type="secondary" style={{ fontSize: 13 }}>
+                            <EnvironmentOutlined style={{ marginRight: 6 }} />
+                            {mission.location}
+                        </Text>
+                    )}
+                    {mission.createdBy?.name && (
+                        <Text type="secondary" style={{ fontSize: 13 }}>
+                            Créée par {mission.createdBy.name}
+                        </Text>
+                    )}
+                </Space>
+
+                <div>
+                    <Text strong style={{ display: 'block', marginBottom: 8 }}>
+                        Participants ({participants.length})
+                    </Text>
+                    {participants.length === 0 ? (
+                        <Text type="secondary">Aucun intervenant renseigné.</Text>
+                    ) : (
+                        <List
+                            size="small"
+                            dataSource={participants}
+                            renderItem={(p) => (
+                                <List.Item style={{ padding: '8px 0' }}>
+                                    <List.Item.Meta
+                                        avatar={(
+                                            <Avatar
+                                                size="small"
+                                                style={{ backgroundColor: '#722ed1' }}
+                                                icon={<UserOutlined />}
+                                            >
+                                                {p.name?.[0]?.toUpperCase()}
+                                            </Avatar>
+                                        )}
+                                        title={p.name}
+                                        description={[p.jobTitle, p.role].filter(Boolean).join(' · ')}
+                                    />
+                                </List.Item>
+                            )}
+                        />
+                    )}
+                </div>
+            </Space>
+        </Modal>
+    );
+}
+
+function PlanningEventDetailModal({ event, open, onClose }) {
+    if (!event) return null;
+    const style = resolvePlanningEventStyle(event);
+    const responsible = buildPlanningEventResponsibleList(event);
+    const location = getPlanningEventLocation(event);
+
+    return (
+        <Modal
+            title={(
+                <Space>
+                    <AppstoreOutlined style={{ color: style.color }} />
+                    <span>{event.title || 'Événement'}</span>
+                </Space>
+            )}
+            open={open}
+            onCancel={onClose}
+            footer={<Button onClick={onClose}>Fermer</Button>}
+            width={520}
+        >
+            <Space direction="vertical" size={12} style={{ width: '100%' }}>
+                <Space wrap size={[8, 8]}>
+                    <Tag color={style.border} style={{ margin: 0 }}>{style.label}</Tag>
+                    {event.direction?.name && <Tag>{event.direction.name}</Tag>}
+                    {event.project?.name && <Tag color="purple">{event.project.name}</Tag>}
+                </Space>
+                <Space wrap size={[16, 4]}>
+                    {(event.startTime || event.endTime) && (
+                        <Text type="secondary" style={{ fontSize: 13 }}>
+                            <ClockCircleOutlined style={{ marginRight: 6 }} />
+                            {formatTime(event.startTime)} – {formatTime(event.endTime)}
+                        </Text>
+                    )}
+                    {location && (
+                        <Text type="secondary" style={{ fontSize: 13 }}>
+                            <EnvironmentOutlined style={{ marginRight: 6 }} />
+                            {location}
+                        </Text>
+                    )}
+                </Space>
+                {event.description && (
+                    <div style={{
+                        background: '#fafafa',
+                        padding: 12,
+                        borderRadius: 8,
+                        borderLeft: `4px solid ${style.border}`,
+                    }}
+                    >
+                        <Text type="secondary" style={{ fontSize: 13, whiteSpace: 'pre-wrap' }}>
+                            {event.description}
+                        </Text>
+                    </div>
+                )}
+                <div>
+                    <Text strong style={{ display: 'block', marginBottom: 8 }}>
+                        Responsable{responsible.length > 1 ? 's' : ''} ({responsible.length})
+                    </Text>
+                    {responsible.length === 0 ? (
+                        <Text type="secondary">Aucun responsable renseigné.</Text>
+                    ) : (
+                        <List
+                            size="small"
+                            dataSource={responsible}
+                            renderItem={(p) => (
+                                <List.Item style={{ padding: '8px 0' }}>
+                                    <List.Item.Meta
+                                        avatar={(
+                                            <Avatar
+                                                size="small"
+                                                style={{ backgroundColor: style.border }}
+                                                icon={<UserOutlined />}
+                                            >
+                                                {p.name?.[0]?.toUpperCase()}
+                                            </Avatar>
+                                        )}
+                                        title={p.name}
+                                        description={[p.jobTitle, p.role, event.planning?.user?.direction?.name]
+                                            .filter(Boolean)
+                                            .join(' · ')}
                                     />
                                 </List.Item>
                             )}
@@ -221,7 +432,7 @@ function parseMinTimeline(timeStr) {
     return minutesFromTimeStr(timeStr);
 }
 
-function DayTimeline({ events, onMeetingClick }) {
+function DayTimeline({ events, onMeetingClick, onMissionClick }) {
     const nowMin = appNowMinutes();
     const nowTop = ((nowMin - TIMELINE_START * 60) / 60) * TIMELINE_HH;
     const showNow = nowTop > 0 && nowTop < TIMELINE_HOURS.length * TIMELINE_HH;
@@ -283,18 +494,24 @@ function DayTimeline({ events, onMeetingClick }) {
                         const duration = endMin ? endMin - startMin : 60;
                         const height   = Math.max((duration / 60) * TIMELINE_HH, 24);
                         const isMission = ev.type === 'mission';
-                        const isClickable = !isMission && ev.meeting && onMeetingClick;
+                        const isClickable = isMission
+                            ? Boolean(ev.mission && onMissionClick)
+                            : Boolean(ev.meeting && onMeetingClick);
 
                         return (
                             <div
                                 key={ev.id}
                                 role={isClickable ? 'button' : undefined}
                                 tabIndex={isClickable ? 0 : undefined}
-                                onClick={isClickable ? () => onMeetingClick(ev.meeting) : undefined}
+                                onClick={isClickable ? () => {
+                                    if (isMission) onMissionClick(ev.mission);
+                                    else onMeetingClick(ev.meeting);
+                                } : undefined}
                                 onKeyDown={isClickable ? (e) => {
                                     if (e.key === 'Enter' || e.key === ' ') {
                                         e.preventDefault();
-                                        onMeetingClick(ev.meeting);
+                                        if (isMission) onMissionClick(ev.mission);
+                                        else onMeetingClick(ev.meeting);
                                     }
                                 } : undefined}
                                 style={{
@@ -344,6 +561,7 @@ export default function Home() {
     const [rooms,     setRooms]     = useState([]);
     const [meetings,  setMeetings]  = useState([]);
     const [missions,  setMissions]  = useState([]);
+    const [planningEvents, setPlanningEvents] = useState([]);
     const [date,      setDate]      = useState(null);
     const [dateKey,   setDateKey]   = useState(null);
     const [activeTab, setActiveTab] = useState('rooms');
@@ -356,6 +574,8 @@ export default function Home() {
     const [exportingPdf, setExportingPdf] = useState(false);
     const [exportingDocx, setExportingDocx] = useState(false);
     const [selectedMeeting, setSelectedMeeting] = useState(null);
+    const [selectedMission, setSelectedMission] = useState(null);
+    const [selectedPlanningEvent, setSelectedPlanningEvent] = useState(null);
 
     // ── Recherche (debounced) ────────────────────────────────────
     const [searchInput, setSearchInput] = useState('');
@@ -415,6 +635,7 @@ export default function Home() {
                 setRooms(res.data?.rooms      || []);
                 setMeetings(res.data?.meetings || []);
                 setMissions(res.data?.missions || []);
+                setPlanningEvents(res.data?.events || []);
                 setDate(res.data?.date || null);
                 setDateKey(res.data?.dateKey || appYmd(res.data?.date) || appYmd());
             } else {
@@ -423,6 +644,7 @@ export default function Home() {
                 setRooms([]);
                 setMeetings([]);
                 setMissions([]);
+                setPlanningEvents([]);
                 const todayKey = appYmd();
                 const todayBlock = (res.data?.days || []).find((d) => d.dateKey === todayKey);
                 setDate(todayBlock?.date || res.data?.days?.[0]?.date || null);
@@ -434,6 +656,7 @@ export default function Home() {
             setRooms([]);
             setMeetings([]);
             setMissions([]);
+            setPlanningEvents([]);
             setDate(null);
             setDateKey(null);
         } finally {
@@ -482,6 +705,7 @@ export default function Home() {
                 rooms: d.rooms || [],
                 meetings: d.meetings || [],
                 missions: d.missions || [],
+                events: d.events || [],
             }));
         }
         const dk = dateKey || (date ? appYmd(date) : appYmd());
@@ -494,10 +718,11 @@ export default function Home() {
                 rooms,
                 meetings,
                 missions,
+                events: planningEvents,
             }];
         }
         return [];
-    }, [horizon, weekPayload, date, dateKey, rooms, meetings, missions]);
+    }, [horizon, weekPayload, date, dateKey, rooms, meetings, missions, planningEvents]);
 
     // Application du filtre de recherche sur chaque bloc journalier
     const dayBlocks = useMemo(() => {
@@ -541,6 +766,23 @@ export default function Home() {
                     m.title,
                     m.location,
                     m.createdBy?.name,
+                    ...(m.assignments || []).map((a) => a.user?.name),
+                )
+            );
+
+            const filteredEvents = (block.events || []).filter((ev) =>
+                matchAllTokens(
+                    searchTokens,
+                    ev.title,
+                    ev.description,
+                    ev.type,
+                    ev.eventType?.name,
+                    ev.destination,
+                    ev.room?.name,
+                    ev.room?.location,
+                    ev.direction?.name,
+                    ev.project?.name,
+                    ev.planning?.user?.name,
                 )
             );
 
@@ -549,6 +791,7 @@ export default function Home() {
                 rooms: filteredRooms,
                 meetings: filteredMeetings,
                 missions: filteredMissions,
+                events: filteredEvents,
             };
         });
     }, [rawDayBlocks, isSearching, searchTokens]);
@@ -583,6 +826,7 @@ export default function Home() {
             list.push({
                 id:        `mission-${m.id}`,
                 type:      'mission',
+                mission:   m,
                 title:     m.title,
                 start:     seg.startTime,
                 end:       seg.endTime,
@@ -601,6 +845,10 @@ export default function Home() {
     );
     const totalMissionsStat = useMemo(
         () => dayBlocks.reduce((s, b) => s + (b.missions?.length || 0), 0),
+        [dayBlocks],
+    );
+    const totalEventsStat = useMemo(
+        () => dayBlocks.reduce((s, b) => s + (b.events?.length || 0), 0),
         [dayBlocks],
     );
     const occupiedRooms = useMemo(() => {
@@ -638,7 +886,9 @@ export default function Home() {
     // Total global des résultats (pour le bandeau "X résultats trouvés")
     const totalSearchResults = activeTab === 'repertoire'
         ? repertoireContacts.length
-        : roomCount + totalBookings + totalMissionsStat;
+        : activeTab === 'events'
+            ? totalEventsStat
+            : roomCount + totalBookings + totalMissionsStat;
 
     const repertoireGrouped = useMemo(() => {
         const groups = {};
@@ -654,7 +904,9 @@ export default function Home() {
 
     const searchPlaceholder = activeTab === 'repertoire'
         ? 'Rechercher un nom, une direction, un poste, un numéro…'
-        : 'Rechercher une salle, une réunion, une mission, un lieu, une personne…';
+        : activeTab === 'events'
+            ? 'Rechercher un événement, un type, un lieu, un responsable…'
+            : 'Rechercher une salle, une réunion, une mission, un lieu, une personne…';
 
     const handleExportRepertoirePdf = async () => {
         if (!repertoireContacts.length) {
@@ -689,10 +941,10 @@ export default function Home() {
     };
 
     const tabs = [
-        { key: 'rooms',      label: 'Salles',      icon: <HomeOutlined />     },
-        { key: 'repertoire', label: 'Répertoire',  icon: <PhoneOutlined />    },
-        { key: 'missions',   label: 'Missions',    icon: <FlagOutlined />     },
-        { key: 'timeline',   label: 'Calendrier',  icon: <CalendarOutlined /> },
+        { key: 'rooms',      label: 'Réunions',     icon: <TeamOutlined />      },
+        { key: 'missions',   label: 'Missions',     icon: <FlagOutlined />      },
+        { key: 'events',     label: 'Événements',   icon: <AppstoreOutlined />  },
+        { key: 'repertoire', label: 'Répertoire',   icon: <PhoneOutlined />     },
     ];
 
     return (
@@ -824,6 +1076,14 @@ export default function Home() {
                                 icon: <PhoneOutlined />,
                                 color: '#60AEFF',
                             }]
+                            : activeTab === 'events'
+                                ? [{
+                                    label: 'Événements',
+                                    value: totalEventsStat,
+                                    sub: horizon === 'week' ? 'cette semaine' : "aujourd'hui",
+                                    icon: <AppstoreOutlined />,
+                                    color: '#13c2c2',
+                                }]
                             : [
                             {
                                 label: 'Salles',
@@ -847,7 +1107,7 @@ export default function Home() {
                                 color: '#722ed1',
                             },
                         ]).map((s) => (
-                            <Col key={s.label} xs={activeTab === 'repertoire' ? 24 : 8}>
+                            <Col key={s.label} xs={activeTab === 'repertoire' || activeTab === 'events' ? 24 : 8}>
                                 <Card
                                     style={{
                                         background: 'rgba(255,255,255,0.08)',
@@ -901,9 +1161,14 @@ export default function Home() {
                                     }}
                                 >
                                     {t.icon} {t.label}
-                                    {t.key === 'rooms'    && <Tag style={{ marginLeft: 4, fontSize: 11 }}>{roomCount}</Tag>}
+                                    {t.key === 'rooms'    && totalBookings > 0 && (
+                                        <Tag style={{ marginLeft: 4, fontSize: 11 }}>{totalBookings}</Tag>
+                                    )}
                                     {t.key === 'missions' && totalMissionsStat > 0 && (
                                         <Badge count={totalMissionsStat} size="small" style={{ backgroundColor: '#722ed1' }} />
+                                    )}
+                                    {t.key === 'events' && totalEventsStat > 0 && (
+                                        <Tag style={{ marginLeft: 4, fontSize: 11 }}>{totalEventsStat}</Tag>
                                     )}
                                     {t.key === 'repertoire' && repertoireTotal > 0 && (
                                         <Tag style={{ marginLeft: 4, fontSize: 11 }}>{repertoireTotal}</Tag>
@@ -915,7 +1180,7 @@ export default function Home() {
                         <Spin spinning={loading || (activeTab === 'repertoire' && repertoireLoading)}>
                             <div style={{ padding: 20 }}>
 
-                                {/* ── ONGLET SALLES ── */}
+                                {/* ── ONGLET RÉUNIONS ── */}
                                 {activeTab === 'rooms' && (
                                     <>
                                         {dayBlocks.length === 0 || (isSearching && roomCount === 0) ? (
@@ -1114,23 +1379,47 @@ export default function Home() {
                                                         <Text type="secondary">
                                                             {horizon === 'week'
                                                                 ? 'Aucune mission ce jour.'
-                                                                : 'Aucune mission prévue aujourd&apos;hui.'}
+                                                                : 'Aucune mission prévue aujourd\'hui..'}
                                                         </Text>
                                                     ) : (
                                                         <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
-                                                            {block.missions.map((m) => (
+                                                            {block.missions.map((m) => {
+                                                                const participantCount = buildMissionParticipantList(m).length;
+                                                                return (
                                                                 <div
                                                                     key={`${block.key}-${m.id}`}
+                                                                    role="button"
+                                                                    tabIndex={0}
+                                                                    onClick={() => setSelectedMission(m)}
+                                                                    onKeyDown={(e) => {
+                                                                        if (e.key === 'Enter' || e.key === ' ') {
+                                                                            e.preventDefault();
+                                                                            setSelectedMission(m);
+                                                                        }
+                                                                    }}
                                                                     style={{
                                                                         display: 'flex', gap: 12,
                                                                         padding: '12px 16px', borderRadius: 10,
                                                                         background: '#f9f0ff',
                                                                         borderLeft: '4px solid #722ed1',
+                                                                        cursor: 'pointer',
+                                                                        transition: 'background 0.15s, box-shadow 0.15s',
+                                                                    }}
+                                                                    onMouseEnter={(e) => {
+                                                                        e.currentTarget.style.background = '#f3e8ff';
+                                                                        e.currentTarget.style.boxShadow = '0 2px 8px rgba(114,46,209,0.15)';
+                                                                    }}
+                                                                    onMouseLeave={(e) => {
+                                                                        e.currentTarget.style.background = '#f9f0ff';
+                                                                        e.currentTarget.style.boxShadow = 'none';
                                                                     }}
                                                                 >
                                                                     <FlagOutlined style={{ color: '#722ed1', fontSize: 18, flexShrink: 0, paddingTop: 2 }} />
                                                                     <div style={{ flex: 1, minWidth: 0 }}>
-                                                                        <Text strong style={{ display: 'block', fontSize: 14 }}>{m.title}</Text>
+                                                                        <Text strong style={{ display: 'block', fontSize: 14, color: '#531dab' }}>
+                                                                            {m.title}
+                                                                            <TeamOutlined style={{ marginLeft: 8, fontSize: 12 }} />
+                                                                        </Text>
                                                                         <Space size={16} style={{ marginTop: 4, flexWrap: 'wrap' }}>
                                                                             {m.location && (
                                                                                 <Text type="secondary" style={{ fontSize: 12 }}>
@@ -1149,10 +1438,134 @@ export default function Home() {
                                                                                     Par {m.createdBy.name}
                                                                                 </Text>
                                                                             )}
+                                                                            <Text type="secondary" style={{ fontSize: 12 }}>
+                                                                                {participantCount > 0
+                                                                                    ? `${participantCount} participant(s)`
+                                                                                    : 'Aucun participant'}
+                                                                            </Text>
                                                                         </Space>
                                                                     </div>
                                                                 </div>
-                                                            ))}
+                                                                );
+                                                            })}
+                                                        </div>
+                                                    )}
+                                                </div>
+                                            ))
+                                        )}
+                                    </>
+                                )}
+
+                                {/* ── ONGLET ÉVÉNEMENTS ── */}
+                                {activeTab === 'events' && (
+                                    <>
+                                        {dayBlocks.length === 0 || (isSearching && totalEventsStat === 0) ? (
+                                            <Empty
+                                                image={Empty.PRESENTED_IMAGE_SIMPLE}
+                                                description={
+                                                    isSearching
+                                                        ? `Aucun événement ne correspond à « ${search} »`
+                                                        : 'Aucun événement validé sur cette période.'
+                                                }
+                                            />
+                                        ) : (
+                                            dayBlocks.map((block) => (
+                                                <div
+                                                    key={block.key}
+                                                    style={{ marginBottom: horizon === 'week' ? 20 : 0 }}
+                                                >
+                                                    {horizon === 'week' && (
+                                                        <Text
+                                                            strong
+                                                            style={{
+                                                                display: 'block',
+                                                                marginBottom: 10,
+                                                                fontSize: 15,
+                                                                textTransform: 'capitalize',
+                                                            }}
+                                                        >
+                                                            {block.dateLabel}
+                                                        </Text>
+                                                    )}
+                                                    {(block.events || []).length === 0 ? (
+                                                        <Text type="secondary">
+                                                            {horizon === 'week'
+                                                                ? 'Aucun événement ce jour.'
+                                                                : 'Aucun événement prévu aujourd\'hui.'}
+                                                        </Text>
+                                                    ) : (
+                                                        <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+                                                            {(block.events || []).map((ev) => {
+                                                                const style = resolvePlanningEventStyle(ev);
+                                                                const location = getPlanningEventLocation(ev);
+                                                                const responsible = ev.planning?.user?.name;
+                                                                return (
+                                                                    <div
+                                                                        key={`${block.key}-${ev.id}`}
+                                                                        role="button"
+                                                                        tabIndex={0}
+                                                                        onClick={() => setSelectedPlanningEvent(ev)}
+                                                                        onKeyDown={(e) => {
+                                                                            if (e.key === 'Enter' || e.key === ' ') {
+                                                                                e.preventDefault();
+                                                                                setSelectedPlanningEvent(ev);
+                                                                            }
+                                                                        }}
+                                                                        style={{
+                                                                            display: 'flex', gap: 12,
+                                                                            padding: '12px 16px', borderRadius: 10,
+                                                                            background: style.bg,
+                                                                            borderLeft: `4px solid ${style.border}`,
+                                                                            cursor: 'pointer',
+                                                                            transition: 'background 0.15s, box-shadow 0.15s',
+                                                                        }}
+                                                                        onMouseEnter={(e) => {
+                                                                            e.currentTarget.style.boxShadow = `0 2px 8px ${style.border}33`;
+                                                                        }}
+                                                                        onMouseLeave={(e) => {
+                                                                            e.currentTarget.style.boxShadow = 'none';
+                                                                        }}
+                                                                    >
+                                                                        <AppstoreOutlined style={{ color: style.color, fontSize: 18, flexShrink: 0, paddingTop: 2 }} />
+                                                                        <div style={{ flex: 1, minWidth: 0 }}>
+                                                                            <Space wrap size={[8, 4]} style={{ marginBottom: 4 }}>
+                                                                                <Text strong style={{ fontSize: 14, color: style.color }}>
+                                                                                    {ev.title}
+                                                                                </Text>
+                                                                                <Tag color={style.border} style={{ margin: 0, fontSize: 11 }}>
+                                                                                    {style.label}
+                                                                                </Tag>
+                                                                            </Space>
+                                                                            <Space size={16} style={{ flexWrap: 'wrap' }}>
+                                                                                {(ev.startTime || ev.endTime) && (
+                                                                                    <Text type="secondary" style={{ fontSize: 12 }}>
+                                                                                        <ClockCircleOutlined style={{ marginRight: 4 }} />
+                                                                                        {formatTime(ev.startTime)} – {formatTime(ev.endTime)}
+                                                                                    </Text>
+                                                                                )}
+                                                                                {location && (
+                                                                                    <Text type="secondary" style={{ fontSize: 12 }}>
+                                                                                        <EnvironmentOutlined style={{ marginRight: 4 }} />
+                                                                                        {location}
+                                                                                    </Text>
+                                                                                )}
+                                                                                {responsible && (
+                                                                                    <Text type="secondary" style={{ fontSize: 12 }}>
+                                                                                        <UserOutlined style={{ marginRight: 4 }} />
+                                                                                        {responsible}
+                                                                                    </Text>
+                                                                                )}
+                                                                                {ev.direction?.name && (
+                                                                                    <Text type="secondary" style={{ fontSize: 12 }}>
+                                                                                        {ev.direction.name}
+                                                                                    </Text>
+                                                                                )}
+                                                                            </Space>
+                                                                        </div>
+                                                                        <TeamOutlined style={{ color: style.color, fontSize: 12, flexShrink: 0, paddingTop: 4 }} />
+                                                                    </div>
+                                                                );
+                                                            })}
                                                         </div>
                                                     )}
                                                 </div>
@@ -1328,12 +1741,13 @@ export default function Home() {
                                                             <Text type="secondary">
                                                                 {horizon === 'week'
                                                                     ? 'Aucun événement ce jour.'
-                                                                    : 'Aucun événement prévu aujourd&apos;hui.'}
+                                                                    : 'Aucun événement prévu aujourd\'hui..'}
                                                             </Text>
                                                         ) : (
                                                             <DayTimeline
                                                                 events={dayEvents}
                                                                 onMeetingClick={setSelectedMeeting}
+                                                                onMissionClick={setSelectedMission}
                                                             />
                                                         )}
                                                     </div>
@@ -1351,6 +1765,16 @@ export default function Home() {
                         meeting={selectedMeeting}
                         open={Boolean(selectedMeeting)}
                         onClose={() => setSelectedMeeting(null)}
+                    />
+                    <MissionParticipantsModal
+                        mission={selectedMission}
+                        open={Boolean(selectedMission)}
+                        onClose={() => setSelectedMission(null)}
+                    />
+                    <PlanningEventDetailModal
+                        event={selectedPlanningEvent}
+                        open={Boolean(selectedPlanningEvent)}
+                        onClose={() => setSelectedPlanningEvent(null)}
                     />
 
                     {/* Pied de page */}

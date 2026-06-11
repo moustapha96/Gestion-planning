@@ -807,7 +807,7 @@ export default function Calendar() {
                     padding: '10px 16px', borderBottom: '1px solid #f0f0f0', flexWrap: 'wrap',
                 }}>
                     <Button icon={<LeftOutlined />}  size="small" onClick={() => nav('prev')} />
-                    <Button                          size="small" onClick={goToToday}>Aujourd'hui</Button>
+                    <Button                          size="small" onClick={goToToday}>aujourd\'hui.</Button>
                     <Button icon={<RightOutlined />} size="small" onClick={() => nav('next')} />
                     <Text strong style={{ fontSize: 15, marginLeft: 4 }}>{currentLabel}</Text>
                 </div>

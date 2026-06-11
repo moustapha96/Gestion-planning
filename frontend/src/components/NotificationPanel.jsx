@@ -56,7 +56,7 @@ function groupByDate(notifications) {
     notifications.forEach((n) => {
         const d = new Date(n.createdAt); d.setHours(0, 0, 0, 0);
         let key;
-        if (d.getTime() === today.getTime()) key = "Aujourd'hui";
+        if (d.getTime() === today.getTime()) key = "aujourd\'hui.";
         else if (d.getTime() === yesterday.getTime()) key = 'Hier';
         else key = new Date(n.createdAt).toLocaleDateString('fr-FR', { weekday: 'long', day: 'numeric', month: 'long' });
         if (!groups[key]) groups[key] = [];

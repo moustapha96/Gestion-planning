@@ -112,7 +112,7 @@ Le frontend démarre sur **http://localhost:5173**
 - `POST /api/rooms/:id/bookings` - Réserver
 
 ### Dashboard
-- `GET /api/dashboard/today` - Données d'aujourd'hui
+- `GET /api/dashboard/today` - Données d'aujourd\'hui.
 - `GET /api/dashboard/week` - Données de la semaine
 
 ## Configuration Environnement

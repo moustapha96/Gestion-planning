@@ -209,6 +209,7 @@ async function enrichReqUser(prisma, jwtPayload) {
         where: { id: jwtPayload.id },
         select: {
             id: true,
+            name: true,
             email: true,
             role: true,
             directionId: true,
@@ -228,6 +229,7 @@ async function enrichReqUser(prisma, jwtPayload) {
         : normalizeStoredRole(dbUser.role);
     return {
         ...jwtPayload,
+        name: dbUser.name,
         role: effectiveRole,
         storedRole: normalizeStoredRole(dbUser.role),
         directionId: dbUser.directionId,

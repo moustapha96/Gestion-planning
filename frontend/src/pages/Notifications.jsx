@@ -80,7 +80,7 @@ function groupByDay(notifications) {
         const k = d.toISOString().slice(0, 10); // clé stable YYYY-MM-DD
 
         let relative = '';
-        if (d.getTime() === today.getTime()) relative = "Aujourd'hui";
+        if (d.getTime() === today.getTime()) relative = "aujourd\'hui.";
         else if (d.getTime() === yesterday.getTime()) relative = 'Hier';
 
         const weekday = capitalize(rawDate.toLocaleDateString('fr-FR', { weekday: 'long' }));
@@ -226,7 +226,7 @@ function NotifGroupedList({ items, loading, onRead, onDelete, navigate, markAsRe
     return (
         <>
             {groups.map((g) => {
-                const isToday = g.relative === "Aujourd'hui";
+                const isToday = g.relative === "aujourd\'hui.";
                 const isYesterday = g.relative === 'Hier';
                 const accent = isToday ? '#1565C0' : isYesterday ? '#722ed1' : '#8c8c8c';
                 const accentBg = isToday ? '#EFF6FF' : isYesterday ? '#f9f0ff' : '#fafafa';
@@ -242,7 +242,7 @@ function NotifGroupedList({ items, loading, onRead, onDelete, navigate, markAsRe
                                 flexWrap: 'wrap',
                             }}
                         >
-                            {/* Pastille relative (Aujourd'hui / Hier / Date) */}
+                            {/* Pastille relative (aujourd\'hui. / Hier / Date) */}
                             {g.relative ? (
                                 <span
                                     style={{

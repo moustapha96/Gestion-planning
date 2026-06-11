@@ -334,7 +334,7 @@ curl -X DELETE http://localhost:3001/api/notifications/clx1abc123 \
 ### 📊 Dashboard
 
 #### GET `/dashboard/today`
-Données d'aujourd'hui
+Données d'aujourd\'hui.
 
 ```bash
 curl -X GET http://localhost:3001/api/dashboard/today \

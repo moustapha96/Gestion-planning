@@ -34,6 +34,43 @@ function mapRoomsForDay(rooms, meetings, dayYmd) {
     }));
 }
 
+const PUBLIC_PLANNING_EVENT_INCLUDE = {
+    room: { select: { id: true, name: true, location: true } },
+    direction: { select: { id: true, name: true, code: true } },
+    project: { select: { id: true, name: true, code: true } },
+    eventType: { select: { id: true, name: true, code: true, color: true } },
+    planning: {
+        select: {
+            id: true,
+            status: true,
+            user: {
+                select: {
+                    id: true,
+                    name: true,
+                    jobTitle: true,
+                    direction: { select: { name: true } },
+                },
+            },
+        },
+    },
+};
+
+/** Événements de planning validés (hors réunions/missions déjà affichées ailleurs). */
+function publicPlanningEventsWhere(rangeStart, rangeEnd) {
+    return {
+        ...timedEventOverlapsRange(rangeStart, rangeEnd),
+        planning: { status: 'VALIDATED' },
+        NOT: {
+            OR: [
+                { type: 'REUNION' },
+                { type: 'MISSION' },
+                { eventType: { code: 'REUNION' } },
+                { eventType: { code: 'MISSION' } },
+            ],
+        },
+    };
+}
+
 // GET /api/public/day-planning - Planning de la journée pour toutes les salles (public)
 router.get('/day-planning', async (req, res) => {
     try {
@@ -65,7 +102,14 @@ router.get('/day-planning', async (req, res) => {
                 status: { not: 'CANCELLED' },
                 ...timedEventOverlapsRange(todayStart, todayEnd),
             },
-            include: { createdBy: { select: { name: true } } },
+            include: {
+                createdBy: { select: { id: true, name: true, jobTitle: true } },
+                assignments: {
+                    include: {
+                        user: { select: { id: true, name: true, jobTitle: true } },
+                    },
+                },
+            },
             orderBy: { startTime: 'asc' },
         });
 
@@ -87,6 +131,12 @@ router.get('/day-planning', async (req, res) => {
             orderBy: { startTime: 'asc' },
         });
 
+        const planningEvents = await req.prisma.planningEvent.findMany({
+            where: publicPlanningEventsWhere(todayStart, todayEnd),
+            include: PUBLIC_PLANNING_EVENT_INCLUDE,
+            orderBy: { startTime: 'asc' },
+        });
+
         const roomsWithBookings = mapRoomsForDay(roomsRaw, meetings, todayYmd);
 
         res.status(200).json({
@@ -95,6 +145,7 @@ router.get('/day-planning', async (req, res) => {
             rooms: roomsWithBookings,
             meetings: meetings || [],
             missions: missions || [],
+            events: planningEvents || [],
         });
     } catch (error) {
         res.status(200).json({ rooms: [], date: new Date().toISOString() });
@@ -150,7 +201,20 @@ router.get('/week-planning', async (req, res) => {
                 status: { not: 'CANCELLED' },
                 ...timedEventOverlapsRange(monday, rangeEnd),
             },
-            include: { createdBy: { select: { name: true } } },
+            include: {
+                createdBy: { select: { id: true, name: true, jobTitle: true } },
+                assignments: {
+                    include: {
+                        user: { select: { id: true, name: true, jobTitle: true } },
+                    },
+                },
+            },
+            orderBy: { startTime: 'asc' },
+        });
+
+        const planningEvents = await req.prisma.planningEvent.findMany({
+            where: publicPlanningEventsWhere(monday, rangeEnd),
+            include: PUBLIC_PLANNING_EVENT_INCLUDE,
             orderBy: { startTime: 'asc' },
         });
 
@@ -162,6 +226,7 @@ router.get('/week-planning', async (req, res) => {
             const roomsForDay = mapRoomsForDay(roomsRaw, meetings, dk);
             const meetingsForDay = meetings.filter((m) => eventOverlapsAppDay(m.startTime, m.endTime, dk));
             const missionsForDay = missions.filter((m) => eventOverlapsAppDay(m.startTime, m.endTime, dk));
+            const eventsForDay = planningEvents.filter((e) => eventOverlapsAppDay(e.startTime, e.endTime, dk));
 
             days.push({
                 date: `${dk}T12:00:00.000Z`,
@@ -169,6 +234,7 @@ router.get('/week-planning', async (req, res) => {
                 rooms: roomsForDay,
                 meetings: meetingsForDay,
                 missions: missionsForDay,
+                events: eventsForDay,
             });
         }
 

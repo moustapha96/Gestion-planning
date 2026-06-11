@@ -1,6 +1,6 @@
 /**
  * Fuseau horaire métier : Dakar (Sénégal).
- * Les serveurs peuvent être en UTC/Europe — on force TZ Node pour crons et « aujourd'hui ».
+ * Les serveurs peuvent être en UTC/Europe — on force TZ Node pour crons et « aujourd\'hui. ».
  */
 
 const APP_TIMEZONE = process.env.APP_TIMEZONE || 'Africa/Dakar';

@@ -92,6 +92,20 @@ function buildSmtpTransportOptions() {
 // Configuration de l'email
 const transporter = nodemailer.createTransport(buildSmtpTransportOptions());
 
+/** Nom affiché dans les e-mails (évite « undefined » si objet utilisateur partiel). */
+function userDisplayName(userOrName, fallback = 'Utilisateur') {
+    if (userOrName == null || userOrName === '') return fallback;
+    if (typeof userOrName === 'string') {
+        const s = userOrName.trim();
+        return s || fallback;
+    }
+    const name = String(userOrName.name || userOrName.fullName || '').trim();
+    if (name) return name;
+    const email = String(userOrName.email || '').trim();
+    if (email) return email.split('@')[0];
+    return fallback;
+}
+
 // Templates d'emails
 const emailTemplates = {
     PLANNING_REMINDER: (user) => ({
@@ -102,7 +116,7 @@ const emailTemplates = {
           <h1>Gestion Planning</h1>
         </div>
         <div style="padding: 20px;">
-          <p>Bonjour ${user.name},</p>
+          <p>Bonjour ${userDisplayName(user)},</p>
           <p>C'est un rappel amical pour vous informer qu'il est temps de soumettre votre planning hebdomadaire.</p>
           <div style="background: #f0f0f0; padding: 15px; border-left: 4px solid #1F5C8B; margin: 20px 0;">
             <strong>⏰ Deadline: Vendredi 12h00</strong>
@@ -128,7 +142,7 @@ const emailTemplates = {
           <h1>Gestion Planning</h1>
         </div>
         <div style="padding: 20px;">
-          <p>Bonjour ${user.name},</p>
+          <p>Bonjour ${userDisplayName(user)},</p>
           <p>✅ Votre planning a été soumis avec succès!</p>
           <div style="background: #e8f5e9; padding: 15px; border-left: 4px solid #4caf50; margin: 20px 0;">
             <strong>Status:</strong> Planning reçu et en cours de consolidation
@@ -155,7 +169,7 @@ const emailTemplates = {
           <h1>Gestion Planning</h1>
         </div>
         <div style="padding: 20px;">
-          <p>Bonjour ${user.name},</p>
+          <p>Bonjour ${userDisplayName(user)},</p>
           <p>🎉 Excellente nouvelle! Votre planning a été validé par le Directeur Général!</p>
           <div style="background: #e3f2fd; padding: 15px; border-left: 4px solid #2196f3; margin: 20px 0;">
             <strong>Status:</strong> Planning validé ✓
@@ -177,7 +191,7 @@ const emailTemplates = {
           <h1>Gestion Planning</h1>
         </div>
         <div style="padding: 20px;">
-          <p>Bonjour ${user.name},</p>
+          <p>Bonjour ${userDisplayName(user)},</p>
           <p>📌 Votre planning a été retourné pour modifications.</p>
           <div style="background: #fff3e0; padding: 15px; border-left: 4px solid #ff9800; margin: 20px 0;">
             <strong>Commentaire du Directeur Général:</strong><br>
@@ -205,7 +219,7 @@ const emailTemplates = {
           <h1>Gestion Planning</h1>
         </div>
         <div style="padding: 20px;">
-          <p>Bonjour ${participant.name},</p>
+          <p>Bonjour ${userDisplayName(participant)},</p>
           <p>📅 Vous êtes convoqué à une réunion:</p>
           <div style="background: #f5f5f5; padding: 20px; border-left: 4px solid #1F5C8B; margin: 20px 0;">
             <h3 style="margin: 0 0 10px 0;">${meeting.title}</h3>
@@ -241,7 +255,7 @@ const emailTemplates = {
           <h1>Gestion Planning</h1>
         </div>
         <div style="padding: 20px;">
-          <p>Bonjour ${participant.name},</p>
+          <p>Bonjour ${userDisplayName(participant)},</p>
           <p>📅 L'horaire ou le lieu de la réunion suivante a été modifié :</p>
           <div style="background: #fff8e1; padding: 20px; border-left: 4px solid #ff9800; margin: 20px 0;">
             <h3 style="margin: 0 0 10px 0;">${meeting.title}</h3>
@@ -274,7 +288,7 @@ const emailTemplates = {
           <h1>Gestion Planning</h1>
         </div>
         <div style="padding: 20px;">
-          <p>Bonjour ${participant.name},</p>
+          <p>Bonjour ${userDisplayName(participant)},</p>
           <p>🔔 Rappel: Une réunion est prévue demain</p>
           <div style="background: #fff8e1; padding: 20px; border-left: 4px solid #fbc02d; margin: 20px 0;">
             <h3 style="margin: 0 0 10px 0;">${meeting.title}</h3>
@@ -317,7 +331,7 @@ const emailTemplates = {
           <h1>Gestion Planning</h1>
         </div>
         <div style="padding: 20px;">
-          <p>Bonjour ${organizer.name},</p>
+          <p>Bonjour ${userDisplayName(organizer)},</p>
           <p>Votre réunion a bien été <strong>créée</strong> dans l'application.</p>
           <div style="background: #e8f5e9; padding: 20px; border-left: 4px solid #4caf50; margin: 20px 0;">
             <h3 style="margin: 0 0 10px 0;">${meeting.title}</h3>
@@ -364,8 +378,8 @@ const emailTemplates = {
           <h1>Gestion Planning</h1>
         </div>
         <div style="padding: 20px;">
-          <p>Bonjour ${consolidator.name},</p>
-          <p><strong>${organizer.name}</strong> a créé une réunion qui nécessite votre validation avant publication sur le calendrier.</p>
+          <p>Bonjour ${userDisplayName(consolidator)},</p>
+          <p><strong>${userDisplayName(organizer)}</strong> a créé une réunion qui nécessite votre validation avant publication sur le calendrier.</p>
           <div style="background: #fff8e1; padding: 20px; border-left: 4px solid #ff9800; margin: 20px 0;">
             <h3 style="margin: 0 0 10px 0;">${meeting.title}</h3>
             <p><strong>📅 Date :</strong> ${startDate}</p>
@@ -398,8 +412,8 @@ const emailTemplates = {
           <h1>Gestion Planning</h1>
         </div>
         <div style="padding: 20px;">
-          <p>Bonjour ${organizer.name},</p>
-          <p>Votre réunion <strong>« ${meeting.title} »</strong> a été validée par <strong>${approver.name}</strong>.</p>
+          <p>Bonjour ${userDisplayName(organizer)},</p>
+          <p>Votre réunion <strong>« ${meeting.title} »</strong> a été validée par <strong>${userDisplayName(approver)}</strong>.</p>
           <p>Elle est maintenant publiée sur le calendrier et les convocations ont été envoyées aux participants.</p>
           <p>
             <a href="${url}" style="display: inline-block; background: #1F5C8B; color: white; padding: 12px 24px; text-decoration: none; border-radius: 5px; font-weight: bold;">
@@ -423,7 +437,7 @@ const emailTemplates = {
           <h1>Gestion Planning</h1>
         </div>
         <div style="padding: 20px;">
-          <p>Bonjour ${user.name},</p>
+          <p>Bonjour ${userDisplayName(user)},</p>
           <p>Vous avez demandé la réinitialisation de votre mot de passe.</p>
           <div style="background: #fff3e0; padding: 15px; border-left: 4px solid #ff9800; margin: 20px 0;">
             <strong>⚠️ Ce lien est valable 1 heure.</strong>
@@ -456,7 +470,7 @@ const emailTemplates = {
           <h1>Gestion Planning</h1>
         </div>
         <div style="padding: 20px;">
-          <p>Bonjour ${user.name},</p>
+          <p>Bonjour ${userDisplayName(user)},</p>
           <p>Votre compte a été créé sur <strong>Gestion Planning</strong>.</p>
           <div style="background: #e8f5e9; padding: 20px; border-left: 4px solid #4caf50; margin: 20px 0;">
             <p style="margin: 0 0 8px 0;"><strong>📧 Email :</strong> ${user.email}</p>
@@ -488,8 +502,8 @@ const emailTemplates = {
           <h1>Gestion Planning</h1>
         </div>
         <div style="padding: 20px;">
-          <p>Bonjour ${user.name},</p>
-          <p><strong>${assignedByName || 'L\'administration'}</strong> vous a désigné(e) <strong>consolidateur(trice)</strong> du projet suivant :</p>
+          <p>Bonjour ${userDisplayName(user)},</p>
+          <p><strong>${userDisplayName(assignedByName, 'L\'administration')}</strong> vous a désigné(e) <strong>consolidateur(trice)</strong> du projet suivant :</p>
           <div style="background: #f3e5f5; padding: 20px; border-left: 4px solid #722ed1; margin: 20px 0;">
             <h3 style="margin: 0 0 10px 0;">${projectLabel}</h3>
             <p style="margin: 0; font-size: 14px; color: #555;">
@@ -518,7 +532,7 @@ const emailTemplates = {
           <h1>Gestion Planning</h1>
         </div>
         <div style="padding: 20px;">
-          <p>Bonjour ${user.name},</p>
+          <p>Bonjour ${userDisplayName(user)},</p>
           <p>Votre rôle sur l'application <strong>Gestion Planning</strong> a été modifié par un administrateur.</p>
           <div style="background: #e3f2fd; padding: 15px; border-left: 4px solid #2196f3; margin: 20px 0;">
             <p style="margin: 0 0 6px 0;"><strong>Ancien rôle :</strong> ${previousRoleLabel || '—'}</p>
@@ -546,7 +560,7 @@ const emailTemplates = {
           <h1>Gestion Planning</h1>
         </div>
         <div style="padding: 20px;">
-          <p>Bonjour ${user.name},</p>
+          <p>Bonjour ${userDisplayName(user)},</p>
           <p>Votre compte a été créé sur <strong>Gestion Planning</strong>. Pour pouvoir vous connecter, vous devez d'abord l'activer en cliquant sur le lien ci-dessous.</p>
           <div style="text-align: center; margin: 28px 0;">
             <a href="${activationUrl}" style="display: inline-block; background: #4caf50; color: white; padding: 14px 28px; text-decoration: none; border-radius: 6px; font-weight: bold; font-size: 16px;">
@@ -581,8 +595,8 @@ const emailTemplates = {
           <h1>Gestion Planning</h1>
         </div>
         <div style="padding: 20px;">
-          <p>Bonjour ${user.name},</p>
-          <p>Une nouvelle mission vous a été assignée par <strong>${createdByName}</strong>.</p>
+          <p>Bonjour ${userDisplayName(user)},</p>
+          <p>Une nouvelle mission vous a été assignée par <strong>${userDisplayName(createdByName, 'Un utilisateur')}</strong>.</p>
           <div style="background: #e3f2fd; padding: 20px; border-left: 4px solid #1F5C8B; margin: 20px 0;">
             <p style="margin: 0 0 8px 0;"><strong>📍 Mission :</strong> ${mission.title}</p>
             <p style="margin: 0 0 8px 0;"><strong>📍 Lieu :</strong> ${mission.location}</p>
@@ -617,7 +631,7 @@ const emailTemplates = {
           <h1>Gestion Planning</h1>
         </div>
         <div style="padding: 20px;">
-          <p>Bonjour ${creator.name},</p>
+          <p>Bonjour ${userDisplayName(creator)},</p>
           <p>Votre mission a bien été <strong>enregistrée</strong> dans l'application.</p>
           <div style="background: #e8f5e9; padding: 20px; border-left: 4px solid #4caf50; margin: 20px 0;">
             <p style="margin: 0 0 8px 0;"><strong>📍 Mission :</strong> ${mission.title}</p>
@@ -649,7 +663,7 @@ const emailTemplates = {
           <h1>Gestion Planning</h1>
         </div>
         <div style="padding: 20px;">
-          <p>Bonjour ${user.name},</p>
+          <p>Bonjour ${userDisplayName(user)},</p>
           <p>Votre compte a été <strong>réactivé</strong> par un administrateur. Vous pouvez à nouveau vous connecter à l'application.</p>
           <p>
             <a href="${process.env.FRONTEND_URL || 'http://localhost:5173'}/login" style="display: inline-block; background: #4caf50; color: white; padding: 12px 24px; text-decoration: none; border-radius: 5px; font-weight: bold;">
@@ -672,7 +686,7 @@ const emailTemplates = {
           <h1>Gestion Planning</h1>
         </div>
         <div style="padding: 20px;">
-          <p>Bonjour ${user.name},</p>
+          <p>Bonjour ${userDisplayName(user)},</p>
           <p>Votre compte sur <strong>Gestion Planning</strong> a été <strong>désactivé</strong> par un administrateur. Vous ne pouvez plus vous connecter pour le moment.</p>
           <p>Pour toute question, contactez votre administrateur.</p>
         </div>
@@ -695,8 +709,8 @@ const emailTemplates = {
           <h1>Gestion Planning</h1>
         </div>
         <div style="padding: 20px;">
-          <p>Bonjour ${user.name},</p>
-          <p>Une mission à laquelle vous êtes assigné(e) a été modifiée par <strong>${createdByName}</strong>.</p>
+          <p>Bonjour ${userDisplayName(user)},</p>
+          <p>Une mission à laquelle vous êtes assigné(e) a été modifiée par <strong>${userDisplayName(createdByName, 'Un utilisateur')}</strong>.</p>
           <div style="background: #fff3e0; padding: 20px; border-left: 4px solid #ff9800; margin: 20px 0;">
             <p style="margin: 0 0 8px 0;"><strong>📍 Mission :</strong> ${mission.title}</p>
             <p style="margin: 0 0 8px 0;"><strong>📍 Lieu :</strong> ${mission.location}</p>
@@ -727,8 +741,8 @@ const emailTemplates = {
           <h1>Gestion Planning</h1>
         </div>
         <div style="padding: 20px;">
-          <p>Bonjour ${user.name},</p>
-          <p>La mission <strong>« ${mission.title } »</strong> (${mission.location}) à laquelle vous étiez assigné(e) a été <strong>annulée</strong> par ${createdByName}.</p>
+          <p>Bonjour ${userDisplayName(user)},</p>
+          <p>La mission <strong>« ${mission.title } »</strong> (${mission.location}) à laquelle vous étiez assigné(e) a été <strong>annulée</strong> par ${userDisplayName(createdByName, 'Un utilisateur')}.</p>
           <p>Vous n'avez plus à vous rendre sur cette mission.</p>
         </div>
         <div style="border-top: 1px solid #ddd; padding: 20px; text-align: center; font-size: 12px; color: #666;">
@@ -802,7 +816,7 @@ const emailTemplates = {
           <h1>Gestion Planning</h1>
         </div>
         <div style="padding: 20px;">
-          <p>Bonjour ${user.name},</p>
+          <p>Bonjour ${userDisplayName(user)},</p>
           <p>Rappel : vous êtes convié(e) à une réunion <strong>demain</strong>.</p>
           <div style="background: #fff3e0; padding: 20px; border-left: 4px solid #ff9800; margin: 20px 0;">
             <p style="margin: 0 0 8px 0;"><strong>📋 Objet :</strong> ${meeting.title}</p>

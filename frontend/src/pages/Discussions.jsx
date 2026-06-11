@@ -80,7 +80,7 @@ async function fileOutboxGetAll() {
 // ── Helpers visuels ───────────────────────────────────────────────
 function dateSeparatorLabel(dateStr) {
     const d = dayjs(dateStr);
-    if (d.isToday())     return "Aujourd'hui";
+    if (d.isToday())     return "aujourd\'hui.";
     if (d.isYesterday()) return 'Hier';
     return d.format('dddd D MMMM YYYY');
 }

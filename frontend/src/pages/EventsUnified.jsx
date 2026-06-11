@@ -391,7 +391,7 @@ export default function EventsUnified() {
                                 onChange={onQuickPeriodChange}
                                 options={[
                                     { label: 'Tout', value: 'all' },
-                                    { label: "Aujourd'hui", value: 'today' },
+                                    { label: "aujourd\'hui.", value: 'today' },
                                     { label: 'Cette semaine', value: 'week' },
                                     { label: 'Ce mois', value: 'month' },
                                 ]}
