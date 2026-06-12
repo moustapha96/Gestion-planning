@@ -1,8 +1,7 @@
-const { ROLES, isPrivilegedAdmin } = require('../config/roles');
-const {
-    userMayCoordinateProject,
-    userMayActAsServiceDirector,
-} = require('./roleConfig.service');
+const { isPrivilegedAdmin } = require('../config/roles');
+const { canValidatePlanningAsCoordinator, projectHasConsolidator } = require('./validationPolicy.service');
+const { attachPlanningValidationProject } = require('./projectConsolidator.service');
+const { PENDING_COORDINATOR_STATUSES } = require('../config/planningWorkflow');
 
 const COORDINATOR_USER_SELECT = {
     id: true,
@@ -44,30 +43,35 @@ function isUserProjectCoordinator(user, projectOrCoordinatorId) {
 function canActAsCoordinator(user, projectOrCoordinatorId) {
     if (!user) return false;
     if (isPrivilegedAdmin(user.role)) return true;
-    if (userMayCoordinateProject(user) || userMayActAsServiceDirector(user)) return true;
     return isUserProjectCoordinator(user, projectOrCoordinatorId);
 }
 
 async function canUserCoordinatePlanning(prisma, user, planning) {
     if (!user || !planning) return false;
-    if (isPrivilegedAdmin(user.role)) return true;
-    if (userMayCoordinateProject(user) || userMayActAsServiceDirector(user)) return true;
-    const owner = planning.user || await prisma.user.findUnique({
-        where: { id: planning.userId },
-        select: { projectId: true },
-    });
-    if (!owner?.projectId) return false;
-    const project = await prisma.project.findUnique({
-        where: { id: owner.projectId },
-        select: { coordinatorId: true },
-    });
-    return isUserProjectCoordinator(user, project);
+    if (!planning.user && planning.userId) {
+        planning.user = await prisma.user.findUnique({
+            where: { id: planning.userId },
+            select: { id: true, name: true, email: true, projectId: true },
+        });
+    }
+    await attachPlanningValidationProject(prisma, planning);
+    return canValidatePlanningAsCoordinator(planning, user);
+}
+
+/** Message d'erreur explicite si le statut ou le palier bloque la validation coordinateur. */
+function coordinatorApproveBlockingReason(planning) {
+    const allowedStatuses = ['SUBMITTED', ...PENDING_COORDINATOR_STATUSES];
+    if (!allowedStatuses.includes(planning?.status)) {
+        return 'Ce planning n\'est pas en attente de validation.';
+    }
+    const project = planning.user?.project || planning.project || null;
+    if (projectHasConsolidator(project) && planning.status === 'SUBMITTED') {
+        return 'Ce planning doit d\'abord être consolidé avant validation par le coordinateur.';
+    }
+    return null;
 }
 
 async function canUserReturnPlanning(prisma, user, planning) {
-    if (!user || !planning) return false;
-    if (isPrivilegedAdmin(user.role)) return true;
-    if (userMayActAsServiceDirector(user)) return true;
     return canUserCoordinatePlanning(prisma, user, planning);
 }
 
@@ -113,23 +117,146 @@ async function notifyProjectCoordinatorAssigned(prisma, projectId, userId, optio
         link,
     );
     try {
-        await notificationService.sendEmail(
+        await notificationService.sendFullNotification(
+            prisma,
+            user.id,
             user.email,
             'PROJECT_COORDINATOR_ASSIGNED',
-            [user, project, assignedByName, link],
+            'PROJECT_COORDINATOR_ASSIGNED',
+            [user, project, assignedByName],
+            title,
+            message,
+            link,
         );
     } catch {
         // email optionnel
     }
 }
 
+const { getGlobalConsolidatorRoleUsers } = require('./projectConsolidator.service');
+
+/** Notifie le coordinateur ou, à défaut, les utilisateurs au rôle Consolidateur. */
+async function notifySecondStepValidators(prisma, {
+    projectId,
+    type,
+    emailType,
+    title,
+    message,
+    link,
+    emailArgsBuilder,
+}) {
+    const { notificationService } = require('./notification.service');
+    const coordinator = await getProjectCoordinator(prisma, projectId);
+    const isFallbackRole = !coordinator?.email;
+    const recipients = coordinator?.email
+        ? [coordinator]
+        : (await getGlobalConsolidatorRoleUsers(prisma)).filter((u) => u.email);
+
+    for (const recipient of recipients) {
+        try {
+            const emailArgs = typeof emailArgsBuilder === 'function'
+                ? emailArgsBuilder(recipient, { isFallbackRole })
+                : [recipient];
+            await notificationService.sendFullNotification(
+                prisma,
+                recipient.id,
+                recipient.email,
+                type,
+                emailType || type,
+                emailArgs,
+                title,
+                message,
+                link,
+            );
+        } catch {
+            // notification optionnelle
+        }
+    }
+}
+
+/** Coordinateur / repli : réunion consolidée, en attente de validation finale. */
+async function notifyMeetingPendingFinalApproval(prisma, meeting, organizer) {
+    const ownerName = organizer?.name || 'Un responsable';
+    const link = `/meetings/${meeting.id}`;
+    return notifySecondStepValidators(prisma, {
+        projectId: meeting.projectId,
+        type: 'MEETING_PENDING_COORDINATOR',
+        emailType: 'MEETING_PENDING_COORDINATOR',
+        title: `Réunion à valider : ${meeting.title}`,
+        message: `${ownerName} : la réunion « ${meeting.title} » a été consolidée et attend votre validation finale avant publication.`,
+        link,
+        emailArgsBuilder: (recipient, context) => [
+            recipient,
+            meeting,
+            organizer,
+            meeting.room,
+            meeting.project?.name,
+            context,
+        ],
+    });
+}
+
+/** Coordinateur / repli : planning consolidé, en attente de validation finale. */
+async function notifyPlanningSecondStepValidators(prisma, {
+    projectId,
+    ownerUserId,
+    ownerName,
+    planningId,
+    weekStart,
+    projectName,
+}) {
+    const { formatPlanningWeekLabel } = require('./projectConsolidator.service');
+    const weekLabel = formatPlanningWeekLabel(weekStart);
+    const link = `/plannings/${planningId}`;
+    return notifySecondStepValidators(prisma, {
+        projectId,
+        type: 'PLANNING_PENDING_COORDINATOR',
+        emailType: 'PLANNING_PENDING_COORDINATOR',
+        title: 'Planning à valider',
+        message: `Le planning de ${ownerName || 'un responsable'}${weekLabel ? ` (semaine du ${weekLabel})` : ''} a été consolidé et attend votre validation finale.`,
+        link,
+        emailArgsBuilder: (recipient, context) => [
+            recipient,
+            ownerName,
+            planningId,
+            weekLabel,
+            projectName,
+            context,
+        ],
+    });
+}
+
+/** Coordinateur : planning consolidé, en attente de validation. */
+async function notifyCoordinatorPlanningPending(prisma, {
+    projectId,
+    ownerUserId,
+    ownerName,
+    planningId,
+    weekStart,
+    projectName,
+}) {
+    const { formatPlanningWeekLabel } = require('./projectConsolidator.service');
+    await notifyPlanningSecondStepValidators(prisma, {
+        projectId,
+        ownerUserId,
+        ownerName,
+        planningId,
+        weekStart,
+        projectName,
+    });
+}
+
 module.exports = {
     COORDINATOR_USER_SELECT,
     PROJECT_COORDINATOR_INCLUDE,
     getProjectCoordinator,
+    notifyMeetingPendingFinalApproval,
+    notifyPlanningSecondStepValidators,
+    notifyCoordinatorPlanningPending,
     isUserProjectCoordinator,
     canActAsCoordinator,
     canUserCoordinatePlanning,
+    coordinatorApproveBlockingReason,
     canUserReturnPlanning,
     validateCoordinatorId,
     notifyProjectCoordinatorAssigned,

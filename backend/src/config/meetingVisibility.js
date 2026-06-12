@@ -1,6 +1,12 @@
 const { ROLES, isPrivilegedAdmin } = require('./roles');
 const { isUserProjectConsolidator } = require('../services/projectConsolidator.service');
-const { userMayConsolidate } = require('../services/roleConfig.service');
+const { isPendingCoordinatorValidation } = require('./planningWorkflow');
+const {
+    canApproveDraftMeeting,
+    canConsolidateDraftMeeting,
+    canFinalizePendingMeeting,
+    isGlobalConsolidatorRole,
+} = require('../services/validationPolicy.service');
 
 /** Réunions visibles sur le calendrier public / page d'accueil. */
 const PUBLISHED_MEETING_STATUSES = ['SENT', 'CONFIRMED', 'COMPLETED'];
@@ -19,6 +25,17 @@ function projectConsolidatorDraftFilter(user) {
     return { status: 'DRAFT', project: { consolidatorId: user.id } };
 }
 
+/** Réunions consolidées, en attente de validation finale (coordinateur ou rôle dédié). */
+function meetingPendingFinalizeFilter(user) {
+    if (!user?.id) return null;
+    const or = [{ project: { coordinatorId: user.id } }];
+    if (isGlobalConsolidatorRole(user)) {
+        or.push({ project: { coordinatorId: null } });
+        or.push({ projectId: null });
+    }
+    return { status: 'COORDINATOR_PENDING', OR: or };
+}
+
 /** Responsable : uniquement les réunions dont il est organisateur. */
 function responsableMeetingScope(user) {
     if (!user?.id || user.role !== ROLES.RESPONSABLE) return null;
@@ -31,15 +48,17 @@ function meetingCalendarWhereForUser(user) {
     if (ownOnly) {
         return { ...ownOnly, status: { not: 'CANCELLED' } };
     }
-    if (isPrivilegedAdmin(user?.role) || userMayConsolidate(user)) {
+    const draftAsConsolidator = projectConsolidatorDraftFilter(user);
+    const pendingFinalize = meetingPendingFinalizeFilter(user);
+    if (isPrivilegedAdmin(user?.role)) {
         return { status: { not: 'CANCELLED' } };
     }
-    const draftAsConsolidator = projectConsolidatorDraftFilter(user);
     return {
         OR: [
             publishedMeetingStatusFilter(),
-            { organizerId: user.id, status: 'DRAFT' },
+            { organizerId: user.id, status: { in: ['DRAFT', 'COORDINATOR_PENDING'] } },
             ...(draftAsConsolidator ? [draftAsConsolidator] : []),
+            ...(pendingFinalize ? [pendingFinalize] : []),
         ],
     };
 }
@@ -48,15 +67,17 @@ function meetingCalendarWhereForUser(user) {
 function meetingListWhereForUser(user) {
     const ownOnly = responsableMeetingScope(user);
     if (ownOnly) return ownOnly;
-    if (isPrivilegedAdmin(user?.role) || userMayConsolidate(user)) {
+    if (isPrivilegedAdmin(user?.role)) {
         return { status: { not: 'CANCELLED' } };
     }
     const draftAsConsolidator = projectConsolidatorDraftFilter(user);
+    const pendingFinalize = meetingPendingFinalizeFilter(user);
     return {
         OR: [
             { organizerId: user.id },
             { invitations: { some: { userId: user.id } } },
             ...(draftAsConsolidator ? [draftAsConsolidator] : []),
+            ...(pendingFinalize ? [pendingFinalize] : []),
         ],
     };
 }
@@ -65,16 +86,31 @@ function requiresConsolidatorApproval(organizerRole) {
     return organizerRole === ROLES.RESPONSABLE;
 }
 
-/** Peut publier (envoyer convocations + calendrier) une réunion en brouillon. */
+/** Peut publier (envoyer convocations + calendrier) une réunion. */
 function canPublishMeeting(meeting, user) {
-    if (!meeting || meeting.status !== 'DRAFT') return false;
-    if (isPrivilegedAdmin(user?.role)) return true;
+    if (!meeting || !user) return false;
+    if (isPrivilegedAdmin(user?.role)) {
+        return meeting.status === 'DRAFT' || isPendingCoordinatorValidation(meeting.status);
+    }
+    if (isPendingCoordinatorValidation(meeting.status)) {
+        return canFinalizePendingMeeting(meeting, user);
+    }
+    if (meeting.status !== 'DRAFT') return false;
     const organizerRole = meeting.organizer?.role;
     if (requiresConsolidatorApproval(organizerRole)) {
-        if (userMayConsolidate(user)) return true;
-        return isUserProjectConsolidator(user, meeting.project);
+        return canApproveDraftMeeting(meeting, user);
     }
     return meeting.organizerId === user.id;
+}
+
+/** Peut consolider une réunion en brouillon (1er palier, sans publication). */
+function canConsolidateMeeting(meeting, user) {
+    return canConsolidateDraftMeeting(meeting, user);
+}
+
+/** Peut valider définitivement une réunion en attente (2e palier → publication). */
+function canFinalizeMeeting(meeting, user) {
+    return canFinalizePendingMeeting(meeting, user);
 }
 
 /** Annuler, terminer, rouvrir, participants, pièces jointes. */
@@ -94,12 +130,23 @@ function canViewMeetingForUser(meeting, user) {
     if (!meeting || !user?.id) return false;
     const ownOnly = responsableMeetingScope(user);
     if (ownOnly) return meeting.organizerId === user.id;
-    if (isPrivilegedAdmin(user.role) || userMayConsolidate(user)) return true;
+    if (isPrivilegedAdmin(user.role)) return true;
     const draftAsConsolidator = projectConsolidatorDraftFilter(user);
     if (
         draftAsConsolidator
         && meeting.status === 'DRAFT'
         && meeting.project?.consolidatorId === user.id
+    ) {
+        return true;
+    }
+    const pendingFinalize = meetingPendingFinalizeFilter(user);
+    if (
+        pendingFinalize
+        && isPendingCoordinatorValidation(meeting.status)
+        && (
+            meeting.project?.coordinatorId === user.id
+            || (isGlobalConsolidatorRole(user) && !meeting.project?.coordinatorId)
+        )
     ) {
         return true;
     }
@@ -117,6 +164,8 @@ module.exports = {
     meetingListWhereForUser,
     requiresConsolidatorApproval,
     canPublishMeeting,
+    canConsolidateMeeting,
+    canFinalizeMeeting,
     canManageMeeting,
     canEditMeeting,
     canViewMeetingForUser,

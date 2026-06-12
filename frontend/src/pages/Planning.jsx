@@ -13,7 +13,15 @@ import {
 import dayjs from 'dayjs';
 import api from '../api/client';
 import { useAuth } from '../context/AuthContext';
-import { isPrivilegedAdmin, canConsolidatePlanning, userConsolidatesAnyProject } from '../utils/roles';
+import {
+    isPrivilegedAdmin,
+    canConsolidatePlanning,
+    canCoordinatePlanning,
+    canReturnPlanning,
+    planningAutoFinalizeOnConsolidate,
+    userConsolidatesAnyProject,
+    userCoordinatesAnyProject,
+} from '../utils/roles';
 
 const { Title, Text } = Typography;
 const { TextArea } = Input;
@@ -174,14 +182,13 @@ export default function Planning() {
     const [shareModal,      setShareModal]      = useState({ open: false, text: '' });
     const [taxonomyProjects, setTaxonomyProjects] = useState([]);
 
-    const isConsolidateur = user?.role === 'CONSOLIDATEUR';
-    const isCoordProjet   = user?.role === 'COORDINATEUR_PROJET';
     const isSG            = user?.role === 'SECRETAIRE_GENERAL';
     const isDG            = user?.role === 'DG';
     const isResponsable   = user?.role === 'RESPONSABLE';
     const isAdmin         = isPrivilegedAdmin(user?.role);
     const isProjectConsolidator = userConsolidatesAnyProject(taxonomyProjects, user?.id);
-    const canSeeAll       = isConsolidateur || isCoordProjet || isSG || isDG || isAdmin || isProjectConsolidator;
+    const isProjectCoordinator = userCoordinatesAnyProject(taxonomyProjects, user?.id);
+    const canSeeAll = isAdmin || isProjectConsolidator || isProjectCoordinator;
 
     useEffect(() => {
         api.get('/events/taxonomy')
@@ -224,8 +231,12 @@ export default function Planning() {
     const handleConsolidate = async (id) => {
         setActionLoadingId(id);
         try {
-            await api.put(`/plannings/${id}/consolidate`);
-            message.success('Planning consolidé');
+            const res = await api.put(`/plannings/${id}/consolidate`);
+            if (res.data?.autoFinalized || res.data?.status === 'VALIDATED') {
+                message.success('Planning consolidé et validé ✓');
+            } else {
+                message.success('Planning consolidé — transmis pour validation finale');
+            }
             fetchPlannings(selectedDate, mineOnly);
         } catch (err) {
             message.error(err.response?.data?.error || 'Erreur');
@@ -409,12 +420,12 @@ export default function Planning() {
                 const canSubmit = (record.userId === user?.id || isAdmin) &&
                     (record.status === 'DRAFT' || record.status === 'RETURNED');
                 const canConsol = canConsolidatePlanning(record, user);
-                const canApproveCp = (isCoordProjet || isAdmin)
-                    && (record.status === 'CP_PENDING' || record.status === 'IN_CONSOLIDATION');
+                const autoFinalize = planningAutoFinalizeOnConsolidate(record);
+                const canApproveCp = canCoordinatePlanning(record, user);
                 const canApproveSg = (isSG || isDG || isAdmin) && record.status === 'SG_PENDING';
                 const canValidFinal = ((isSG || isDG) && record.status === 'DG_PENDING')
                     || (isAdmin && PENDING_VALIDATION.includes(record.status));
-                const canRet    = (isSG || isDG || isAdmin) && PENDING_VALIDATION.includes(record.status);
+                const canRet = canReturnPlanning(record, user);
                 const canDel    = (record.userId === user?.id && record.status === 'DRAFT') || isAdmin;
 
                 return (
@@ -441,9 +452,12 @@ export default function Planning() {
                                 size="small" type="primary" icon={<CheckOutlined />}
                                 onClick={(e) => { e.stopPropagation(); handleConsolidate(record.id); }}
                                 loading={actionLoadingId === record.id}
-                                style={{ background: '#722ed1', borderColor: '#722ed1' }}
+                                style={{
+                                    background: autoFinalize ? '#52c41a' : '#722ed1',
+                                    borderColor: autoFinalize ? '#52c41a' : '#722ed1',
+                                }}
                             >
-                                Consolider
+                                {autoFinalize ? 'Consolider et valider' : 'Consolider'}
                             </Button>
                         )}
 

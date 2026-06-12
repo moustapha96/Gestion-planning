@@ -1,11 +1,62 @@
 import { useEffect, useMemo, useState } from 'react';
 import { useNavigate, useParams, useSearchParams } from 'react-router-dom';
-import { Card, Typography, Form, Input, Select, DatePicker, Button, Row, Col, Space, Alert, Spin, App, Tag } from 'antd';
+import {
+    Card, Typography, Form, Input, Select, DatePicker, Button, Row, Col, Space, Alert, Spin, App, Tag,
+} from 'antd';
 import { ArrowLeftOutlined, TeamOutlined } from '@ant-design/icons';
 import dayjs from 'dayjs';
 import api from '../api/client';
 
 const { Title, Text } = Typography;
+
+function formatRoomLabel(room, { tag } = {}) {
+    if (!room?.name) return 'Salle';
+    const parts = [room.name];
+    if (room.capacity) parts.push(`${room.capacity} pers.`);
+    if (room.location) parts.push(room.location);
+    let label = parts.join(' · ');
+    if (tag) label = `${label} (${tag})`;
+    if (room.status && room.status !== 'ACTIVE') {
+        label = `${label} — inactive`;
+    }
+    return label;
+}
+
+function mergeRoomOptions({ availableRooms, catalogRooms, assignedRoom, selectedRoomId }) {
+    const map = new Map();
+    const add = (room, meta = {}) => {
+        if (!room?.id) return;
+        const prev = map.get(room.id);
+        map.set(room.id, {
+            room: { ...room, ...(prev?.room || {}) },
+            available: prev?.available || meta.available || false,
+            isAssigned: prev?.isAssigned || meta.isAssigned || false,
+        });
+    };
+
+    (catalogRooms || []).forEach((r) => add(r, {}));
+    (availableRooms || []).forEach((r) => add(r, { available: true }));
+    if (assignedRoom) add(assignedRoom, { isAssigned: true });
+
+    const availableIds = new Set((availableRooms || []).map((r) => r.id));
+
+    return Array.from(map.values())
+        .sort((a, b) => String(a.room.name || '').localeCompare(String(b.room.name || ''), 'fr'))
+        .map(({ room, available, isAssigned }) => {
+            let tag;
+            if (isAssigned && selectedRoomId === room.id) {
+                tag = available ? 'salle actuelle' : 'salle actuelle — occupée sur ce créneau';
+            } else if (!available) {
+                tag = 'occupée sur ce créneau';
+            }
+            const isCurrentSelection = selectedRoomId === room.id;
+            return {
+                value: room.id,
+                label: formatRoomLabel(room, { tag }),
+                disabled: !available && !isCurrentSelection,
+            };
+        });
+}
 
 /**
  * Affichage en lecture seule du type d'événement sélectionné dans le formulaire
@@ -53,6 +104,7 @@ export default function MeetingFormPage() {
     const [projects, setProjects] = useState([]);
     const [eventTypes, setEventTypes] = useState([]);
     const [availableRooms, setAvailableRooms] = useState([]);
+    const [assignedRoom, setAssignedRoom] = useState(null);
     const [loadingRooms, setLoadingRooms] = useState(false);
     const [loading, setLoading] = useState(true);
     const [saving, setSaving] = useState(false);
@@ -60,6 +112,25 @@ export default function MeetingFormPage() {
 
     const startTime = Form.useWatch('startTime', form);
     const endTime = Form.useWatch('endTime', form);
+    const selectedRoomId = Form.useWatch('roomId', form);
+
+    const roomSelectOptions = useMemo(
+        () => mergeRoomOptions({
+            availableRooms,
+            catalogRooms: rooms,
+            assignedRoom,
+            selectedRoomId,
+        }),
+        [availableRooms, rooms, assignedRoom, selectedRoomId],
+    );
+
+    const selectedRoom = useMemo(() => {
+        if (!selectedRoomId) return null;
+        if (assignedRoom?.id === selectedRoomId) return assignedRoom;
+        return rooms.find((r) => r.id === selectedRoomId)
+            || availableRooms.find((r) => r.id === selectedRoomId)
+            || null;
+    }, [selectedRoomId, assignedRoom, rooms, availableRooms]);
 
     const pageTitle = useMemo(
         () => (isEdit ? 'Modifier la réunion' : 'Nouvelle réunion'),
@@ -86,6 +157,11 @@ export default function MeetingFormPage() {
                 if (isEdit) {
                     const { data } = await api.get(`/meetings/${id}`);
                     if (!mounted) return;
+                    const meetingRoom = data.room
+                        || (data.roomId
+                            ? (roomRes.data || []).find((r) => r.id === data.roomId)
+                            : null);
+                    if (meetingRoom) setAssignedRoom(meetingRoom);
                     form.setFieldsValue({
                         title: data.title,
                         agenda: data.agenda,
@@ -276,14 +352,32 @@ export default function MeetingFormPage() {
                             </Form.Item>
                         </Col>
                     </Row>
-                    <Form.Item name="roomId" label="Salle (libre sur le créneau)">
+                    <Form.Item
+                        name="roomId"
+                        label="Salle"
+                        extra={selectedRoom
+                            ? `Sélectionnée : ${formatRoomLabel(selectedRoom)}`
+                            : 'Choisissez une salle libre sur le créneau ou renseignez un lien visio.'}
+                    >
                         <Select
                             allowClear
+                            showSearch
+                            optionFilterProp="label"
                             loading={loadingRooms}
-                            placeholder="Sélectionner une salle libre"
-                            options={availableRooms.map((r) => ({ value: r.id, label: `${r.name} — ${r.capacity} pers. ${r.location ? `· ${r.location}` : ''}` }))}
+                            placeholder={loadingRooms ? 'Chargement des salles…' : 'Sélectionner une salle'}
+                            options={roomSelectOptions}
+                            notFoundContent={loadingRooms ? <Spin size="small" /> : 'Aucune salle libre sur ce créneau'}
                         />
                     </Form.Item>
+                    {isEdit && assignedRoom && selectedRoomId === assignedRoom.id
+                        && !availableRooms.some((r) => r.id === assignedRoom.id) && (
+                        <Alert
+                            type="warning"
+                            showIcon
+                            style={{ marginBottom: 16 }}
+                            message={`La salle « ${assignedRoom.name} » est occupée sur le créneau choisi. Modifiez les horaires ou choisissez une autre salle.`}
+                        />
+                    )}
                     <Form.Item name="meetingLink" label="Lien visio (optionnel)">
                         <Input placeholder="https://meet.google.com/..." />
                     </Form.Item>

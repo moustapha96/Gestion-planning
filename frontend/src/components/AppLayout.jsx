@@ -1,7 +1,7 @@
 import { useState, useEffect, useRef } from 'react';
 import { Outlet, useNavigate, useLocation } from 'react-router-dom';
 import {
-    Layout, Menu, Dropdown, Space, App, Button,
+    Layout, Menu, Dropdown, Space, App, Button, Badge,
     Drawer, Grid, Tag, Typography, Input, Popover, Checkbox, Empty, Tooltip,
 } from 'antd';
 import {
@@ -9,7 +9,7 @@ import {
     TeamOutlined, HomeOutlined, SettingOutlined, UserOutlined, LogoutOutlined,
     BellOutlined, FlagOutlined, ScheduleOutlined, MessageOutlined,
     UnorderedListOutlined, ProjectOutlined, SearchOutlined, MoonOutlined, SunOutlined, ApartmentOutlined,
-    ContactsOutlined,
+    ContactsOutlined, CheckCircleOutlined,
 } from '@ant-design/icons';
 import { useAuth } from '../context/AuthContext';
 import NotificationBell from './NotificationBell';
@@ -23,6 +23,7 @@ import {
 import { isPrivilegedAdmin, isSuperAdmin, canAccessRepertoire } from '../utils/roles';
 import { getAdminNavForRole } from '../pages/admin/adminNavConfig';
 import { useThemeMode } from '../context/ThemeModeContext';
+import usePendingValidations from '../hooks/usePendingValidations';
 
 const { Header, Content, Sider } = Layout;
 const { useBreakpoint } = Grid;
@@ -82,6 +83,7 @@ export default function AppLayout() {
     const [menuOpenKeys, setMenuOpenKeys] = useState([]);
 
     const { startPolling, stopPolling } = useNotificationStore();
+    const { canSeeMenu: validationCanSeeMenu, counts: validationCounts } = usePendingValidations(Boolean(user?.id));
     const seenNotifIdsRef = useRef(new Set());
     const seenDmPopupIdsRef = useRef(new Set());
     const seenDirectionPopupIdsRef = useRef(new Set());
@@ -470,6 +472,25 @@ export default function AppLayout() {
             icon: <ScheduleOutlined />,
             label: 'Planning',
         },
+        ...(validationCanSeeMenu && validationCounts.total > 0 ? [{
+            key: '/a-valider',
+            icon: (
+                <Badge count={validationCounts.total} size="small" offset={[-2, 2]} color="#fa541c">
+                    <CheckCircleOutlined />
+                </Badge>
+            ),
+            label: (
+                <span style={{ display: 'inline-flex', alignItems: 'center', justifyContent: 'space-between', gap: 8, width: '100%' }}>
+                    <span>À valider</span>
+                    <Badge
+                        count={validationCounts.total}
+                        size="small"
+                        style={{ boxShadow: 'none' }}
+                        color="#fa541c"
+                    />
+                </span>
+            ),
+        }] : []),
         {
             key: '/meetings',
             icon: <TeamOutlined />,

@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
-import { Card, Typography, Tag, Button, Space, Descriptions, List, Upload, Popconfirm, App, Spin, Modal, Form, Input, Switch, Select } from 'antd';
+import { Card, Typography, Tag, Button, Space, Descriptions, List, Upload, Popconfirm, App, Spin } from 'antd';
 import {
     ArrowLeftOutlined,
     ProjectOutlined,
@@ -27,12 +27,6 @@ const { Title, Text } = Typography;
 const STATUS_COLORS = { ACTIVE: 'success', PAUSED: 'warning', COMPLETED: 'default' };
 const STATUS_LABELS = { ACTIVE: 'Actif', PAUSED: 'En pause', COMPLETED: 'Terminé' };
 
-function isValidOptionalLogoUrl(value) {
-    const v = String(value || '').trim();
-    if (!v) return true;
-    return /^https?:\/\//i.test(v) || v.startsWith('/');
-}
-
 export default function ProjectDetail() {
     const { id } = useParams();
     const navigate = useNavigate();
@@ -41,11 +35,6 @@ export default function ProjectDetail() {
     const [project, setProject] = useState(null);
     const [loading, setLoading] = useState(true);
     const [uploading, setUploading] = useState(false);
-    const [saving, setSaving] = useState(false);
-    const [logoUploading, setLogoUploading] = useState(false);
-    const [editOpen, setEditOpen] = useState(false);
-    const [allUsers, setAllUsers] = useState([]);
-    const [form] = Form.useForm();
 
     const canManage = canManageProjects(user?.role);
 
@@ -63,13 +52,6 @@ export default function ProjectDetail() {
     };
 
     useEffect(() => { load(); }, [id]);
-
-    useEffect(() => {
-        if (!canManage) return;
-        api.get('/users/participants')
-            .then((res) => setAllUsers(res.data || []))
-            .catch(() => setAllUsers([]));
-    }, [canManage]);
 
     const handleUpload = async ({ file, onSuccess, onError }) => {
         if (!isAcceptedPdfFile(file)) {
@@ -102,64 +84,6 @@ export default function ProjectDetail() {
             load();
         } catch (err) {
             message.error(err?.response?.data?.error || 'Erreur suppression fichier');
-        }
-    };
-
-    const openEdit = () => {
-        form.setFieldsValue({
-            name: project.name,
-            code: project.code || '',
-            description: project.description || '',
-            isActive: Boolean(project.isActive),
-            logoUrl: project.logoUrl || '',
-            consolidatorId: project.consolidatorId || undefined,
-        });
-        setEditOpen(true);
-    };
-
-    const handleLogoUpload = async ({ file, onSuccess, onError }) => {
-        if (!file.type?.startsWith('image/')) {
-            message.error('Veuillez choisir une image.');
-            onError?.(new Error('not image'));
-            return;
-        }
-        setLogoUploading(true);
-        try {
-            const fd = new FormData();
-            fd.append('logo', file);
-            const { data } = await api.post(`/projects/${id}/logo`, fd, {
-                headers: { 'Content-Type': 'multipart/form-data' },
-            });
-            form.setFieldsValue({ logoUrl: data?.logoUrl || '' });
-            message.success('Logo mis à jour');
-            onSuccess?.(data);
-            load();
-        } catch (err) {
-            message.error(err?.response?.data?.error || 'Erreur upload logo');
-            onError?.(err);
-        } finally {
-            setLogoUploading(false);
-        }
-    };
-
-    const handleSave = async () => {
-        try {
-            const values = await form.validateFields();
-            const { logoUrl, ...rest } = values;
-            const payload = {
-                ...rest,
-                logoUrl: String(logoUrl || '').trim() || '/logo-gp.png',
-            };
-            setSaving(true);
-            await api.put(`/projects/${id}`, payload);
-            message.success('Projet mis à jour');
-            setEditOpen(false);
-            load();
-        } catch (err) {
-            if (err?.errorFields) return;
-            message.error(err?.response?.data?.error || 'Erreur sauvegarde');
-        } finally {
-            setSaving(false);
         }
     };
 
@@ -199,7 +123,7 @@ export default function ProjectDetail() {
                     </Button>
                 )}
                 {canManage && (
-                    <Button icon={<EditOutlined />} onClick={openEdit}>
+                    <Button icon={<EditOutlined />} onClick={() => navigate(`/projects/${id}/edit`)}>
                         Modifier le projet
                     </Button>
                 )}
@@ -332,6 +256,22 @@ export default function ProjectDetail() {
                             <Text type="secondary">Non défini — à configurer par l&apos;administration</Text>
                         )}
                     </Descriptions.Item>
+                    <Descriptions.Item label="Coordinateur">
+                        {project.coordinator ? (
+                            <Space direction="vertical" size={0}>
+                                <Text strong>
+                                    <UserOutlined style={{ marginRight: 6, color: '#13c2c2' }} />
+                                    {project.coordinator.name}
+                                </Text>
+                                <Text type="secondary" style={{ fontSize: 12 }}>
+                                    {project.coordinator.email}
+                                    {project.coordinator.role ? ` · ${project.coordinator.role}` : ''}
+                                </Text>
+                            </Space>
+                        ) : (
+                            <Text type="secondary">Non défini</Text>
+                        )}
+                    </Descriptions.Item>
                     <Descriptions.Item label="Description">
                         {project.description || <Text type="secondary">—</Text>}
                     </Descriptions.Item>
@@ -411,94 +351,6 @@ export default function ProjectDetail() {
                 ) : <Text type="secondary">Aucun fichier</Text>}
             </Card>
 
-            <Modal
-                open={editOpen}
-                title="Modifier le projet"
-                width={560}
-                onCancel={() => setEditOpen(false)}
-                onOk={handleSave}
-                confirmLoading={saving}
-                okText="Enregistrer"
-                cancelText="Annuler"
-                destroyOnClose
-            >
-                <Form form={form} layout="vertical" style={{ marginTop: 12 }}>
-                    <Form.Item name="name" label="Nom du projet" rules={[{ required: true, message: 'Requis' }]}>
-                        <Input maxLength={120} />
-                    </Form.Item>
-                    <Form.Item name="code" label="Code (optionnel)">
-                        <Input maxLength={30} />
-                    </Form.Item>
-                    <Form.Item name="description" label="Description">
-                        <Input.TextArea rows={3} maxLength={500} />
-                    </Form.Item>
-                    <Form.Item
-                        name="logoUrl"
-                        label="Logo (URL)"
-                        extra="https://… ou /uploads/… Vide = logo par défaut."
-                        rules={[
-                            {
-                                validator: (_, v) => (isValidOptionalLogoUrl(v)
-                                    ? Promise.resolve()
-                                    : Promise.reject(new Error('URL http(s) ou chemin commençant par /'))),
-                            },
-                        ]}
-                    >
-                        <Input allowClear placeholder="https://…" />
-                    </Form.Item>
-                    <Form.Item label="Importer une image">
-                        <Upload
-                            accept="image/*"
-                            showUploadList={false}
-                            disabled={logoUploading}
-                            customRequest={handleLogoUpload}
-                        >
-                            <Button icon={<UploadOutlined />} loading={logoUploading}>Envoyer un logo</Button>
-                        </Upload>
-                    </Form.Item>
-                    <Form.Item label="Aperçu" shouldUpdate>
-                        {() => {
-                            const u = form.getFieldValue('logoUrl');
-                            const src = resolveImageSrc(u);
-                            if (!src) return <Text type="secondary">—</Text>;
-                            return (
-                                <img
-                                    src={src}
-                                    alt="Aperçu"
-                                    style={{
-                                        maxWidth: 200,
-                                        maxHeight: 100,
-                                        objectFit: 'contain',
-                                        borderRadius: 8,
-                                        border: '1px solid #f0f0f0',
-                                    }}
-                                />
-                            );
-                        }}
-                    </Form.Item>
-                    <Form.Item name="isActive" label="Actif" valuePropName="checked">
-                        <Switch />
-                    </Form.Item>
-                    {canManage && (
-                        <Form.Item
-                            name="consolidatorId"
-                            label="Consolidateur du projet"
-                            extra="Valide réunions, plannings et demandes pour ce projet (tout rôle)."
-                        >
-                            <Select
-                                allowClear
-                                showSearch
-                                placeholder="Choisir un utilisateur"
-                                optionFilterProp="label"
-                                options={allUsers.map((u) => ({
-                                    value: u.id,
-                                    label: `${u.name} (${u.email}) — ${u.role}`,
-                                }))}
-                            />
-                        </Form.Item>
-                    )}
-                </Form>
-            </Modal>
         </div>
     );
 }

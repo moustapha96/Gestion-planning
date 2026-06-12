@@ -23,6 +23,7 @@ import {
 } from './pages/admin/AdminSections';
 import AdminRoleConfigTab from './pages/admin/AdminRoleConfigTab';
 import AdminTaxonomyPage from './pages/admin/AdminTaxonomyPage';
+import AdminProjectsPage from './pages/admin/AdminProjectsPage';
 import AdminEventTypesPage from './pages/admin/AdminEventTypesPage';
 import DirectionDetailPage from './pages/admin/DirectionDetailPage';
 import DirectionEditPage from './pages/admin/DirectionEditPage';
@@ -40,10 +41,12 @@ import PlanningDetail from './pages/PlanningDetail';
 import Notifications from './pages/Notifications';
 import Discussions from './pages/Discussions';
 import EventsUnified from './pages/EventsUnified';
+import PendingValidations from './pages/PendingValidations';
 import Users from './pages/Users';
 import Logs from './pages/Logs';
 import Projects from './pages/Projects';
 import ProjectDetail from './pages/ProjectDetail';
+import ProjectFormPage from './pages/ProjectFormPage';
 import Repertoire from './pages/Repertoire';
 import NotFound from './pages/NotFound';
 import Home from './pages/Home';
@@ -86,6 +89,7 @@ export default function App() {
                         <Route path="/dashboard" element={<Dashboard />} />
                         <Route path="/planning" element={<Planning />} />
                         <Route path="/planning/:id" element={<PlanningDetail />} />
+                        <Route path="/a-valider" element={<PendingValidations />} />
                         <Route path="/plannings/:id" element={<PlanningDetail />} />
                         <Route path="/meetings" element={<Meetings />} />
                         <Route path="/meetings/new" element={<MeetingFormPage />} />
@@ -97,6 +101,8 @@ export default function App() {
                         <Route path="/missions/:id" element={<MissionDetail />} />
                         <Route path="/rooms" element={<Rooms />} />
                         <Route path="/projects" element={<Projects />} />
+                        <Route path="/projects/new" element={<ProjectFormPage />} />
+                        <Route path="/projects/:id/edit" element={<ProjectFormPage />} />
                         <Route path="/projects/:id" element={<ProjectDetail />} />
                         <Route path="/repertoire" element={<RepertoireRoute />} />
                         <Route path="/calendar" element={<Calendar />} />
@@ -126,7 +132,9 @@ export default function App() {
                                 <Route path="directions" element={<AdminTaxonomyPage variant="directions" />} />
                                 <Route path="directions/:id" element={<DirectionDetailPage />} />
                                 <Route path="directions/:id/edit" element={<DirectionEditPage />} />
-                                <Route path="projects" element={<AdminTaxonomyPage variant="projects" />} />
+                                <Route path="projects" element={<AdminProjectsPage />} />
+                                <Route path="projects/new" element={<ProjectFormPage adminContext />} />
+                                <Route path="projects/:id/edit" element={<ProjectFormPage adminContext />} />
                                 <Route path="event-types" element={<AdminEventTypesPage />} />
                                 <Route
                                     path="backups"

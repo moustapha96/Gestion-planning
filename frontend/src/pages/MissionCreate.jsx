@@ -29,15 +29,6 @@ export default function MissionCreate() {
     const [projects, setProjects] = useState([]);
     const [submitting, setSubmitting] = useState(false);
 
-    const formatConflictError = (err) => {
-        const data = err?.response?.data || {};
-        const base = data.error || 'Conflit de planning détecté';
-        if (!data.userId) return base;
-        const u = users.find((x) => x.id === data.userId);
-        if (!u) return base;
-        return `${base} Utilisateur concerné : ${u.name} (${u.email}).`;
-    };
-
     useEffect(() => {
         Promise.all([
             api.get('/users/participants'),
@@ -87,7 +78,7 @@ export default function MissionCreate() {
             message.success('Mission créée. Les intervenants ont été notifiés.');
             navigate(`/missions/${res.data?.id}`);
         } catch (err) {
-            message.error(formatConflictError(err) || 'Erreur lors de la création');
+            message.error(err.response?.data?.error || 'Erreur lors de la création');
         } finally {
             setSubmitting(false);
         }
@@ -194,6 +185,7 @@ export default function MissionCreate() {
                     <Form.Item
                         name="userIds"
                         label="Intervenants (optionnel)"
+                        extra="Les personnes peuvent être assignées même si elles ont déjà une mission, une réunion ou un autre événement sur ce créneau."
                     >
                         <Select
                             mode="multiple"

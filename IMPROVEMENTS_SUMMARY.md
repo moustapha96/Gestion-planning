@@ -77,7 +77,7 @@ GET /api/calendar/day     - Événements du jour
 #### Frontend
 - ✅ Page Calendar.jsx avec vue mois complète
 - ✅ Navigation mois précédent/suivant
-- ✅ Bouton "Aujourd'hui"
+- ✅ Bouton "aujourd\'hui."
 - ✅ Affichage des événements par date
 - ✅ Code couleur par type
 - ✅ Liste détaillée des événements du mois

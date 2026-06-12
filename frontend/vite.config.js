@@ -7,13 +7,14 @@ export default defineConfig({
         react(),
         VitePWA({
             registerType: 'autoUpdate',
+            injectRegister: 'auto',
             includeAssets: [
-                'favicon.svg', 'favicon.png', 'logo.svg',
+                'favicon.svg', 'favicon.png', 'favicon.ico', 'logo.svg',
                 'icons/*.png', 'icons/*.svg',
             ],
             manifest: {
                 name: 'Gestion Planning',
-                short_name: 'GP Planning',
+                short_name: 'ADM GP',
                 description: 'Optimisation et Organisation — plannings, réunions, missions',
                 theme_color: '#2596be',
                 background_color: '#ffffff',
@@ -23,14 +24,16 @@ export default defineConfig({
                 start_url: '/',
                 scope: '/',
                 lang: 'fr',
+                dir: 'ltr',
                 categories: ['business', 'productivity'],
+                prefer_related_applications: false,
                 icons: [
                     // Icônes standard (any) — PNG requis pour Android Chrome
                     { src: '/icons/icon-192.png', sizes: '192x192', type: 'image/png', purpose: 'any' },
                     { src: '/icons/icon-512.png', sizes: '512x512', type: 'image/png', purpose: 'any' },
                     // Icônes maskable (fond plein pour Android adaptive icons)
-                    { src: '/icons/icon-192-maskable.png', sizes: '192x192', type: 'image/png', purpose: 'maskable' },
-                    { src: '/icons/icon-512-maskable.png', sizes: '512x512', type: 'image/png', purpose: 'maskable' },
+                    { src: '/icons/icon-192.png', sizes: '192x192', type: 'image/png', purpose: 'maskable' },
+                    { src: '/icons/icon-512.png', sizes: '512x512', type: 'image/png', purpose: 'maskable' },
                     // Apple touch icon
                     { src: '/icons/apple-touch-icon.png', sizes: '180x180', type: 'image/png' },
                 ],
@@ -69,7 +72,7 @@ export default defineConfig({
     /** Même proxy qu’en dev : `vite preview` (service systemd) relaie /api vers le backend local. */
     preview: {
         port: 9000,
-        host: true,
+        host: '0.0.0.0',
         proxy: {
             '/api': {
                 target: 'http://127.0.0.1:3001',
@@ -87,7 +90,8 @@ export default defineConfig({
         },
     },
     server: {
-        port: 9000,
+        port: 5173,
+        host: '0.0.0.0',  // écouter sur toutes les interfaces (réseau local)
         proxy: {
             '/api': {
                 target: 'http://localhost:3001',

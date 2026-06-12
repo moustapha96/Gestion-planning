@@ -204,7 +204,7 @@ GET /api/calendar/day    - Événements du jour
 - Code couleur par type d'événement
 - Détail des événements au survol
 - Navigation mois précédent/suivant
-- Aller à aujourd'hui
+- Aller à aujourd\'hui.
 - Pagination des résultats
 
 ---

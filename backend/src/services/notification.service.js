@@ -106,6 +106,72 @@ function userDisplayName(userOrName, fallback = 'Utilisateur') {
     return fallback;
 }
 
+function appUrl(path = '') {
+    const base = String(process.env.FRONTEND_URL || 'http://localhost:9000').replace(/\/$/, '');
+    if (!path) return base;
+    return `${base}${path.startsWith('/') ? path : `/${path}`}`;
+}
+
+function emailFrame(innerHtml) {
+    return `
+      <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto;">
+        <div style="background: linear-gradient(135deg, #1F5C8B 0%, #2a7cb8 100%); color: white; padding: 20px; text-align: center;">
+          <h1 style="margin: 0;">Gestion Planning</h1>
+        </div>
+        <div style="padding: 20px;">
+          ${innerHtml}
+        </div>
+        <div style="border-top: 1px solid #ddd; padding: 20px; text-align: center; font-size: 12px; color: #666;">
+          <p style="margin: 0;">© ${new Date().getFullYear()} Gestion Planning</p>
+        </div>
+      </div>`;
+}
+
+function emailCta(href, label) {
+    return `<p style="margin: 24px 0 8px;"><a href="${href}" style="display: inline-block; background: #1F5C8B; color: white; padding: 12px 24px; text-decoration: none; border-radius: 5px; font-weight: bold;">${label}</a></p>`;
+}
+
+function emailInfoBox(content, color = '#fff8e1', border = '#ff9800') {
+    return `<div style="background: ${color}; padding: 16px 20px; border-left: 4px solid ${border}; margin: 20px 0;">${content}</div>`;
+}
+
+function formatMeetingWhen(meeting) {
+    const startDate = new Date(meeting.startTime).toLocaleDateString('fr-FR', {
+        weekday: 'long', day: 'numeric', month: 'long', year: 'numeric',
+    });
+    const startTime = new Date(meeting.startTime).toLocaleTimeString('fr-FR', {
+        hour: '2-digit', minute: '2-digit',
+    });
+    const endTime = new Date(meeting.endTime).toLocaleTimeString('fr-FR', {
+        hour: '2-digit', minute: '2-digit',
+    });
+    return { startDate, startTime, endTime };
+}
+
+function meetingPlace(meeting, room) {
+    return room?.name || (meeting?.meetingLink ? 'Visioconférence' : 'À définir');
+}
+
+function finalValidatorLabel(context = {}) {
+    return context.isFallbackRole ? 'consolidateur (rôle dédié)' : 'coordinateur du projet';
+}
+
+function buildMeetingPublishedEmail(organizer, meeting, room, approver) {
+    const url = appUrl(`/meetings/${meeting.id}`);
+    return {
+        subject: `✅ Réunion publiée : ${meeting.title}`,
+        html: emailFrame(`
+          <p>Bonjour ${userDisplayName(organizer)},</p>
+          <p>Votre réunion <strong>« ${meeting.title} »</strong> a été <strong>validée définitivement</strong> par <strong>${userDisplayName(approver)}</strong>.</p>
+          ${emailInfoBox(`
+            <p style="margin: 0 0 8px 0;"><strong>Statut :</strong> publiée sur le calendrier</p>
+            <p style="margin: 0;">Les convocations ont été envoyées aux participants.</p>
+          `, '#e8f5e9', '#4caf50')}
+          ${emailCta(url, 'Voir la réunion')}
+        `),
+    };
+}
+
 // Templates d'emails
 const emailTemplates = {
     PLANNING_REMINDER: (user) => ({
@@ -134,81 +200,108 @@ const emailTemplates = {
     `,
     }),
 
-    PLANNING_SUBMITTED: (user, planningId) => ({
-        subject: '✅ Confirmation : Votre planning a été reçu',
-        html: `
-      <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto;">
-        <div style="background: linear-gradient(135deg, #1F5C8B 0%, #2a7cb8 100%); color: white; padding: 20px; text-align: center;">
-          <h1>Gestion Planning</h1>
-        </div>
-        <div style="padding: 20px;">
-          <p>Bonjour ${userDisplayName(user)},</p>
-          <p>✅ Votre planning a été soumis avec succès!</p>
-          <div style="background: #e8f5e9; padding: 15px; border-left: 4px solid #4caf50; margin: 20px 0;">
-            <strong>Status:</strong> Planning reçu et en cours de consolidation
-          </div>
-          <p>Le consolidateur examinera votre planning et le transmettra au Directeur Général pour validation.</p>
-          <p>
-            <a href="${process.env.FRONTEND_URL}/planning" style="display: inline-block; background: #1F5C8B; color: white; padding: 10px 20px; text-decoration: none; border-radius: 5px;">
-              Consulter mon planning
-            </a>
-          </p>
-        </div>
-        <div style="border-top: 1px solid #ddd; padding: 20px; text-align: center; font-size: 12px; color: #666;">
-          <p>© 2026 Gestion Planning - Tous droits réservés</p>
-        </div>
-      </div>
-    `,
-    }),
+    /** Consolidateur : planning soumis — étape 1 (consolidation). */
+    PLANNING_PENDING_CONSOLIDATION: (consolidator, ownerName, planningId, weekLabel, projectName) => {
+        const url = appUrl(`/plannings/${planningId}`);
+        const weekLine = weekLabel ? ` pour la semaine du <strong>${weekLabel}</strong>` : '';
+        const projectLine = projectName ? ` (projet « ${projectName} »)` : '';
+        return {
+            subject: '📋 Planning à consolider (étape 1/2)',
+            html: emailFrame(`
+          <p>Bonjour ${userDisplayName(consolidator)},</p>
+          <p><strong>${userDisplayName(ownerName, 'Un responsable')}</strong> a soumis un planning hebdomadaire${weekLine}${projectLine}.</p>
+          ${emailInfoBox(`
+            <p style="margin: 0 0 8px 0;"><strong>Étape 1 — Consolidation</strong></p>
+            <p style="margin: 0;">Examinez le planning puis consolidez-le. Il sera ensuite transmis au coordinateur du projet (ou au rôle dédié) pour validation finale avant publication.</p>
+          `)}
+          ${emailCta(appUrl('/a-valider'), 'Ouvrir la file de validation')}
+          ${emailCta(url, 'Voir le planning')}
+        `),
+        };
+    },
 
-    PLANNING_VALIDATED: (user) => ({
-        subject: '🎉 Votre planning a été validé!',
-        html: `
-      <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto;">
-        <div style="background: linear-gradient(135deg, #1F5C8B 0%, #2a7cb8 100%); color: white; padding: 20px; text-align: center;">
-          <h1>Gestion Planning</h1>
-        </div>
-        <div style="padding: 20px;">
-          <p>Bonjour ${userDisplayName(user)},</p>
-          <p>🎉 Excellente nouvelle! Votre planning a été validé par le Directeur Général!</p>
-          <div style="background: #e3f2fd; padding: 15px; border-left: 4px solid #2196f3; margin: 20px 0;">
-            <strong>Status:</strong> Planning validé ✓
-          </div>
-          <p>Votre planning est maintenant officiel et consultable par tous.</p>
-        </div>
-        <div style="border-top: 1px solid #ddd; padding: 20px; text-align: center; font-size: 12px; color: #666;">
-          <p>© 2026 Gestion Planning - Tous droits réservés</p>
-        </div>
-      </div>
-    `,
-    }),
+    /** Validation finale planning — étape 2 (coordinateur ou rôle dédié). */
+    PLANNING_PENDING_COORDINATOR: (recipient, ownerName, planningId, weekLabel, projectName, context = {}) => {
+        const url = appUrl(`/plannings/${planningId}`);
+        const weekLine = weekLabel ? ` (semaine du ${weekLabel})` : '';
+        const projectLine = projectName ? ` — projet « ${projectName} »` : '';
+        const roleLabel = finalValidatorLabel(context);
+        return {
+            subject: '✅ Planning à valider définitivement (étape 2/2)',
+            html: emailFrame(`
+          <p>Bonjour ${userDisplayName(recipient)},</p>
+          <p>Le planning de <strong>${userDisplayName(ownerName, 'un responsable')}</strong>${weekLine}${projectLine} a été <strong>consolidé</strong>.</p>
+          ${emailInfoBox(`
+            <p style="margin: 0 0 8px 0;"><strong>Étape 2 — Validation finale</strong></p>
+            <p style="margin: 0;">En tant que <strong>${roleLabel}</strong>, validez ce planning pour le publier officiellement.</p>
+          `, '#e3f2fd', '#2196f3')}
+          ${emailCta(appUrl('/a-valider'), 'Valider depuis « À valider »')}
+          ${emailCta(url, 'Examiner le planning')}
+        `),
+        };
+    },
 
-    PLANNING_RETURNED: (user, comment) => ({
+    /** Responsable : planning consolidé, en attente de l'étape 2. */
+    PLANNING_CONSOLIDATED: (user, planningId, weekLabel, projectName, consolidator) => {
+        const url = appUrl(`/plannings/${planningId}`);
+        const weekLine = weekLabel ? ` (semaine du ${weekLabel})` : '';
+        const projectLine = projectName ? ` — projet « ${projectName} »` : '';
+        return {
+            subject: '📋 Votre planning a été consolidé',
+            html: emailFrame(`
+          <p>Bonjour ${userDisplayName(user)},</p>
+          <p>Votre planning${weekLine}${projectLine} a été <strong>consolidé</strong> par <strong>${userDisplayName(consolidator)}</strong>.</p>
+          ${emailInfoBox(`
+            <p style="margin: 0;"><strong>Prochaine étape :</strong> validation finale par le coordinateur du projet ou le rôle dédié. Vous serez notifié dès publication.</p>
+          `)}
+          ${emailCta(url, 'Suivre mon planning')}
+        `),
+        };
+    },
+
+    PLANNING_SUBMITTED: (user, planningId, statusMessage, weekLabel) => {
+        const url = appUrl(`/plannings/${planningId}`);
+        const weekLine = weekLabel ? ` (semaine du ${weekLabel})` : '';
+        return {
+            subject: '✅ Planning soumis — circuit de validation',
+            html: emailFrame(`
+          <p>Bonjour ${userDisplayName(user)},</p>
+          <p>Votre planning${weekLine} a bien été <strong>reçu</strong>.</p>
+          ${emailInfoBox(`
+            <p style="margin: 0 0 8px 0;"><strong>Suite du circuit :</strong></p>
+            <p style="margin: 0;">${statusMessage || 'Consolidation puis validation finale avant publication.'}</p>
+          `, '#e8f5e9', '#4caf50')}
+          ${emailCta(url, 'Consulter mon planning')}
+        `),
+        };
+    },
+
+    PLANNING_VALIDATED: (user, planningId, approver, weekLabel, projectName) => {
+        const url = appUrl(`/plannings/${planningId}`);
+        const weekLine = weekLabel ? ` (semaine du ${weekLabel})` : '';
+        const projectLine = projectName ? ` — projet « ${projectName} »` : '';
+        return {
+            subject: '🎉 Votre planning est validé et publié',
+            html: emailFrame(`
+          <p>Bonjour ${userDisplayName(user)},</p>
+          <p>Votre planning${weekLine}${projectLine} a été <strong>validé définitivement</strong> par <strong>${userDisplayName(approver)}</strong>.</p>
+          ${emailInfoBox(`
+            <p style="margin: 0;"><strong>Statut :</strong> publié — visible sur le calendrier et consultable par l'équipe.</p>
+          `, '#e8f5e9', '#4caf50')}
+          ${emailCta(url, 'Voir le planning validé')}
+        `),
+        };
+    },
+
+    PLANNING_RETURNED: (user, comment, planningId) => ({
         subject: '📌 Votre planning doit être modifié',
-        html: `
-      <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto;">
-        <div style="background: linear-gradient(135deg, #1F5C8B 0%, #2a7cb8 100%); color: white; padding: 20px; text-align: center;">
-          <h1>Gestion Planning</h1>
-        </div>
-        <div style="padding: 20px;">
+        html: emailFrame(`
           <p>Bonjour ${userDisplayName(user)},</p>
-          <p>📌 Votre planning a été retourné pour modifications.</p>
-          <div style="background: #fff3e0; padding: 15px; border-left: 4px solid #ff9800; margin: 20px 0;">
-            <strong>Commentaire du Directeur Général:</strong><br>
-            ${comment}
-          </div>
-          <p>Veuillez corriger votre planning et le resoumetre dès que possible.</p>
-          <p>
-            <a href="${process.env.FRONTEND_URL}/planning" style="display: inline-block; background: #1F5C8B; color: white; padding: 10px 20px; text-decoration: none; border-radius: 5px;">
-              Modifier mon planning
-            </a>
-          </p>
-        </div>
-        <div style="border-top: 1px solid #ddd; padding: 20px; text-align: center; font-size: 12px; color: #666;">
-          <p>© 2026 Gestion Planning - Tous droits réservés</p>
-        </div>
-      </div>
-    `,
+          <p>Votre planning a été <strong>retourné</strong> pour modifications avant validation.</p>
+          ${emailInfoBox(`<strong>Commentaire du validateur :</strong><br>${comment || '—'}`)}
+          <p>Veuillez corriger votre planning et le resoumettre.</p>
+          ${emailCta(appUrl(planningId ? `/plannings/${planningId}` : '/planning'), 'Modifier mon planning')}
+        `),
     }),
 
     MEETING_CONVOCATION: (participant, meeting, room, actions = {}) => ({
@@ -357,77 +450,78 @@ const emailTemplates = {
         };
     },
 
-    /** Consolidateur : réunion créée par un responsable, en attente de validation. */
+    /** Consolidateur : réunion en brouillon — étape 1 (consolidation). */
     MEETING_PENDING_APPROVAL: (consolidator, meeting, organizer, room) => {
-        const startDate = new Date(meeting.startTime).toLocaleDateString('fr-FR', {
-            weekday: 'long', day: 'numeric', month: 'long', year: 'numeric',
-        });
-        const startTime = new Date(meeting.startTime).toLocaleTimeString('fr-FR', {
-            hour: '2-digit', minute: '2-digit',
-        });
-        const endTime = new Date(meeting.endTime).toLocaleTimeString('fr-FR', {
-            hour: '2-digit', minute: '2-digit',
-        });
-        const url = `${process.env.FRONTEND_URL || 'http://localhost:9000'}/meetings/${meeting.id}`;
-        const lieu = room?.name || (meeting.meetingLink ? 'Visioconférence' : 'À définir');
+        const { startDate, startTime, endTime } = formatMeetingWhen(meeting);
+        const url = appUrl(`/meetings/${meeting.id}`);
+        const lieu = meetingPlace(meeting, room);
         return {
-            subject: `📋 Réunion à valider : ${meeting.title}`,
-            html: `
-      <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto;">
-        <div style="background: linear-gradient(135deg, #1F5C8B 0%, #2a7cb8 100%); color: white; padding: 20px; text-align: center;">
-          <h1>Gestion Planning</h1>
-        </div>
-        <div style="padding: 20px;">
+            subject: `📋 Réunion à consolider (étape 1/2) : ${meeting.title}`,
+            html: emailFrame(`
           <p>Bonjour ${userDisplayName(consolidator)},</p>
-          <p><strong>${userDisplayName(organizer)}</strong> a créé une réunion qui nécessite votre validation avant publication sur le calendrier.</p>
-          <div style="background: #fff8e1; padding: 20px; border-left: 4px solid #ff9800; margin: 20px 0;">
+          <p><strong>${userDisplayName(organizer)}</strong> a soumis une réunion en brouillon.</p>
+          ${emailInfoBox(`
             <h3 style="margin: 0 0 10px 0;">${meeting.title}</h3>
-            <p><strong>📅 Date :</strong> ${startDate}</p>
-            <p><strong>🕐 Horaire :</strong> ${startTime} – ${endTime}</p>
-            <p><strong>📍 Lieu :</strong> ${lieu}</p>
-            <p><strong>📝 Ordre du jour :</strong> ${meeting.agenda || '—'}</p>
-          </div>
-          <p>
-            <a href="${url}" style="display: inline-block; background: #1F5C8B; color: white; padding: 12px 24px; text-decoration: none; border-radius: 5px; font-weight: bold;">
-              Valider la réunion
-            </a>
-          </p>
-        </div>
-        <div style="border-top: 1px solid #ddd; padding: 20px; text-align: center; font-size: 12px; color: #666;">
-          <p>© 2026 Gestion Planning - Tous droits réservés</p>
-        </div>
-      </div>
-    `,
+            <p style="margin: 4px 0;"><strong>📅 Date :</strong> ${startDate}</p>
+            <p style="margin: 4px 0;"><strong>🕐 Horaire :</strong> ${startTime} – ${endTime}</p>
+            <p style="margin: 4px 0;"><strong>📍 Lieu :</strong> ${lieu}</p>
+            <p style="margin: 8px 0 0;"><strong>Étape 1 :</strong> consolidez la réunion. Elle sera ensuite transmise pour validation finale avant publication.</p>
+          `)}
+          ${emailCta(appUrl('/a-valider'), 'Consolider depuis « À valider »')}
+          ${emailCta(url, 'Voir la réunion')}
+        `),
         };
     },
 
-    /** Organisateur : réunion validée par le consolidateur. */
-    MEETING_APPROVED: (organizer, meeting, room, approver) => {
-        const url = `${process.env.FRONTEND_URL || 'http://localhost:9000'}/meetings/${meeting.id}`;
+    /** Validation finale réunion — étape 2 (coordinateur ou rôle dédié). */
+    MEETING_PENDING_COORDINATOR: (recipient, meeting, organizer, room, projectName, context = {}) => {
+        const { startDate, startTime, endTime } = formatMeetingWhen(meeting);
+        const url = appUrl(`/meetings/${meeting.id}`);
+        const lieu = meetingPlace(meeting, room);
+        const projectLine = projectName ? ` (projet « ${projectName} »)` : '';
+        const roleLabel = finalValidatorLabel(context);
         return {
-            subject: `✅ Réunion validée : ${meeting.title}`,
-            html: `
-      <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto;">
-        <div style="background: linear-gradient(135deg, #1F5C8B 0%, #2a7cb8 100%); color: white; padding: 20px; text-align: center;">
-          <h1>Gestion Planning</h1>
-        </div>
-        <div style="padding: 20px;">
-          <p>Bonjour ${userDisplayName(organizer)},</p>
-          <p>Votre réunion <strong>« ${meeting.title} »</strong> a été validée par <strong>${userDisplayName(approver)}</strong>.</p>
-          <p>Elle est maintenant publiée sur le calendrier et les convocations ont été envoyées aux participants.</p>
-          <p>
-            <a href="${url}" style="display: inline-block; background: #1F5C8B; color: white; padding: 12px 24px; text-decoration: none; border-radius: 5px; font-weight: bold;">
-              Voir la réunion
-            </a>
-          </p>
-        </div>
-        <div style="border-top: 1px solid #ddd; padding: 20px; text-align: center; font-size: 12px; color: #666;">
-          <p>© 2026 Gestion Planning - Tous droits réservés</p>
-        </div>
-      </div>
-    `,
+            subject: `✅ Réunion à publier (étape 2/2) : ${meeting.title}`,
+            html: emailFrame(`
+          <p>Bonjour ${userDisplayName(recipient)},</p>
+          <p>La réunion <strong>« ${meeting.title} »</strong>${projectLine} de <strong>${userDisplayName(organizer)}</strong> a été <strong>consolidée</strong>.</p>
+          ${emailInfoBox(`
+            <p style="margin: 4px 0;"><strong>📅 Date :</strong> ${startDate}</p>
+            <p style="margin: 4px 0;"><strong>🕐 Horaire :</strong> ${startTime} – ${endTime}</p>
+            <p style="margin: 4px 0;"><strong>📍 Lieu :</strong> ${lieu}</p>
+            <p style="margin: 8px 0 0;"><strong>Étape 2 :</strong> en tant que <strong>${roleLabel}</strong>, validez pour publier sur le calendrier et envoyer les convocations.</p>
+          `, '#e3f2fd', '#2196f3')}
+          ${emailCta(appUrl('/a-valider'), 'Valider et publier')}
+          ${emailCta(url, 'Voir la réunion')}
+        `),
         };
     },
+
+    /** Organisateur : réunion consolidée, pas encore publiée. */
+    MEETING_CONSOLIDATED: (organizer, meeting, room, consolidator) => {
+        const { startDate, startTime, endTime } = formatMeetingWhen(meeting);
+        const url = appUrl(`/meetings/${meeting.id}`);
+        return {
+            subject: `📋 Réunion consolidée : ${meeting.title}`,
+            html: emailFrame(`
+          <p>Bonjour ${userDisplayName(organizer)},</p>
+          <p>Votre réunion <strong>« ${meeting.title} »</strong> a été <strong>consolidée</strong> par <strong>${userDisplayName(consolidator)}</strong>.</p>
+          ${emailInfoBox(`
+            <p style="margin: 4px 0;"><strong>📅 Date :</strong> ${startDate}</p>
+            <p style="margin: 4px 0;"><strong>🕐 Horaire :</strong> ${startTime} – ${endTime}</p>
+            <p style="margin: 4px 0;"><strong>📍 Lieu :</strong> ${meetingPlace(meeting, room)}</p>
+            <p style="margin: 8px 0 0;"><strong>Prochaine étape :</strong> validation finale par le coordinateur ou le rôle dédié. Les convocations partiront après cette validation.</p>
+          `)}
+          ${emailCta(url, 'Suivre la réunion')}
+        `),
+        };
+    },
+
+    /** Organisateur : réunion publiée (validation finale). */
+    MEETING_PUBLISHED: buildMeetingPublishedEmail,
+
+    /** Alias historique */
+    MEETING_APPROVED: buildMeetingPublishedEmail,
 
   PASSWORD_RESET: (user, resetUrl) => ({
     subject: '🔑 Réinitialisation de votre mot de passe',
@@ -490,6 +584,39 @@ const emailTemplates = {
       </div>
     `,
   }),
+
+  PROJECT_COORDINATOR_ASSIGNED: (user, project, assignedByName) => {
+    const projectLabel = project.code ? `${project.name} (${project.code})` : project.name;
+    const url = `${process.env.FRONTEND_URL || 'http://localhost:5173'}/projects/${project.id}`;
+    return {
+      subject: `📋 Coordinateur du projet « ${project.name} »`,
+      html: `
+      <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto;">
+        <div style="background: linear-gradient(135deg, #1F5C8B 0%, #2a7cb8 100%); color: white; padding: 20px; text-align: center;">
+          <h1>Gestion Planning</h1>
+        </div>
+        <div style="padding: 20px;">
+          <p>Bonjour ${userDisplayName(user)},</p>
+          <p><strong>${userDisplayName(assignedByName, 'L\'administration')}</strong> vous a désigné <strong>coordinateur</strong> du projet suivant :</p>
+          <div style="background: #e3f2fd; padding: 20px; border-left: 4px solid #2196f3; margin: 20px 0;">
+            <h3 style="margin: 0 0 10px 0;">${projectLabel}</h3>
+            <p style="margin: 0; font-size: 14px; color: #555;">
+              Vous validez les plannings consolidés et les demandes liées à ce projet.
+            </p>
+          </div>
+          <p>
+            <a href="${url}" style="display: inline-block; background: #1F5C8B; color: white; padding: 12px 24px; text-decoration: none; border-radius: 5px; font-weight: bold;">
+              Voir le projet
+            </a>
+          </p>
+        </div>
+        <div style="border-top: 1px solid #ddd; padding: 20px; text-align: center; font-size: 12px; color: #666;">
+          <p>© 2026 Gestion Planning - Tous droits réservés</p>
+        </div>
+      </div>
+    `,
+    };
+  },
 
   PROJECT_CONSOLIDATOR_ASSIGNED: (user, project, assignedByName) => {
     const projectLabel = project.code ? `${project.name} (${project.code})` : project.name;

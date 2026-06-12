@@ -12,7 +12,7 @@ Group=__RUN_GROUP__
 WorkingDirectory=__ROOT__/backend
 # NODE_ENV : laisser backend/.env ou ajoutez Environment=NODE_ENV=production
 Environment=PATH=__NODE_DIR__:/usr/local/bin:/usr/bin:/bin
-# Fuseau métier Sénégal (crons 8h, « aujourd'hui », rappels J-1)
+# Fuseau métier Sénégal (crons 8h, « aujourd\'hui. », rappels J-1)
 Environment=TZ=Africa/Dakar
 Environment=APP_TIMEZONE=Africa/Dakar
 # API uniquement en local : le frontend (Vite :9000) proxy /api, /uploads, /socket.io

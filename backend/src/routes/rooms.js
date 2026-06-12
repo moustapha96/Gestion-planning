@@ -148,7 +148,15 @@ router.get('/available', async (req, res) => {
             return res.status(400).json({ error: 'startTime et endTime (ISO) requis, avec startTime < endTime' });
         }
 
-        const availableIds = await getAvailableRoomIds(req.prisma, startTime, endTime);
+        const excludeMeetingId = req.query.excludeMeetingId
+            ? String(req.query.excludeMeetingId).trim()
+            : null;
+        const availableIds = await getAvailableRoomIds(
+            req.prisma,
+            startTime,
+            endTime,
+            excludeMeetingId || null,
+        );
         const rooms = await req.prisma.room.findMany({
             where: { id: { in: availableIds }, status: 'ACTIVE' },
             orderBy: { name: 'asc' },

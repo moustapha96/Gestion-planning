@@ -12,6 +12,8 @@ const { formatAppTimeHm } = require('../utils/roomBooking');
 const { appDayBoundsFromYmd, toAppYmd } = require('../utils/calendarEvents');
 const { createAuditLog } = require('../utils/audit');
 const { ROLES, isPrivilegedAdmin, isSuperAdmin } = require('../config/roles');
+const { MEETING_PENDING_FINAL } = require('../config/meetingWorkflow');
+const { isPendingCoordinatorValidation } = require('../config/planningWorkflow');
 const {
     canPublishMeeting,
     canEditMeeting,
@@ -20,6 +22,12 @@ const {
     meetingListWhereForUser,
     canViewMeetingForUser,
 } = require('../config/meetingVisibility');
+const {
+    canConsolidateDraftMeeting,
+    canApproveDraftMeeting,
+    canFinalizePendingMeeting,
+} = require('../services/validationPolicy.service');
+const { notifyMeetingPendingFinalApproval } = require('../services/projectCoordinator.service');
 const { emitToUsers, emitToMeetingRoom } = require('../realtime/socket');
 const { pdfOnlyMulterFileFilter, wrapMulterUpload } = require('../utils/pdfUpload');
 const { resolveMeetingEventTypeId } = require('../services/eventType.service');
@@ -194,18 +202,10 @@ async function publishMeeting(req, meeting) {
     return updated;
 }
 
-const { notifyConsolidatorsForProject } = require('../services/projectConsolidator.service');
-
-async function notifyConsolidatorsPendingMeeting(prisma, req, meeting, organizer) {
-    await notifyConsolidatorsForProject(prisma, req, meeting.projectId, {
-        type: 'MEETING_PENDING_APPROVAL',
-        emailType: 'MEETING_PENDING_APPROVAL',
-        emailArgs: (c) => [c, meeting, organizer, meeting.room],
-        title: `Réunion à valider : ${meeting.title}`,
-        message: `${organizer.name} a soumis une réunion en attente de validation.`,
-        link: `/meetings/${meeting.id}`,
-    });
-}
+const {
+    notifyConsolidatorsPendingMeeting,
+    resolveProjectIdForConsolidation,
+} = require('../services/projectConsolidator.service');
 
 const meetingsUploadDir = path.join(__dirname, '../../uploads/meetings');
 const uploadMeetingFile = multer({
@@ -303,7 +303,7 @@ router.get('/', async (req, res) => {
                     organizer: { select: { name: true, email: true, role: true } },
                     room: true,
                     direction: { select: { id: true, name: true, code: true } },
-                    project: { select: { id: true, name: true, code: true, consolidatorId: true } },
+                    project: { select: { id: true, name: true, code: true, consolidatorId: true, coordinatorId: true } },
                     eventType: EVENT_TYPE_INCLUDE,
                     invitations: { include: { user: true } },
                     ...(includeFiles
@@ -373,7 +373,7 @@ router.get('/:id', async (req, res) => {
                 organizer: true,
                 room: true,
                 direction: { select: { id: true, name: true, code: true } },
-                project: { select: { id: true, name: true, code: true, consolidatorId: true } },
+                project: { select: { id: true, name: true, code: true, consolidatorId: true, coordinatorId: true } },
                 eventType: EVENT_TYPE_INCLUDE,
                 invitations: { include: { user: true } },
                 messages: {
@@ -770,7 +770,7 @@ router.put('/:id', async (req, res) => {
                 organizer: { select: { name: true, email: true } },
                 room: true,
                 direction: { select: { id: true, name: true, code: true } },
-                project: { select: { id: true, name: true, code: true, consolidatorId: true } },
+                project: { select: { id: true, name: true, code: true, consolidatorId: true, coordinatorId: true } },
                 eventType: EVENT_TYPE_INCLUDE,
                 invitations: { include: { user: true } },
             },
@@ -835,6 +835,25 @@ router.put('/:id', async (req, res) => {
             req.params.id,
             `Réunion "${updated.title}" modifiée` + (timeOrRoomChanged ? ' (horaire/salle)' : '')
         );
+
+        try {
+            if (updated.status === 'DRAFT') {
+                const organizer = await req.prisma.user.findUnique({
+                    where: { id: updated.organizerId },
+                    select: { id: true, name: true, email: true, role: true },
+                });
+                const contentChanged = title !== undefined
+                    || agenda !== undefined
+                    || timeOrRoomChanged
+                    || meetingLinkChanged
+                    || projectId !== undefined;
+                if (contentChanged && requiresConsolidatorApproval(organizer?.role)) {
+                    await notifyConsolidatorsPendingMeeting(req.prisma, updated, organizer);
+                }
+            }
+        } catch (notifyErr) {
+            logger.warn('MEETING_CONSOLIDATOR_NOTIFY_FAILED', notifyErr.message, { meetingId: updated.id });
+        }
 
         res.json(updated);
     } catch (error) {
@@ -958,6 +977,9 @@ router.post('/', async (req, res) => {
             }
         }
 
+        const effectiveProjectId = projectId
+            || await resolveProjectIdForConsolidation(req.prisma, null, req.user.id);
+
         const meeting = await req.prisma.meeting.create({
             data: {
                 title,
@@ -965,7 +987,7 @@ router.post('/', async (req, res) => {
                 organizerId: req.user.id,
                 roomId: roomId || null,
                 directionId: directionId || null,
-                projectId: projectId || null,
+                projectId: effectiveProjectId || null,
                 meetingLink: normalizedMeetingLink,
                 startTime: start,
                 endTime: end,
@@ -995,7 +1017,7 @@ router.post('/', async (req, res) => {
                 ? await req.prisma.room.findUnique({ where: { id: roomId }, select: { name: true } })
                 : null;
             if (requiresConsolidatorApproval(organizer?.role)) {
-                await notifyConsolidatorsPendingMeeting(req.prisma, req, meeting, organizer);
+                await notifyConsolidatorsPendingMeeting(req.prisma, meeting, organizer);
             }
             if (organizer?.email) {
                 const pendingMsg = requiresConsolidatorApproval(organizer.role)
@@ -1086,14 +1108,42 @@ router.put('/:id/send', async (req, res) => {
     }
 });
 
-/** Validation consolidateur : publie la réunion (calendrier + convocations). */
+async function notifyOrganizerMeetingProgress(req, meeting, stage) {
+    if (!meeting.organizer?.email) return;
+    const isConsolidated = stage === 'consolidated';
+    const notifType = isConsolidated ? 'MEETING_CONSOLIDATED' : 'MEETING_PUBLISHED';
+    const emailTemplate = isConsolidated ? 'MEETING_CONSOLIDATED' : 'MEETING_PUBLISHED';
+    const inAppTitle = isConsolidated
+        ? `Réunion consolidée : ${meeting.title}`
+        : `Réunion publiée : ${meeting.title}`;
+    const inAppBody = isConsolidated
+        ? `Votre réunion a été consolidée par ${req.user.name}. Elle attend la validation finale avant publication.`
+        : `Votre réunion a été validée par ${req.user.name} et publiée sur le calendrier. Les convocations ont été envoyées.`;
+    try {
+        await notificationService.sendFullNotification(
+            req.prisma,
+            meeting.organizer.id,
+            meeting.organizer.email,
+            notifType,
+            emailTemplate,
+            [meeting.organizer, meeting, meeting.room, req.user],
+            inAppTitle,
+            inAppBody,
+            `/meetings/${meeting.id}`,
+        );
+    } catch (notifyErr) {
+        logger.warn('MEETING_NOTIFY_FAILED', notifyErr.message, { meetingId: meeting.id, stage });
+    }
+}
+
+/** 1er palier : consolidation (sans publication) ou validation directe si pas de consolidateur projet. */
 router.put('/:id/approve', async (req, res) => {
     try {
         const meeting = await req.prisma.meeting.findUnique({
             where: { id: req.params.id },
             include: {
                 organizer: { select: { id: true, name: true, email: true, role: true } },
-                project: { select: { id: true, name: true, consolidatorId: true } },
+                project: { select: { id: true, name: true, consolidatorId: true, coordinatorId: true } },
                 invitations: { include: { user: true } },
                 room: true,
             },
@@ -1103,37 +1153,85 @@ router.put('/:id/approve', async (req, res) => {
             return res.status(404).json({ error: 'Réunion introuvable' });
         }
         if (meeting.status !== 'DRAFT') {
-            return res.status(400).json({ error: 'Seules les réunions en brouillon peuvent être validées.' });
+            return res.status(400).json({ error: 'Seules les réunions en brouillon peuvent être traitées à cette étape.' });
         }
-        if (!canPublishMeeting(meeting, req.user)) {
+
+        if (isPrivilegedAdmin(req.user.role)) {
+            const updated = await publishMeeting(req, meeting);
+            await notifyOrganizerMeetingProgress(req, meeting, 'published');
+            await createAuditLog(req, 'MEETING_APPROVED', 'Meeting', meeting.id, `Réunion « ${meeting.title} » publiée (admin)`);
+            return res.json(updated);
+        }
+
+        if (canConsolidateDraftMeeting(meeting, req.user)) {
+            const updated = await req.prisma.meeting.update({
+                where: { id: meeting.id },
+                data: { status: MEETING_PENDING_FINAL },
+            });
+            await notifyMeetingPendingFinalApproval(req.prisma, meeting, meeting.organizer);
+            await notifyOrganizerMeetingProgress(req, meeting, 'consolidated');
+            await createAuditLog(
+                req,
+                'MEETING_CONSOLIDATED',
+                'Meeting',
+                meeting.id,
+                `Réunion « ${meeting.title} » consolidée — attente validation finale`,
+            );
+            return res.json(updated);
+        }
+
+        if (!canApproveDraftMeeting(meeting, req.user)) {
             return res.status(403).json({ error: 'Vous n\'êtes pas autorisé à valider cette réunion.' });
         }
 
         const updated = await publishMeeting(req, meeting);
-
-        try {
-            if (meeting.organizer?.email) {
-                await notificationService.sendFullNotification(
-                    req.prisma,
-                    meeting.organizer.id,
-                    meeting.organizer.email,
-                    'MEETING_APPROVED',
-                    'MEETING_APPROVED',
-                    [meeting.organizer, meeting, meeting.room, req.user],
-                    `Réunion validée : ${meeting.title}`,
-                    `Votre réunion a été validée par ${req.user.name} et publiée sur le calendrier.`,
-                    `/meetings/${meeting.id}`,
-                );
-            }
-        } catch (notifyErr) {
-            logger.warn('MEETING_APPROVED_NOTIFY_FAILED', notifyErr.message, { meetingId: meeting.id });
-        }
-
-        await createAuditLog(req, 'MEETING_APPROVED', 'Meeting', meeting.id, `Réunion « ${meeting.title} » validée`);
-
+        await notifyOrganizerMeetingProgress(req, meeting, 'published');
+        await createAuditLog(req, 'MEETING_APPROVED', 'Meeting', meeting.id, `Réunion « ${meeting.title} » validée et publiée`);
         res.json(updated);
     } catch (error) {
         logger.error('APPROVE_MEETING', 'Erreur validation réunion', {
+            meetingId: req.params.id,
+            error: error.message,
+        });
+        res.status(error.statusCode || 400).json({ error: error.message });
+    }
+});
+
+/** 2e palier : validation finale (coordinateur ou rôle dédié) → publication. */
+router.put('/:id/approve-coordinator', async (req, res) => {
+    try {
+        const meeting = await req.prisma.meeting.findUnique({
+            where: { id: req.params.id },
+            include: {
+                organizer: { select: { id: true, name: true, email: true, role: true } },
+                project: { select: { id: true, name: true, consolidatorId: true, coordinatorId: true } },
+                invitations: { include: { user: true } },
+                room: true,
+            },
+        });
+
+        if (!meeting) {
+            return res.status(404).json({ error: 'Réunion introuvable' });
+        }
+        if (!isPendingCoordinatorValidation(meeting.status)) {
+            return res.status(400).json({ error: 'Cette réunion n\'est pas en attente de validation finale.' });
+        }
+        if (!canFinalizePendingMeeting(meeting, req.user) && !isPrivilegedAdmin(req.user.role)) {
+            return res.status(403).json({ error: 'Vous n\'êtes pas autorisé à valider définitivement cette réunion.' });
+        }
+
+        const updated = await publishMeeting(req, meeting);
+        await notifyOrganizerMeetingProgress(req, meeting, 'published');
+        await createAuditLog(
+            req,
+            'MEETING_APPROVED',
+            'Meeting',
+            meeting.id,
+            `Réunion « ${meeting.title} » validée définitivement et publiée`,
+        );
+        res.json(updated);
+    } catch (error) {
+        logger.error('APPROVE_MEETING_COORDINATOR', 'Erreur validation finale réunion', {
             meetingId: req.params.id,
             error: error.message,
         });

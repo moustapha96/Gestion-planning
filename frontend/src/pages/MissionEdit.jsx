@@ -30,15 +30,6 @@ export default function MissionEdit() {
     const [loading, setLoading] = useState(true);
     const [submitting, setSubmitting] = useState(false);
 
-    const formatConflictError = (err) => {
-        const data = err?.response?.data || {};
-        const base = data.error || 'Conflit de planning détecté';
-        if (!data.userId) return base;
-        const u = users.find((x) => x.id === data.userId);
-        if (!u) return base;
-        return `${base} Utilisateur concerné : ${u.name} (${u.email}).`;
-    };
-
     useEffect(() => {
         Promise.all([
             api.get(`/missions/${id}`),
@@ -90,7 +81,7 @@ export default function MissionEdit() {
             message.success('Mission mise à jour.');
             navigate(`/missions/${id}`);
         } catch (err) {
-            message.error(formatConflictError(err) || 'Erreur lors de l\'enregistrement');
+            message.error(err.response?.data?.error || 'Erreur lors de l\'enregistrement');
         } finally {
             setSubmitting(false);
         }
@@ -176,6 +167,7 @@ export default function MissionEdit() {
                     <Form.Item
                         name="userIds"
                         label="Intervenants"
+                        extra="Les personnes peuvent être assignées même si elles ont déjà une mission, une réunion ou un autre événement sur ce créneau."
                     >
                         <Select
                             mode="multiple"

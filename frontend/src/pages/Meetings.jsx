@@ -15,8 +15,12 @@ import { forceDeleteDescription, forceDeleteTitle } from '../utils/deleteConfirm
 
 const { Title, Text } = Typography;
 
-const STATUS_COLORS = { DRAFT: 'default', SENT: 'blue', CONFIRMED: 'green', COMPLETED: 'cyan', CANCELLED: 'red' };
-const STATUS_LABELS = { DRAFT: 'Brouillon', SENT: 'Envoyée', CONFIRMED: 'Confirmée', COMPLETED: 'Terminée', CANCELLED: 'Annulée' };
+const STATUS_COLORS = {
+    DRAFT: 'default', COORDINATOR_PENDING: 'geekblue', SENT: 'blue', CONFIRMED: 'green', COMPLETED: 'cyan', CANCELLED: 'red',
+};
+const STATUS_LABELS = {
+    DRAFT: 'Brouillon', COORDINATOR_PENDING: 'Att. validation finale', SENT: 'Envoyée', CONFIRMED: 'Confirmée', COMPLETED: 'Terminée', CANCELLED: 'Annulée',
+};
 
 export default function Meetings() {
     const navigate = useNavigate();

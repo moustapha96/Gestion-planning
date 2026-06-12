@@ -14,6 +14,9 @@ import {
     Image,
     Tag,
     Tooltip,
+    Modal,
+    Form,
+    Select,
 } from 'antd';
 import {
     ArrowLeftOutlined,
@@ -22,6 +25,7 @@ import {
     DeleteOutlined,
     FlagOutlined,
     UserOutlined,
+    UserAddOutlined,
     FilePdfOutlined,
     FileTextOutlined,
     PaperClipOutlined,
@@ -49,6 +53,10 @@ export default function MissionDetail() {
     const [permanentDeleteLoading, setPermanentDeleteLoading] = useState(false);
     const [reactivateLoading, setReactivateLoading] = useState(false);
     const [uploadLoading, setUploadLoading] = useState(false);
+    const [addVisible, setAddVisible] = useState(false);
+    const [allUsers, setAllUsers] = useState([]);
+    const [addForm] = Form.useForm();
+    const [addParticipantsLoading, setAddParticipantsLoading] = useState(false);
 
     const fetchMission = async () => {
         try {
@@ -99,6 +107,40 @@ export default function MissionDetail() {
             message.error(err.response?.data?.error || 'Erreur');
         } finally {
             setReactivateLoading(false);
+        }
+    };
+
+    const openAddParticipants = async () => {
+        setAddVisible(true);
+        if (allUsers.length === 0) {
+            try {
+                const res = await api.get('/users/participants');
+                setAllUsers(res.data || []);
+            } catch {
+                message.error('Impossible de charger la liste des utilisateurs');
+            }
+        }
+    };
+
+    const handleAddParticipants = async () => {
+        setAddParticipantsLoading(true);
+        try {
+            const v = await addForm.validateFields();
+            const ids = v.userIds || [];
+            if (!ids.length) {
+                message.warning('Sélectionnez au moins un intervenant');
+                return;
+            }
+            await api.post(`/missions/${id}/participants`, { userIds: ids });
+            message.success('Intervenants ajoutés et notifiés');
+            setAddVisible(false);
+            addForm.resetFields();
+            await fetchMission();
+        } catch (err) {
+            if (err.errorFields) return;
+            message.error(err.response?.data?.error || 'Erreur lors de l\'ajout d\'intervenants');
+        } finally {
+            setAddParticipantsLoading(false);
         }
     };
 
@@ -266,7 +308,22 @@ export default function MissionDetail() {
                     )}
                 </Descriptions>
 
-                <Card type="inner" title="Intervenants assignés" style={{ marginTop: 24 }}>
+                <Card
+                    type="inner"
+                    title="Intervenants assignés"
+                    style={{ marginTop: 24 }}
+                    extra={
+                        canEdit && mission.status !== 'CANCELLED' && (
+                            <Button
+                                size="small"
+                                icon={<UserAddOutlined />}
+                                onClick={openAddParticipants}
+                            >
+                                Ajouter des intervenants
+                            </Button>
+                        )
+                    }
+                >
                     {mission.assignments?.length ? (
                         <List
                             dataSource={mission.assignments}
@@ -284,6 +341,40 @@ export default function MissionDetail() {
                         <Text type="secondary">Aucun intervenant assigné.</Text>
                     )}
                 </Card>
+
+                <Modal
+                    title="Ajouter des intervenants"
+                    open={addVisible}
+                    onCancel={() => { setAddVisible(false); addForm.resetFields(); }}
+                    onOk={handleAddParticipants}
+                    okText="Ajouter"
+                    confirmLoading={addParticipantsLoading}
+                    width={520}
+                    destroyOnClose
+                >
+                    <Form form={addForm} layout="vertical" style={{ marginTop: 8 }}>
+                        <Form.Item
+                            name="userIds"
+                            label="Intervenants à ajouter"
+                            rules={[{ required: true, message: 'Sélectionner au moins un intervenant' }]}
+                            extra="Les personnes peuvent être invitées même si elles ont déjà une mission ou un autre événement sur ce créneau."
+                        >
+                            <Select
+                                mode="multiple"
+                                placeholder="Rechercher des utilisateurs"
+                                optionFilterProp="children"
+                            >
+                                {allUsers
+                                    .filter((u) => !mission.assignments?.some((a) => a.userId === u.id) && u.id !== mission.createdById)
+                                    .map((u) => (
+                                        <Select.Option key={u.id} value={u.id}>
+                                            {u.name} — {u.email}
+                                        </Select.Option>
+                                    ))}
+                            </Select>
+                        </Form.Item>
+                    </Form>
+                </Modal>
 
                 {/* Section fichiers */}
                 <Card

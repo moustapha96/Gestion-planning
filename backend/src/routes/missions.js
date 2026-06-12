@@ -30,22 +30,6 @@ const uploadMissionFile = multer({
 const canEditMission = (mission, user) =>
     mission.createdById === user?.id || isPrivilegedAdmin(user?.role);
 
-async function getMissionConflictForUser(prisma, userId, start, end, excludeMissionId = null) {
-    return prisma.mission.findFirst({
-        where: {
-            status: { not: 'CANCELLED' },
-            ...(excludeMissionId ? { id: { not: excludeMissionId } } : {}),
-            startTime: { lt: end },
-            endTime: { gt: start },
-            OR: [
-                { createdById: userId },
-                { assignments: { some: { userId } } },
-            ],
-        },
-        select: { id: true, title: true, startTime: true, endTime: true },
-    });
-}
-
 /**
  * GET /api/missions - Liste des missions (créées par l'utilisateur ou où il est assigné)
  */
@@ -197,16 +181,6 @@ router.post('/', async (req, res) => {
             },
         });
         const assigneeIds = Array.isArray(userIds) ? [...new Set(userIds.filter((id) => id && id !== req.user.id))] : [];
-        for (const uid of assigneeIds) {
-            const conflict = await getMissionConflictForUser(req.prisma, uid, start, end);
-            if (conflict) {
-                return res.status(409).json({
-                    error: `Conflit mission: cet utilisateur a déjà une mission sur ce créneau (${conflict.title}).`,
-                    userId: uid,
-                    conflictId: conflict.id,
-                });
-            }
-        }
         if (assigneeIds.length > 0) {
             await req.prisma.missionAssignment.createMany({
                 data: assigneeIds.map((userId) => ({ missionId: mission.id, userId })),
@@ -312,19 +286,7 @@ router.put('/:id', async (req, res) => {
             await req.prisma.mission.update({ where: { id: req.params.id }, data });
         }
         if (Array.isArray(userIds)) {
-            const targetStart = data.startTime || mission.startTime;
-            const targetEnd = data.endTime || mission.endTime;
             const newIds = [...new Set(userIds.filter((id) => id))];
-            for (const uid of newIds) {
-                const conflict = await getMissionConflictForUser(req.prisma, uid, targetStart, targetEnd, mission.id);
-                if (conflict) {
-                    return res.status(409).json({
-                        error: `Conflit mission: cet utilisateur a déjà une mission sur ce créneau (${conflict.title}).`,
-                        userId: uid,
-                        conflictId: conflict.id,
-                    });
-                }
-            }
             await req.prisma.missionAssignment.deleteMany({ where: { missionId: req.params.id } });
             if (newIds.length) {
                 await req.prisma.missionAssignment.createMany({
@@ -420,6 +382,76 @@ router.delete('/:id', async (req, res) => {
     } catch (error) {
         logger.error('DELETE_MISSION', error.message, { missionId: req.params.id });
         res.status(500).json({ error: error.message });
+    }
+});
+
+/**
+ * POST /api/missions/:id/participants - Ajouter des intervenants (sans blocage de conflit de créneau)
+ */
+router.post('/:id/participants', async (req, res) => {
+    try {
+        const { userIds } = req.body || {};
+        if (!Array.isArray(userIds) || userIds.length === 0) {
+            return res.status(400).json({ error: 'Liste userIds requise' });
+        }
+
+        const mission = await req.prisma.mission.findUnique({
+            where: { id: req.params.id },
+            include: {
+                createdBy: { select: { name: true } },
+                assignments: true,
+            },
+        });
+
+        if (!mission) return res.status(404).json({ error: 'Mission introuvable' });
+        if (!canEditMission(mission, req.user)) {
+            return res.status(403).json({ error: 'Seul le créateur ou un administrateur peut ajouter des intervenants' });
+        }
+        if (mission.status === 'CANCELLED') {
+            return res.status(400).json({ error: 'Impossible d\'ajouter des intervenants à une mission annulée' });
+        }
+
+        const existingIds = new Set(mission.assignments.map((a) => a.userId));
+        const toAdd = [...new Set(userIds.filter((uid) => uid && !existingIds.has(uid) && uid !== mission.createdById))];
+
+        if (toAdd.length === 0) {
+            return res.status(400).json({ error: 'Aucun nouvel intervenant à ajouter' });
+        }
+
+        await req.prisma.missionAssignment.createMany({
+            data: toAdd.map((userId) => ({ missionId: mission.id, userId })),
+            skipDuplicates: true,
+        });
+
+        const newUsers = await req.prisma.user.findMany({
+            where: { id: { in: toAdd } },
+            select: { id: true, name: true, email: true },
+        });
+        const createdByName = mission.createdBy?.name || req.user?.name || 'Un utilisateur';
+        const link = `/missions/${mission.id}`;
+        for (const u of newUsers) {
+            try {
+                await notificationService.sendFullNotification(
+                    req.prisma,
+                    u.id,
+                    u.email,
+                    'MISSION_CREATED',
+                    'MISSION_CREATED',
+                    [u, { ...mission, startTime: mission.startTime, endTime: mission.endTime }, createdByName],
+                    'Nouvelle mission assignée',
+                    `Mission « ${mission.title} » le ${new Date(mission.startTime).toLocaleDateString('fr-FR')} à ${mission.location}.`,
+                    link
+                );
+            } catch (err) {
+                logger.warn('MISSION_PARTICIPANT_NOTIFY_FAILED', err.message, { userId: u.id, missionId: mission.id });
+            }
+        }
+
+        await createAuditLog(req, 'MISSION_PARTICIPANTS_ADDED', 'Mission', mission.id, `${toAdd.length} intervenant(s) ajouté(s)`);
+        res.json({ success: true, added: toAdd.length });
+    } catch (error) {
+        logger.error('ADD_MISSION_PARTICIPANTS', error.message, { missionId: req.params.id });
+        res.status(400).json({ error: error.message });
     }
 });
 

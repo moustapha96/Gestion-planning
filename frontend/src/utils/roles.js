@@ -120,10 +120,18 @@ export function isProjectCoordinator(entity, user) {
     return coordinatorId === user.id;
 }
 
+function planningValidationFlags(planning) {
+    return planning?.validation || null;
+}
+
 export function canConsolidatePlanning(planning, user) {
+    const fromApi = planningValidationFlags(planning);
+    if (fromApi && typeof fromApi.canConsolidate === 'boolean') return fromApi.canConsolidate;
     if (!planning || planning.status !== 'SUBMITTED' || !user) return false;
-    if (isPrivilegedAdmin(user.role) || userMayConsolidate(user)) return true;
-    return isProjectConsolidator(planning, user);
+    if (isPrivilegedAdmin(user.role)) return true;
+    const project = planning.user?.project || planning.project || fromApi?.project;
+    if (!project?.consolidatorId) return false;
+    return isProjectConsolidator({ ...planning, user: { ...planning.user, project } }, user);
 }
 
 const PENDING_COORDINATOR = ['COORDINATOR_PENDING', 'CP_PENDING', 'SG_PENDING', 'DG_PENDING', 'IN_CONSOLIDATION'];
@@ -133,30 +141,95 @@ export function isPendingCoordinatorStatus(status) {
 }
 
 export function canCoordinatePlanning(planning, user) {
+    const fromApi = planningValidationFlags(planning);
+    if (fromApi && typeof fromApi.canCoordinate === 'boolean') return fromApi.canCoordinate;
     if (!planning || !user) return false;
-    if (!isPendingCoordinatorStatus(planning.status)) return false;
     if (isPrivilegedAdmin(user.role)) return true;
-    if (userMayCoordinateProject(user) || userMayActAsServiceDirector(user)) return true;
-    return isProjectCoordinator(planning, user);
+    const project = planning.user?.project || planning.project || fromApi?.project;
+    const status = planning.status;
+    const pending = isPendingCoordinatorStatus(status);
+    const entity = project ? { ...planning, user: { ...planning.user, project } } : planning;
+
+    if (project?.consolidatorId) {
+        if (!pending) return false;
+        if (project.coordinatorId) return isProjectCoordinator(entity, user);
+        return normalizeRole(user.role) === ROLES.CONSOLIDATEUR;
+    }
+    if (project?.coordinatorId) {
+        if (status !== 'SUBMITTED' && !pending) return false;
+        return isProjectCoordinator(entity, user);
+    }
+    if (status !== 'SUBMITTED' && !pending) return false;
+    return normalizeRole(user.role) === ROLES.CONSOLIDATEUR;
+}
+
+export function planningValidationHint(planning) {
+    return planningValidationFlags(planning)?.hint || null;
+}
+
+export function planningAutoFinalizeOnConsolidate(planning) {
+    return Boolean(planningValidationFlags(planning)?.autoFinalizeOnConsolidate);
 }
 
 export function canReturnPlanning(planning, user) {
-    if (!planning || !user) return false;
-    if (!isPendingCoordinatorStatus(planning.status)) return false;
-    if (isPrivilegedAdmin(user.role)) return true;
-    if (userMayActAsServiceDirector(user)) return true;
+    const fromApi = planningValidationFlags(planning);
+    if (fromApi && typeof fromApi.canReturn === 'boolean') return fromApi.canReturn;
     return canCoordinatePlanning(planning, user);
 }
 
-export function canApproveMeeting(meeting, user) {
+/** Accès lecture au détail d'un planning (aligné backend canUserViewPlanning). */
+export function canViewPlanningDetail(planning, user) {
+    if (!planning || !user?.id) return false;
+    if (planning.userId === user.id) return true;
+    if (isPrivilegedAdmin(user.role)) return true;
+    if (normalizeRole(user.role) === ROLES.CONSOLIDATEUR) return true;
+    const project = planning.user?.project || planning.project;
+    if (project?.consolidatorId === user.id || project?.coordinatorId === user.id) return true;
+    if (canConsolidatePlanning(planning, user) || canCoordinatePlanning(planning, user)) return true;
+    return false;
+}
+
+export function canConsolidateMeeting(meeting, user) {
     if (!meeting || meeting.status !== 'DRAFT' || !user) return false;
     if (isPrivilegedAdmin(user.role)) return true;
     const organizerRole = normalizeRole(meeting.organizer?.role);
-    if (organizerRole === ROLES.RESPONSABLE) {
-        if (userMayConsolidate(user)) return true;
-        return isProjectConsolidator(meeting, user);
+    if (organizerRole !== ROLES.RESPONSABLE) return false;
+    const project = meeting.project;
+    if (!project?.consolidatorId) return false;
+    return isProjectConsolidator(meeting, user);
+}
+
+export function canApproveMeeting(meeting, user) {
+    if (!meeting || !user) return false;
+    if (isPrivilegedAdmin(user.role)) {
+        return meeting.status === 'DRAFT' || isPendingCoordinatorStatus(meeting.status);
     }
-    return meeting.organizerId === user.id;
+    const organizerRole = normalizeRole(meeting.organizer?.role);
+    if (organizerRole === ROLES.RESPONSABLE) {
+        const project = meeting.project;
+        if (meeting.status === 'DRAFT') {
+            if (project?.consolidatorId) return false;
+            if (project?.coordinatorId) return isProjectCoordinator(meeting, user);
+            return normalizeRole(user.role) === ROLES.CONSOLIDATEUR;
+        }
+        if (isPendingCoordinatorStatus(meeting.status)) {
+            if (project?.coordinatorId) return isProjectCoordinator(meeting, user);
+            return normalizeRole(user.role) === ROLES.CONSOLIDATEUR;
+        }
+        return false;
+    }
+    return meeting.status === 'DRAFT' && meeting.organizerId === user.id;
+}
+
+export function canFinalizeMeeting(meeting, user) {
+    if (!meeting || !user) return false;
+    if (!isPendingCoordinatorStatus(meeting.status)) return false;
+    if (isPrivilegedAdmin(user.role)) return true;
+    const organizerRole = normalizeRole(meeting.organizer?.role);
+    if (organizerRole !== ROLES.RESPONSABLE) return false;
+    const project = meeting.project;
+    if (project?.coordinatorId) return isProjectCoordinator(meeting, user);
+    return normalizeRole(user.role) === ROLES.CONSOLIDATEUR;
 }
 
 export function userConsolidatesAnyProject(projects, userId) {
@@ -169,4 +242,17 @@ export function userCoordinatesAnyProject(projects, userId) {
 
 export function meetingNeedsConsolidatorApproval(meeting) {
     return meeting?.status === 'DRAFT' && normalizeRole(meeting?.organizer?.role) === ROLES.RESPONSABLE;
+}
+
+/** Désigné consolidateur ou coordinateur sur au moins un projet (fiche projet). */
+export function userAssignedOnAnyProject(projects, userId) {
+    return userConsolidatesAnyProject(projects, userId) || userCoordinatesAnyProject(projects, userId);
+}
+
+/** Menu « À valider » : admin, rôle Consolidateur, ou désigné sur un projet. */
+export function userCanSeeValidationMenu(user, projects = []) {
+    if (!user?.id) return false;
+    if (isPrivilegedAdmin(user.role)) return true;
+    if (normalizeRole(user.role) === ROLES.CONSOLIDATEUR) return true;
+    return userAssignedOnAnyProject(projects, user.id);
 }

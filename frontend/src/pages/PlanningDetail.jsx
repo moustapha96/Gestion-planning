@@ -3,7 +3,7 @@ import { useParams, useNavigate } from 'react-router-dom';
 import {
     Card, Typography, Button, Space, Tag, Spin, Modal, Input,
     Form, Select, DatePicker, Popconfirm, App, Steps, Alert,
-    Row, Col, Badge, Divider, Tooltip, Descriptions,
+    Row, Col, Badge, Divider, Tooltip, Descriptions, Result,
 } from 'antd';
 import {
     ArrowLeftOutlined, SendOutlined, CheckOutlined, RollbackOutlined,
@@ -16,8 +16,9 @@ import api from '../api/client';
 import { useAuth } from '../context/AuthContext';
 import {
     isPrivilegedAdmin, canSuperAdminForceDelete, canConsolidatePlanning,
-    isProjectConsolidator, isProjectCoordinator, canCoordinatePlanning, canReturnPlanning,
-    isPendingCoordinatorStatus,
+    isProjectCoordinator, canCoordinatePlanning, canReturnPlanning,
+    planningValidationHint, planningAutoFinalizeOnConsolidate,
+    isPendingCoordinatorStatus, canViewPlanningDetail, ROLES, normalizeRole,
 } from '../utils/roles';
 import { forceDeleteDescription, forceDeleteTitle } from '../utils/deleteConfirm';
 import ForceDeletePopconfirm from '../components/ForceDeletePopconfirm';
@@ -245,6 +246,7 @@ export default function PlanningDetail() {
     const [planning,      setPlanning]      = useState(null);
     const [loading,       setLoading]       = useState(true);
     const [notFound,      setNotFound]      = useState(false);
+    const [forbidden,     setForbidden]     = useState(false);
     const [returnModal,   setReturnModal]   = useState(false);
     const [returnComment, setReturnComment] = useState('');
     const [eventModal,    setEventModal]    = useState({ open: false, event: null });
@@ -282,13 +284,24 @@ export default function PlanningDetail() {
 
     // ── Fetch planning ───────────────────────────────────────────
     const fetchPlanning = async () => {
+        setLoading(true);
+        setNotFound(false);
+        setForbidden(false);
         try {
             const res = await api.get(`/plannings/${id}`);
             setPlanning(res.data);
-        } catch {
-            message.error('Planning introuvable');
-            setNotFound(true);
-            navigate('/planning');
+        } catch (err) {
+            const status = err.response?.status;
+            if (status === 403) {
+                message.error('Vous n\'avez pas accès à ce planning');
+                setForbidden(true);
+            } else if (status === 404) {
+                message.error('Planning introuvable');
+                setNotFound(true);
+            } else {
+                message.error(err.response?.data?.error || 'Impossible de charger le planning');
+                setNotFound(true);
+            }
         } finally {
             setLoading(false);
         }
@@ -311,8 +324,12 @@ export default function PlanningDetail() {
     const handleConsolidate = async () => {
         setActionLoading(true);
         try {
-            await api.put(`/plannings/${id}/consolidate`);
-            message.success('Planning consolidé');
+            const res = await api.put(`/plannings/${id}/consolidate`);
+            if (res.data?.autoFinalized || res.data?.status === 'VALIDATED') {
+                message.success('Planning consolidé et validé — publié ✓');
+            } else {
+                message.success('Planning consolidé — en attente de validation finale');
+            }
             fetchPlanning();
         } catch (err) {
             message.error(err.response?.data?.error || 'Erreur');
@@ -543,7 +560,30 @@ export default function PlanningDetail() {
     };
 
     // ── Rendu états ──────────────────────────────────────────────
-    if (notFound) return null;
+    if (forbidden) {
+        return (
+            <Result
+                status="403"
+                title="Accès refusé"
+                subTitle="Vous n'avez pas les droits pour consulter ce planning."
+                extra={(
+                    <Space>
+                        <Button type="primary" onClick={() => navigate('/planning')}>Retour aux plannings</Button>
+                        <Button onClick={() => navigate('/a-valider')}>Voir « À valider »</Button>
+                    </Space>
+                )}
+            />
+        );
+    }
+    if (notFound) {
+        return (
+            <Result
+                status="404"
+                title="Planning introuvable"
+                extra={<Button type="primary" onClick={() => navigate('/planning')}>Retour</Button>}
+            />
+        );
+    }
     if (loading || !planning) {
         return (
             <div style={{ textAlign: 'center', padding: 80 }}>
@@ -552,16 +592,18 @@ export default function PlanningDetail() {
         );
     }
 
-    const isResponsable   = user?.role === 'RESPONSABLE';
-    const isConsolidateur = user?.role === 'CONSOLIDATEUR';
     const isAdmin         = isPrivilegedAdmin(user?.role);
     const isOwner         = planning.userId === user?.id;
+    const project         = planning.user?.project;
+    const isViewerOnly    = !isOwner && !isAdmin && canViewPlanningDetail(planning, user);
 
     const canEditEvents  = planning.status !== 'CANCELLED' && (isAdmin || (isOwner && (planning.status === 'DRAFT' || planning.status === 'RETURNED')));
     const canSubmit      = (isOwner || isAdmin) && (planning.status === 'DRAFT' || planning.status === 'RETURNED');
     const canConsolidate = canConsolidatePlanning(planning, user);
     const canValidateCoordinator = canCoordinatePlanning(planning, user);
     const showReturnButton = canReturnPlanning(planning, user);
+    const validationHint = planningValidationHint(planning);
+    const autoFinalizeOnConsolidate = planningAutoFinalizeOnConsolidate(planning);
     const canCancel      = isAdmin && planning.status !== 'CANCELLED';
     const canDelete      = (isOwner && planning.status === 'DRAFT') || isAdmin;
     const isSuperAdmin   = canSuperAdminForceDelete(user?.role);
@@ -573,6 +615,14 @@ export default function PlanningDetail() {
     const weekEnd   = new Date(weekStart);
     weekEnd.setDate(weekStart.getDate() + 6);
     const weekLabel = `${weekStart.toLocaleDateString('fr-FR', { day: 'numeric', month: 'long' })} – ${weekEnd.toLocaleDateString('fr-FR', { day: 'numeric', month: 'long', year: 'numeric' })}`;
+
+    const validateButtonLabel = (() => {
+        if (!project?.coordinatorId && normalizeRole(user?.role) === ROLES.CONSOLIDATEUR) {
+            return 'Valider (consolidateur rôle)';
+        }
+        if (isProjectCoordinator(planning, user)) return 'Valider (coordinateur projet)';
+        return 'Valider définitivement';
+    })();
 
     return (
         <div>
@@ -613,9 +663,9 @@ export default function PlanningDetail() {
                     <Button
                         type="primary" icon={<CheckOutlined />}
                         onClick={handleConsolidate} loading={actionLoading}
-                        style={{ background: '#722ed1', borderColor: '#722ed1' }}
+                        style={{ background: autoFinalizeOnConsolidate ? '#52c41a' : '#722ed1', borderColor: autoFinalizeOnConsolidate ? '#52c41a' : '#722ed1' }}
                     >
-                        Consolider
+                        {autoFinalizeOnConsolidate ? 'Consolider et valider' : 'Consolider'}
                     </Button>
                 )}
 
@@ -625,7 +675,7 @@ export default function PlanningDetail() {
                         onClick={handleValidateCoordinator} loading={actionLoading}
                         style={{ background: '#52c41a', borderColor: '#52c41a' }}
                     >
-                        Valider (coordinateur projet)
+                        {validateButtonLabel}
                     </Button>
                 )}
 
@@ -677,6 +727,26 @@ export default function PlanningDetail() {
                 )}
             </div>
 
+            {validationHint && (canConsolidate || canValidateCoordinator || ['SUBMITTED', 'COORDINATOR_PENDING', 'CP_PENDING', 'IN_CONSOLIDATION'].includes(planning.status)) && (
+                <Alert
+                    type={canConsolidate || canValidateCoordinator ? 'info' : 'warning'}
+                    showIcon
+                    style={{ marginBottom: 16, borderRadius: 10 }}
+                    message={canValidateCoordinator ? 'Action de validation disponible' : 'Circuit de validation'}
+                    description={validationHint}
+                />
+            )}
+
+            {isViewerOnly && (canConsolidate || canValidateCoordinator) && !validationHint && (
+                <Alert
+                    type="info"
+                    showIcon
+                    style={{ marginBottom: 16, borderRadius: 10 }}
+                    message="Consultation validateur"
+                    description="Vous pouvez examiner ce planning et les événements de la semaine. Les actions de validation disponibles apparaissent à droite."
+                />
+            )}
+
             {/* ── Alerte si retourné ── */}
             {planning.status === 'RETURNED' && planning.returnComment && (
                 <Alert
@@ -719,6 +789,25 @@ export default function PlanningDetail() {
                         {STATUS_LABELS[planning.status] || planning.status}
                     </Tag>
                 </div>
+
+                {project && (
+                    <Descriptions
+                        size="small"
+                        bordered
+                        column={{ xs: 1, sm: 2, md: 3 }}
+                        style={{ marginBottom: 20 }}
+                    >
+                        <Descriptions.Item label="Projet">
+                            {project.code ? `${project.name} (${project.code})` : project.name}
+                        </Descriptions.Item>
+                        <Descriptions.Item label="Consolidateur">
+                            {project.consolidator?.name || <Text type="secondary">Non défini</Text>}
+                        </Descriptions.Item>
+                        <Descriptions.Item label="Coordinateur">
+                            {project.coordinator?.name || <Text type="secondary">Non défini</Text>}
+                        </Descriptions.Item>
+                    </Descriptions>
+                )}
 
                 {/* ── Workflow steps ── */}
                 <div style={{ marginBottom: 24 }}>
@@ -846,7 +935,7 @@ export default function PlanningDetail() {
                 )}
 
                 {/* ── Missions croisées ── */}
-                {(isAdmin || isConsolidateur || isOwner || isProjectConsolidator(planning, user) || isProjectCoordinator(planning, user)) && (
+                {(isAdmin || isOwner || canViewPlanningDetail(planning, user)) && (
                     <>
                         <Divider style={{ margin: '24px 0 16px' }} />
                         <div style={{ marginBottom: 12 }}>

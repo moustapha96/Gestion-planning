@@ -60,8 +60,9 @@ const directionMessagesRoutes = require('./src/routes/direction-messages');
 const projectMessagesRoutes = require('./src/routes/project-messages');
 const eventsRoutes = require('./src/routes/events');
 const pushTokensRoutes = require('./src/routes/pushTokens');
-const projectsRoutes   = require('./src/routes/projects');
+const projectsRoutes = require('./src/routes/projects');
 const superAdminRoutes = require('./src/routes/super-admin');
+const validationsRoutes = require('./src/routes/validations');
 const { createDatabaseBackup } = require('./src/services/backup.service');
 const { initRealtime } = require('./src/realtime/socket');
 
@@ -80,25 +81,44 @@ app.use((req, res, next) => {
     if (req.path.startsWith('/api/docs')) return next();
 
     const isProd = process.env.NODE_ENV === 'production';
-    const frontendOrigin = process.env.FRONTEND_URL || 'http://localhost:5173';
+    // En dev : autoriser toutes les origines locales dans connectSrc
+    const cspConnectSrc = isProd ?
+        ["'self'", ...(process.env.FRONTEND_URL || '').split(',').map(s => s.trim()).filter(Boolean)] :
+        ["'self'", 'http://localhost:*', 'ws://localhost:*', 'http://192.168.*', 'ws://192.168.*', 'http://10.*', 'ws://10.*'];
 
     const directives = {
-        defaultSrc:  ["'self'"],
-        scriptSrc:   ["'self'"],
-        styleSrc:    ["'self'", "'unsafe-inline'"],   // inline styles tolérés (emails, public.js)
-        imgSrc:      ["'self'", 'data:', 'https:'],   // avatars uploadés + icônes HTTPS
-        connectSrc:  ["'self'", frontendOrigin],      // appels API depuis le frontend
-        fontSrc:     ["'self'"],
-        objectSrc:   ["'none'"],
-        frameAncestors: ["'none'"],                   // anti-clickjacking
-        ...(isProd && { upgradeInsecureRequests: [] }),// force HTTPS en production uniquement
+        defaultSrc: ["'self'"],
+        scriptSrc: ["'self'"],
+        styleSrc: ["'self'", "'unsafe-inline'"],
+        imgSrc: ["'self'", 'data:', 'https:'],
+        connectSrc: cspConnectSrc,
+        fontSrc: ["'self'"],
+        objectSrc: ["'none'"],
+        frameAncestors: ["'none'"],
+        ...(isProd && { upgradeInsecureRequests: [] }),
     };
 
     helmet.contentSecurityPolicy({ directives })(req, res, next);
 });
 
+// CORS : accepte les origines configurées + toutes les IPs locales RFC1918 en développement
+const allowedOrigins = (process.env.FRONTEND_URL || 'http://localhost:5173')
+    .split(',').map(s => s.trim()).filter(Boolean);
+
+const localNetworkPattern = /^https?:\/\/(localhost|127\.0\.0\.1|10\.\d+\.\d+\.\d+|172\.(1[6-9]|2\d|3[01])\.\d+\.\d+|192\.168\.\d+\.\d+)(:\d+)?$/;
+
 app.use(cors({
-    origin: process.env.FRONTEND_URL || 'http://localhost:5173',
+    origin: (origin, callback) => {
+        // Pas d'origine (requêtes same-origin, Postman, mobile Capacitor)
+        if (!origin) return callback(null, true);
+        // Origines explicitement configurées
+        if (allowedOrigins.includes(origin)) return callback(null, true);
+        // IPs locales autorisées en développement
+        if (process.env.NODE_ENV !== 'production' && localNetworkPattern.test(origin)) {
+            return callback(null, true);
+        }
+        callback(new Error(`CORS bloqué : ${origin}`));
+    },
     credentials: true,
 }));
 app.use(express.json());
@@ -201,8 +221,8 @@ app.use('/api/docs', swaggerAuth, swaggerUi.serve, swaggerUi.setup(swaggerSpec, 
 }));
 
 // Routes publiques
-app.use('/api/auth/login', loginLimiter);      // brute-force protection (CDC §5.2)
-app.use('/api/auth/2fa-login', twoFaLimiter);  // brute-force TOTP protection
+app.use('/api/auth/login', loginLimiter); // brute-force protection (CDC §5.2)
+app.use('/api/auth/2fa-login', twoFaLimiter); // brute-force TOTP protection
 app.use('/api/auth', authRoutes);
 app.use('/api/public', publicRoutes);
 const profileRoutes = require('./src/routes/profile');
@@ -216,6 +236,7 @@ app.use('/api/rooms', authMiddleware, roomRoutes);
 app.use('/api/users', authMiddleware, userRoutes);
 app.use('/api/role-config', authMiddleware, roleConfigRoutes);
 app.use('/api/dashboard', authMiddleware, dashboardRoutes);
+app.use('/api/validations', authMiddleware, validationsRoutes);
 app.use('/api/notifications', authMiddleware, notificationRoutes);
 // Routes calendrier : enregistrement explicite pour éviter 404
 if (calendarMonthHandler) {
@@ -229,7 +250,7 @@ app.use('/api/direct-messages', authMiddleware, directMessagesRoutes);
 app.use('/api/direction-messages', authMiddleware, directionMessagesRoutes);
 app.use('/api/project-messages', authMiddleware, projectMessagesRoutes);
 app.use('/api/events', authMiddleware, eventsRoutes);
-app.use('/api/push',     authMiddleware, pushTokensRoutes);
+app.use('/api/push', authMiddleware, pushTokensRoutes);
 app.use('/api/projects', authMiddleware, projectsRoutes);
 app.use('/api/super-admin', authMiddleware, superAdminRoutes);
 const repertoireRoutes = require('./src/routes/repertoire');
@@ -252,29 +273,45 @@ app.use((err, req, res, next) => {
 });
 
 const PORT = parseInt(process.env.PORT, 10) || 3001;
-/** Interface d’écoute (127.0.0.1 = local uniquement ; le frontend proxy /api vers ce socket). */
-const HOST = process.env.HOST || '127.0.0.1';
+const HOST = process.env.HOST || '0.0.0.0';
 
-// Plusieurs origines possibles (ex. Vite sur :9000, preview sur :4173) — séparées par des virgules
-const socketCorsOrigins = (process.env.FRONTEND_URL
-    || 'http://localhost:5173,http://localhost:9000,http://127.0.0.1:9000')
+// Socket.IO CORS : origines configurées + toutes IPs locales en développement
+const configuredOrigins = (process.env.FRONTEND_URL || 'http://localhost:5173,http://localhost:9000')
     .split(',')
     .map((s) => s.trim())
     .filter(Boolean);
-initRealtime(httpServer, socketCorsOrigins.length === 1 ? socketCorsOrigins[0] : socketCorsOrigins);
+
+const socketCorsOrigin = process.env.NODE_ENV !== 'production'
+    ? (origin, cb) => cb(null, true) // dev : tout accepter (réseau local inclus)
+    : configuredOrigins;
+
+initRealtime(httpServer, socketCorsOrigin);
 
 httpServer.listen(PORT, HOST, () => {
-    const baseUrl = `http://${HOST === '0.0.0.0' ? 'localhost' : HOST}:${PORT}`;
+    const os = require('os');
+    const localUrl = `http://localhost:${PORT}`;
+
+    // Détecter la première IP réseau non-loopback (WiFi / Ethernet)
+    const networkIp = Object.values(os.networkInterfaces())
+        .flat()
+        .find(i => i.family === 'IPv4' && !i.internal)?.address;
+    const networkUrl = networkIp ? `http://${networkIp}:${PORT}` : null;
+
     logger.info('SERVER_START', `Serveur démarré sur ${HOST}:${PORT}`, {
         host: HOST,
         port: PORT,
         env: process.env.NODE_ENV || 'development',
         timezone: APP_TIMEZONE,
-        tz: process.env.TZ,
-        swaggerUrl: `${baseUrl}/api/docs`,
+        networkUrl,
+        swaggerUrl: `${localUrl}/api/docs`,
     });
-    console.log(`Server running on http://${HOST}:${PORT}`);
-    console.log(`Swagger docs: ${baseUrl}/api/docs`);
+
+    console.log('');
+    console.log('  ✅ Backend Gestion Planning');
+    console.log(`  ➜  Local   : ${localUrl}`);
+    if (networkUrl) console.log(`  ➜  Réseau  : ${networkUrl}   ← accès depuis le réseau local`);
+    console.log(`  ➜  Swagger : ${localUrl}/api/docs`);
+    console.log('');
 
     // Seed des types d'événement par défaut (REUNION, MISSION, ATELIER, …) — idempotent
     if (typeof eventsRoutes.ensureDefaultEventTypes === 'function') {
