@@ -1,6 +1,6 @@
 {
-  "name": "ADM GP",
-  "short_name": "ADM GP",
+  "name": "GP ADM",
+  "short_name": "gp-adm",
   "icons": [
     {
       "src": "/web-app-manifest-192x192.png",
