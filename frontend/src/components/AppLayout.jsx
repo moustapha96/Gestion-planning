@@ -23,6 +23,7 @@ import {
 import { isPrivilegedAdmin, isSuperAdmin, canAccessRepertoire } from '../utils/roles';
 import { getAdminNavForRole } from '../pages/admin/adminNavConfig';
 import { useThemeMode } from '../context/ThemeModeContext';
+import { resolveAppLogoSrc, DEFAULT_APP_NAME } from '../utils/appBranding';
 import usePendingValidations from '../hooks/usePendingValidations';
 
 const { Header, Content, Sider } = Layout;
@@ -62,7 +63,7 @@ export default function AppLayout() {
     const showInlineSearch = Boolean(screens.md);
     const [drawerOpen, setDrawerOpen] = useState(false);
     const [directMessagesEnabled, setDirectMessagesEnabled] = useState(true);
-    const [appName, setAppName] = useState('ADM GP');
+    const [appName, setAppName] = useState(DEFAULT_APP_NAME);
     const [footerText, setFooterText] = useState('© 2026 ADM GP - Tous droits réservés');
     const [contactEmail, setContactEmail] = useState('');
     const [contactPhone, setContactPhone] = useState('');
@@ -138,7 +139,7 @@ export default function AppLayout() {
                 const { data } = await api.get('/admin/settings/public');
                 if (!active) return;
                 setDirectMessagesEnabled(String(data?.direct_messages_enabled ?? 'true') === 'true');
-                setAppName(String(data?.app_name || 'ADM GP'));
+                setAppName(String(data?.app_name || DEFAULT_APP_NAME));
                 setFooterText(String(data?.app_footer_text || '© 2026 ADM GP - Tous droits réservés'));
                 setContactEmail(String(data?.app_contact_email || ''));
                 setContactPhone(String(data?.app_contact_phone || ''));
@@ -147,7 +148,7 @@ export default function AppLayout() {
             } catch {
                 if (active) {
                     setDirectMessagesEnabled(true);
-                    setAppName('ADM GP');
+                    setAppName(DEFAULT_APP_NAME);
                     setFooterText('© 2026 ADM GP - Tous droits réservés');
                     setContactEmail('');
                     setContactPhone('');
@@ -659,7 +660,7 @@ export default function AppLayout() {
                         onKeyDown={(e) => e.key === 'Enter' && goTo('/dashboard')}
                     >
                         <img
-                            src={appLogoUrl ? `${API_BASE}${appLogoUrl}` : '/adm_logo.png'}
+                            src={resolveAppLogoSrc(appLogoUrl)}
                             alt={appName}
                             style={{
                                 width: 'auto',
@@ -693,7 +694,7 @@ export default function AppLayout() {
                         onKeyDown={(e) => e.key === 'Enter' && goTo('/dashboard')}
                     >
                         <img
-                            src={appLogoUrl ? `${API_BASE}${appLogoUrl}` : '/adm_logo.png'}
+                            src={resolveAppLogoSrc(appLogoUrl)}
                             alt={appName}
                             style={{ width: 40, height: 40, objectFit: 'contain' }}
                         />

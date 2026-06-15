@@ -325,4 +325,36 @@ router.post('/logo', uploadLogo.single('logo'), async (req, res) => {
     }
 });
 
+/**
+ * DELETE /api/admin/settings/logo
+ * Supprime le logo personnalisé — le logo par défaut (/gp-64.png) sera utilisé.
+ */
+router.delete('/logo', async (req, res) => {
+    try {
+        if (!isPrivilegedAdmin(req.user?.role)) {
+            return res.status(403).json({ error: 'Accès réservé aux administrateurs.' });
+        }
+
+        const previous = await req.prisma.appSetting.findUnique({ where: { key: 'app_logo_url' } });
+        await req.prisma.appSetting.upsert({
+            where: { key: 'app_logo_url' },
+            update: { value: '' },
+            create: { key: 'app_logo_url', value: '' },
+        });
+
+        if (previous?.value && previous.value.startsWith('/uploads/branding/')) {
+            const previousPath = path.join(brandingUploadDir, path.basename(previous.value));
+            try {
+                if (fs.existsSync(previousPath)) fs.unlinkSync(previousPath);
+            } catch {}
+        }
+
+        await createAuditLog(req, 'ADMIN_SETTINGS_LOGO_REMOVED', 'AppSetting', 'app_logo_url', 'Logo personnalisé supprimé');
+        return res.json({ app_logo_url: '', message: 'Logo personnalisé supprimé. Le logo par défaut sera affiché.' });
+    } catch (error) {
+        logger.error('DELETE_ADMIN_SETTINGS_LOGO', error.message, { userId: req.user?.id });
+        return res.status(500).json({ error: error.message });
+    }
+});
+
 module.exports = router;

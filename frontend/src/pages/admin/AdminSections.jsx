@@ -13,6 +13,11 @@ import {
 import dayjs from 'dayjs';
 import api, { API_BASE } from '../../api/client';
 import { useAuth } from '../../context/AuthContext';
+import {
+    DEFAULT_APP_LOGO_PATH,
+    hasCustomAppLogo,
+    resolveAppLogoSrc,
+} from '../../utils/appBranding';
 
 const { Title, Text, Paragraph } = Typography;
 export const ROLE_COLORS = {
@@ -1036,6 +1041,10 @@ export function AppConfigTab() {
     const [testEmail, setTestEmail] = useState('');
     const [testLoading, setTestLoading] = useState(false);
     const [testResult, setTestResult] = useState(null);
+    const [logoRemoving, setLogoRemoving] = useState(false);
+
+    const logoPreviewSrc = resolveAppLogoSrc(appLogoUrl);
+    const customLogo = hasCustomAppLogo(appLogoUrl);
 
     const load = async () => {
         setLoading(true);
@@ -1083,6 +1092,19 @@ export function AppConfigTab() {
             }
         } finally {
             setSaving(false);
+        }
+    };
+
+    const handleRemoveLogo = async () => {
+        setLogoRemoving(true);
+        try {
+            await api.delete('/admin/settings/logo');
+            form.setFieldValue('app_logo_url', '');
+            message.success('Logo personnalisé supprimé. Le logo par défaut sera affiché.');
+        } catch (err) {
+            message.error(err?.response?.data?.error || 'Erreur lors de la suppression du logo');
+        } finally {
+            setLogoRemoving(false);
         }
     };
 
@@ -1142,39 +1164,72 @@ export function AppConfigTab() {
                 <Form.Item name="app_footer_text" label="Texte du footer" rules={[{ required: true, message: 'Champ requis' }]}>
                     <Input />
                 </Form.Item>
-                <Form.Item label="Logo de l'application">
+                <Form.Item
+                    label="Logo de l'application"
+                    extra={customLogo
+                        ? 'Logo personnalisé actif. Supprimez-le pour revenir au logo par défaut.'
+                        : `Aucun logo personnalisé — le logo par défaut (${DEFAULT_APP_LOGO_PATH}) est affiché.`}
+                >
                     <Space orientation="vertical" style={{ width: '100%' }}>
-                        <Upload
-                            showUploadList={false}
-                            accept="image/*"
-                            customRequest={async ({ file, onSuccess, onError }) => {
-                                try {
-                                    const fd = new FormData();
-                                    fd.append('logo', file);
-                                    const { data } = await api.post('/admin/settings/logo', fd, {
-                                        headers: { 'Content-Type': 'multipart/form-data' },
-                                    });
-                                    form.setFieldValue('app_logo_url', data?.app_logo_url || '');
-                                    onSuccess?.('ok');
-                                    message.success('Logo mis à jour');
-                                } catch (err) {
-                                    onError?.(err);
-                                    message.error(err?.response?.data?.error || 'Erreur upload logo');
-                                }
-                            }}
-                        >
-                            <Button>Importer un logo</Button>
-                        </Upload>
+                        <Space wrap>
+                            <Upload
+                                showUploadList={false}
+                                accept="image/*"
+                                customRequest={async ({ file, onSuccess, onError }) => {
+                                    try {
+                                        const fd = new FormData();
+                                        fd.append('logo', file);
+                                        const { data } = await api.post('/admin/settings/logo', fd, {
+                                            headers: { 'Content-Type': 'multipart/form-data' },
+                                        });
+                                        form.setFieldValue('app_logo_url', data?.app_logo_url || '');
+                                        onSuccess?.('ok');
+                                        message.success('Logo mis à jour');
+                                    } catch (err) {
+                                        onError?.(err);
+                                        message.error(err?.response?.data?.error || 'Erreur upload logo');
+                                    }
+                                }}
+                            >
+                                <Button>Importer un logo</Button>
+                            </Upload>
+                            {customLogo && (
+                                <Popconfirm
+                                    title="Supprimer le logo personnalisé ?"
+                                    description="Le logo par défaut (gp-64.png) sera utilisé dans toute l'application."
+                                    okText="Supprimer"
+                                    cancelText="Annuler"
+                                    okButtonProps={{ danger: true }}
+                                    onConfirm={handleRemoveLogo}
+                                >
+                                    <Button danger icon={<DeleteOutlined />} loading={logoRemoving}>
+                                        Supprimer le logo
+                                    </Button>
+                                </Popconfirm>
+                            )}
+                        </Space>
                         <Form.Item name="app_logo_url" noStyle>
                             <Input type="hidden" />
                         </Form.Item>
-                        {!!appLogoUrl && (
+                        <div>
                             <img
-                                src={`${API_BASE}${appLogoUrl}`}
-                                alt="Logo application"
-                                style={{ maxHeight: 64, objectFit: 'contain', border: '1px solid #f0f0f0', borderRadius: 6, padding: 6 }}
+                                src={logoPreviewSrc}
+                                alt="Aperçu du logo"
+                                style={{
+                                    maxHeight: 64,
+                                    objectFit: 'contain',
+                                    border: '1px solid #f0f0f0',
+                                    borderRadius: 6,
+                                    padding: 6,
+                                    background: '#fafafa',
+                                }}
                             />
-                        )}
+                            <div style={{ marginTop: 6 }}>
+                                <Text type="secondary" style={{ fontSize: 12 }}>
+                                    {customLogo ? 'Aperçu du logo personnalisé' : 'Logo par défaut'}
+                                </Text>
+                            </div>
+                        </div>
                     </Space>
                 </Form.Item>
                 <Button type="primary" loading={saving} onClick={handleSave}>

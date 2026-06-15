@@ -4,7 +4,8 @@ import { Drawer, Button } from 'antd';
 import { MenuOutlined } from '@ant-design/icons';
 import NotificationBell from './NotificationBell';
 import { isPrivilegedAdmin } from '../utils/roles';
-import logo from '../assets/logo-gp.png';
+import { resolveAppLogoSrc, DEFAULT_APP_NAME } from '../utils/appBranding';
+import api from '../api/client';
 
 const NAV_BTN =
     'shrink-0 px-3 py-2 rounded-md text-sm font-medium transition-all duration-150 whitespace-nowrap';
@@ -33,12 +34,53 @@ function buildLinks(user) {
     return items;
 }
 
+function AppBrand({ appName, logoSrc, onClick, compact = false }) {
+    return (
+        <button
+            type="button"
+            onClick={onClick}
+            className="flex items-center gap-2 shrink-0 min-w-0 hover:opacity-90 transition-opacity rounded-md focus:outline-none focus-visible:ring-2 focus-visible:ring-white/60"
+            style={{ background: 'none', border: 'none', padding: '4px 0', cursor: 'pointer' }}
+            aria-label={appName}
+        >
+            <img
+                src={logoSrc}
+                alt={appName}
+                className={compact ? 'h-8 shrink-0' : 'h-10 shrink-0'}
+                style={{ maxWidth: compact ? 120 : 160, objectFit: 'contain' }}
+            />
+        </button>
+    );
+}
+
 export default function Navbar({ user }) {
     const navigate = useNavigate();
     const location = useLocation();
     const [drawerOpen, setDrawerOpen] = useState(false);
+    const [appName, setAppName] = useState(DEFAULT_APP_NAME);
+    const [appLogoUrl, setAppLogoUrl] = useState('');
 
     const links = useMemo(() => buildLinks(user), [user]);
+    const logoSrc = useMemo(() => resolveAppLogoSrc(appLogoUrl), [appLogoUrl]);
+
+    useEffect(() => {
+        let active = true;
+        const loadBranding = async () => {
+            try {
+                const { data } = await api.get('/admin/settings/public');
+                if (!active) return;
+                setAppName(String(data?.app_name || DEFAULT_APP_NAME).trim() || DEFAULT_APP_NAME);
+                setAppLogoUrl(String(data?.app_logo_url || '').trim());
+            } catch {
+                if (active) {
+                    setAppName(DEFAULT_APP_NAME);
+                    setAppLogoUrl('');
+                }
+            }
+        };
+        loadBranding();
+        return () => { active = false; };
+    }, []);
 
     useEffect(() => {
         setDrawerOpen(false);
@@ -76,23 +118,12 @@ export default function Navbar({ user }) {
             style={{ background: 'linear-gradient(135deg, #1565C0 0%, #0D47A1 100%)' }}
         >
             <div className="max-w-7xl mx-auto px-3 sm:px-4 py-2 flex items-center gap-2 sm:gap-3 min-h-[52px]">
-                {/* Logo + titre */}
-                <button
-                    type="button"
+                {/* Logo ou nom de l'application (configuration) */}
+                <AppBrand
+                    appName={appName}
+                    logoSrc={logoSrc}
                     onClick={() => go('/dashboard')}
-                    className="flex items-center gap-2 shrink-0 min-w-0 hover:opacity-90 transition-opacity rounded-md focus:outline-none focus-visible:ring-2 focus-visible:ring-white/60"
-                    style={{ background: 'none', border: 'none', padding: '4px 0', cursor: 'pointer' }}
-                >
-                    <img src={logo} alt="ADM GP logo" className="h-10 shrink-0" />
-                    <div className="leading-tight text-left hidden sm:block min-w-0 max-w-[140px] md:max-w-none">
-                        <div className="text-[15px] font-extrabold text-white leading-tight truncate">
-                            ADM
-                        </div>
-                        <div className="text-[15px] font-extrabold text-[#48BB78] leading-tight truncate">
-                            GP
-                        </div>
-                    </div>
-                </button>
+                />
 
                 {/* Navigation desktop — défilement horizontal, scrollbar fine visible */}
                 <div
@@ -119,12 +150,15 @@ export default function Navbar({ user }) {
                 </div>
 
                 <Drawer
-                    title={
-                        <div className="flex items-center gap-2">
-                            <img src={logo} alt="ADM" style={{ height: 32 }} />
-                            <span style={{ color: '#0D47A1', fontWeight: 700, fontSize: 15 }}>ADM · Gestion Planning</span>
+                    title={(
+                        <div className="flex items-center gap-2 min-w-0">
+                            <img
+                                src={logoSrc}
+                                alt={appName}
+                                style={{ height: 32, maxWidth: 120, objectFit: 'contain' }}
+                            />
                         </div>
-                    }
+                    )}
                     placement="left"
                     onClose={() => setDrawerOpen(false)}
                     open={drawerOpen}
