@@ -2,11 +2,12 @@ import { useState, useEffect, useCallback } from 'react';
 import {
     Card, Table, Button, Input, Popconfirm, Tag, Space,
     Typography, App, Drawer, Descriptions, List, Statistic, Row, Col, Tooltip, Badge, Upload,
+    Grid, Dropdown,
 } from 'antd';
 import {
     ProjectOutlined, PlusOutlined, EditOutlined, DeleteOutlined,
     EyeOutlined, TeamOutlined, FlagOutlined, CheckCircleOutlined, StopOutlined, PauseCircleOutlined,
-    FileAddOutlined, FileTextOutlined, UploadOutlined, UserOutlined,
+    FileAddOutlined, FileTextOutlined, UploadOutlined, UserOutlined, MoreOutlined,
 } from '@ant-design/icons';
 import { useNavigate } from 'react-router-dom';
 import api, { API_BASE } from '../api/client';
@@ -16,6 +17,7 @@ import { resolveImageSrc } from '../utils/mediaUrl';
 import { canManageProjects } from '../utils/roles';
 
 const { Title, Text } = Typography;
+const { useBreakpoint } = Grid;
 const STATUS_COLORS = { ACTIVE: 'success', PAUSED: 'warning', COMPLETED: 'default' };
 const STATUS_LABELS = { ACTIVE: 'Actif', PAUSED: 'En pause', COMPLETED: 'Terminé' };
 
@@ -26,8 +28,11 @@ function projectFormPath(adminContext, projectId) {
 
 export default function Projects({ adminContext = false }) {
     const { user }    = useAuth();
-    const { message } = App.useApp();
+    const { message, modal } = App.useApp();
     const navigate    = useNavigate();
+    const screens     = useBreakpoint();
+    const isMobile    = !screens.md;
+    const isCompact   = !screens.lg;
 
     const [projects,      setProjects]      = useState([]);
     const [loading,       setLoading]       = useState(false);
@@ -142,9 +147,250 @@ export default function Projects({ adminContext = false }) {
             p.consolidator?.name?.toLowerCase().includes(q) ||
             p.consolidator?.email?.toLowerCase().includes(q) ||
             p.coordinator?.name?.toLowerCase().includes(q) ||
-            p.coordinator?.email?.toLowerCase().includes(q)
+            p.coordinator?.email?.toLowerCase().includes(q) ||
+            p.responsible?.name?.toLowerCase().includes(q) ||
+            p.responsible?.email?.toLowerCase().includes(q)
         );
     });
+
+    const renderPerson = (person, iconColor = '#722ed1') => {
+        if (!person) return <Text type="secondary">Non défini</Text>;
+        return (
+            <Tooltip title={`${person.email}${person.role ? ` — ${person.role}` : ''}`}>
+                <Space size={4} wrap>
+                    <UserOutlined style={{ color: iconColor }} />
+                    <Text ellipsis style={{ maxWidth: isMobile ? '100%' : 140 }}>{person.name}</Text>
+                </Space>
+            </Tooltip>
+        );
+    };
+
+    const buildActionItems = (row) => {
+        const items = [
+            {
+                key: 'view',
+                label: 'Voir détail',
+                icon: <EyeOutlined />,
+                onClick: () => openDetail(row),
+            },
+        ];
+        if (canManage) {
+            items.push({
+                key: 'edit',
+                label: 'Modifier',
+                icon: <EditOutlined />,
+                onClick: () => navigate(projectFormPath(adminContext, row.id)),
+            });
+            if (row.status !== 'COMPLETED') {
+                items.push(
+                    {
+                        key: 'pause',
+                        label: 'Mettre en pause',
+                        icon: <PauseCircleOutlined />,
+                        onClick: () => handleStatus(row, 'PAUSED'),
+                    },
+                    {
+                        key: 'complete',
+                        label: 'Terminer',
+                        icon: <CheckCircleOutlined />,
+                        onClick: () => handleStatus(row, 'COMPLETED'),
+                    },
+                );
+            }
+            if (row.status !== 'ACTIVE') {
+                items.push({
+                    key: 'activate',
+                    label: 'Réactiver',
+                    icon: <StopOutlined />,
+                    onClick: () => handleStatus(row, 'ACTIVE'),
+                });
+            }
+            items.push({
+                key: 'delete',
+                label: 'Supprimer',
+                icon: <DeleteOutlined />,
+                danger: true,
+                onClick: () => {
+                    // handled via Popconfirm in desktop; mobile uses confirm
+                },
+            });
+        }
+        return items;
+    };
+
+    const renderRowActions = (row, block = false) => {
+        if (!canManage) {
+            return (
+                <Button size="small" icon={<EyeOutlined />} block={block} onClick={() => openDetail(row)}>
+                    Voir
+                </Button>
+            );
+        }
+        if (isMobile) {
+            return (
+                <Space wrap style={{ width: block ? '100%' : undefined }}>
+                    <Button size="small" icon={<EyeOutlined />} onClick={() => openDetail(row)}>
+                        Voir
+                    </Button>
+                    <Button
+                        size="small"
+                        icon={<EditOutlined />}
+                        onClick={() => navigate(projectFormPath(adminContext, row.id))}
+                    >
+                        Modifier
+                    </Button>
+                    <Dropdown
+                        menu={{
+                            items: buildActionItems(row).filter((i) => !['view', 'edit'].includes(i.key)),
+                            onClick: ({ key }) => {
+                                if (key === 'pause') handleStatus(row, 'PAUSED');
+                                if (key === 'complete') handleStatus(row, 'COMPLETED');
+                                if (key === 'activate') handleStatus(row, 'ACTIVE');
+                                if (key === 'delete') {
+                                    modal.confirm({
+                                        title: 'Supprimer ce projet ?',
+                                        content: 'Les missions et réunions liées seront détachées.',
+                                        okText: 'Supprimer',
+                                        cancelText: 'Annuler',
+                                        okButtonProps: { danger: true },
+                                        onOk: () => handleDelete(row.id),
+                                    });
+                                }
+                            },
+                        }}
+                        trigger={['click']}
+                    >
+                        <Button size="small" icon={<MoreOutlined />}>Actions</Button>
+                    </Dropdown>
+                </Space>
+            );
+        }
+        return (
+            <Space size={4} wrap>
+                <Tooltip title="Voir détail">
+                    <Button size="small" icon={<EyeOutlined />} onClick={() => openDetail(row)} />
+                </Tooltip>
+                <Tooltip title="Modifier">
+                    <Button
+                        size="small"
+                        icon={<EditOutlined />}
+                        onClick={() => navigate(projectFormPath(adminContext, row.id))}
+                    />
+                </Tooltip>
+                {row.status !== 'COMPLETED' && (
+                    <Tooltip title="Mettre en pause">
+                        <Button size="small" icon={<PauseCircleOutlined />} onClick={() => handleStatus(row, 'PAUSED')} />
+                    </Tooltip>
+                )}
+                {row.status !== 'COMPLETED' && (
+                    <Tooltip title="Terminer">
+                        <Button size="small" icon={<CheckCircleOutlined />} onClick={() => handleStatus(row, 'COMPLETED')} />
+                    </Tooltip>
+                )}
+                {row.status !== 'ACTIVE' && (
+                    <Tooltip title="Réactiver">
+                        <Button size="small" type="default" icon={<StopOutlined />} onClick={() => handleStatus(row, 'ACTIVE')} />
+                    </Tooltip>
+                )}
+                <Popconfirm
+                    title="Supprimer ce projet ?"
+                    description="Les missions et réunions liées seront détachées."
+                    okText="Supprimer" cancelText="Annuler"
+                    okButtonProps={{ danger: true }}
+                    onConfirm={() => handleDelete(row.id)}
+                >
+                    <Tooltip title="Supprimer">
+                        <Button size="small" danger icon={<DeleteOutlined />} />
+                    </Tooltip>
+                </Popconfirm>
+            </Space>
+        );
+    };
+
+    const renderMobileProjectCard = (row) => {
+        const logoSrc = resolveImageSrc(row.logoUrl);
+        return (
+            <Card
+                size="small"
+                style={{ width: '100%', borderRadius: 10 }}
+                styles={{ body: { padding: isMobile ? 12 : 16 } }}
+            >
+                <div style={{ display: 'flex', gap: 12, alignItems: 'flex-start' }}>
+                    {logoSrc ? (
+                        <img
+                            src={logoSrc}
+                            alt=""
+                            style={{
+                                width: 52,
+                                height: 52,
+                                objectFit: 'contain',
+                                borderRadius: 8,
+                                border: '1px solid #f0f0f0',
+                                background: '#fafafa',
+                                flexShrink: 0,
+                            }}
+                        />
+                    ) : (
+                        <div
+                            style={{
+                                width: 52,
+                                height: 52,
+                                borderRadius: 8,
+                                background: '#f5f5f5',
+                                display: 'flex',
+                                alignItems: 'center',
+                                justifyContent: 'center',
+                                flexShrink: 0,
+                            }}
+                        >
+                            <ProjectOutlined style={{ fontSize: 22, color: '#bfbfbf' }} />
+                        </div>
+                    )}
+                    <div style={{ flex: 1, minWidth: 0 }}>
+                        <Button
+                            type="link"
+                            style={{ padding: 0, height: 'auto', fontWeight: 600, textAlign: 'left', whiteSpace: 'normal' }}
+                            onClick={() => openDetail(row)}
+                        >
+                            {row.name}
+                        </Button>
+                        <Space wrap size={[4, 4]} style={{ marginTop: 6 }}>
+                            {row.code && <Tag>{row.code}</Tag>}
+                            <Tag color={STATUS_COLORS[row.status] || 'default'}>
+                                {STATUS_LABELS[row.status] || row.status}
+                            </Tag>
+                            <Badge
+                                count={`${row._count?.missions || 0} miss.`}
+                                showZero
+                                style={{ background: row._count?.missions ? '#722ed1' : '#d9d9d9' }}
+                            />
+                            <Badge
+                                count={`${row._count?.meetings || 0} réu.`}
+                                showZero
+                                style={{ background: row._count?.meetings ? '#1565C0' : '#d9d9d9' }}
+                            />
+                        </Space>
+                    </div>
+                </div>
+                {row.description && (
+                    <Text type="secondary" style={{ display: 'block', marginTop: 10, fontSize: 12 }}>
+                        {row.description}
+                    </Text>
+                )}
+                <div style={{ marginTop: 10, display: 'flex', flexDirection: 'column', gap: 4 }}>
+                    <Text type="secondary" style={{ fontSize: 11 }}>Responsable</Text>
+                    {renderPerson(row.responsible, '#1565C0')}
+                    <Text type="secondary" style={{ fontSize: 11, marginTop: 4 }}>Consolidateur</Text>
+                    {renderPerson(row.consolidator, '#722ed1')}
+                    <Text type="secondary" style={{ fontSize: 11, marginTop: 4 }}>Coordinateur</Text>
+                    {renderPerson(row.coordinator, '#13c2c2')}
+                </div>
+                <div style={{ marginTop: 12 }}>
+                    {renderRowActions(row, true)}
+                </div>
+            </Card>
+        );
+    };
 
     // ── Colonnes tableau ──────────────────────────────────────────
     const columns = [
@@ -194,49 +440,39 @@ export default function Projects({ adminContext = false }) {
             title: 'Description',
             dataIndex: 'description',
             ellipsis: true,
+            responsive: ['lg'],
             render: (d) => d || <Text type="secondary">—</Text>,
+        },
+        {
+            title: 'Responsable',
+            key: 'responsible',
+            width: 160,
+            ellipsis: true,
+            responsive: ['md'],
+            render: (_, row) => renderPerson(row.responsible, '#1565C0'),
         },
         {
             title: 'Consolidateur',
             key: 'consolidator',
-            width: 180,
+            width: 160,
             ellipsis: true,
-            render: (_, row) => {
-                const c = row.consolidator;
-                if (!c) return <Text type="secondary">Non défini</Text>;
-                return (
-                    <Tooltip title={`${c.email} — ${c.role}`}>
-                        <Space size={4}>
-                            <UserOutlined style={{ color: '#722ed1' }} />
-                            <Text>{c.name}</Text>
-                        </Space>
-                    </Tooltip>
-                );
-            },
+            responsive: ['lg'],
+            render: (_, row) => renderPerson(row.consolidator, '#722ed1'),
         },
         {
             title: 'Coordinateur',
             key: 'coordinator',
-            width: 180,
+            width: 160,
             ellipsis: true,
-            render: (_, row) => {
-                const c = row.coordinator;
-                if (!c) return <Text type="secondary">Non défini</Text>;
-                return (
-                    <Tooltip title={`${c.email} — ${c.role}`}>
-                        <Space size={4}>
-                            <UserOutlined style={{ color: '#13c2c2' }} />
-                            <Text>{c.name}</Text>
-                        </Space>
-                    </Tooltip>
-                );
-            },
+            responsive: ['xl'],
+            render: (_, row) => renderPerson(row.coordinator, '#13c2c2'),
         },
         {
             title: 'Missions',
             key: 'missions',
             width: 90,
             align: 'center',
+            responsive: ['sm'],
             render: (_, row) => (
                 <Badge count={row._count?.missions || 0} showZero
                     style={{ background: row._count?.missions ? '#722ed1' : '#d9d9d9' }} />
@@ -247,6 +483,7 @@ export default function Projects({ adminContext = false }) {
             key: 'meetings',
             width: 90,
             align: 'center',
+            responsive: ['sm'],
             render: (_, row) => (
                 <Badge count={row._count?.meetings || 0} showZero
                     style={{ background: row._count?.meetings ? '#1565C0' : '#d9d9d9' }} />
@@ -268,52 +505,10 @@ export default function Projects({ adminContext = false }) {
         {
             title: 'Actions',
             key: 'actions',
-            width: 120,
+            width: isCompact ? 100 : 120,
             align: 'center',
-            render: (_, row) => (
-                <Space>
-                    <Tooltip title="Voir détail">
-                        <Button size="small" icon={<EyeOutlined />} onClick={() => openDetail(row)} />
-                    </Tooltip>
-                    {canManage && (
-                        <Tooltip title="Modifier">
-                            <Button
-                                size="small"
-                                icon={<EditOutlined />}
-                                onClick={() => navigate(projectFormPath(adminContext, row.id))}
-                            />
-                        </Tooltip>
-                    )}
-                    {canManage && row.status !== 'COMPLETED' && (
-                        <Tooltip title="Mettre en pause">
-                            <Button size="small" icon={<PauseCircleOutlined />} onClick={() => handleStatus(row, 'PAUSED')} />
-                        </Tooltip>
-                    )}
-                    {canManage && row.status !== 'COMPLETED' && (
-                        <Tooltip title="Terminer">
-                            <Button size="small" icon={<CheckCircleOutlined />} onClick={() => handleStatus(row, 'COMPLETED')} />
-                        </Tooltip>
-                    )}
-                    {canManage && row.status !== 'ACTIVE' && (
-                        <Tooltip title="Réactiver">
-                            <Button size="small" type="default" icon={<StopOutlined />} onClick={() => handleStatus(row, 'ACTIVE')} />
-                        </Tooltip>
-                    )}
-                    {canManage && (
-                        <Popconfirm
-                            title="Supprimer ce projet ?"
-                            description="Les missions et réunions liées seront détachées."
-                            okText="Supprimer" cancelText="Annuler"
-                            okButtonProps={{ danger: true }}
-                            onConfirm={() => handleDelete(row.id)}
-                        >
-                            <Tooltip title="Supprimer">
-                                <Button size="small" danger icon={<DeleteOutlined />} />
-                            </Tooltip>
-                        </Popconfirm>
-                    )}
-                </Space>
-            ),
+            fixed: isCompact ? 'right' : undefined,
+            render: (_, row) => renderRowActions(row),
         },
     ];
 
@@ -322,7 +517,7 @@ export default function Projects({ adminContext = false }) {
             {/* ── En-tête ── */}
             <div style={{
                 display: 'flex',
-                justifyContent: adminContext ? 'flex-end' : 'space-between',
+                justifyContent: 'space-between',
                 alignItems: 'center',
                 marginBottom: 16,
                 flexWrap: 'wrap',
@@ -337,7 +532,9 @@ export default function Projects({ adminContext = false }) {
                     <Button
                         type="primary"
                         icon={<PlusOutlined />}
+                        block={isMobile}
                         onClick={() => navigate(projectFormPath(adminContext))}
+                        style={isMobile ? { width: '100%' } : undefined}
                     >
                         Nouveau projet
                     </Button>
@@ -352,7 +549,7 @@ export default function Projects({ adminContext = false }) {
                     { title: 'Missions liées',  value: missions, color: '#722ed1', icon: <FlagOutlined /> },
                     { title: 'Réunions liées',  value: meetings, color: '#1565C0', icon: <TeamOutlined /> },
                 ].map((s) => (
-                    <Col xs={12} sm={6} key={s.title}>
+                    <Col xs={12} sm={12} md={6} key={s.title}>
                         <Card size="small" style={{ borderRadius: 10 }}>
                             <Statistic
                                 title={s.title}
@@ -366,35 +563,70 @@ export default function Projects({ adminContext = false }) {
             </Row>
 
             {/* ── Barre recherche ── */}
-            <Card style={{ borderRadius: 10, marginBottom: 0 }} styles={{ body: { padding: '12px 16px' } }}>
+            <Card style={{ borderRadius: 10, marginBottom: 0 }} styles={{ body: { padding: isMobile ? '10px 12px' : '12px 16px' } }}>
                 <Input.Search
-                    placeholder="Rechercher par nom, code, consolidateur, coordinateur..."
+                    placeholder="Rechercher par nom, code, responsable..."
                     value={search}
                     onChange={(e) => setSearch(e.target.value)}
                     allowClear
-                    style={{ maxWidth: 380 }}
+                    style={{ width: '100%', maxWidth: isMobile ? '100%' : 420 }}
                 />
             </Card>
 
-            {/* ── Tableau ── */}
-            <Card style={{ borderRadius: 10, marginTop: 12 }} styles={{ body: { padding: 0 } }}>
-                <Table
-                    dataSource={filtered}
-                    columns={columns}
-                    rowKey="id"
-                    loading={loading}
-                    size="middle"
-                    pagination={{ pageSize: 20, showSizeChanger: true, showTotal: (t) => `${t} projet(s)` }}
-                    locale={{ emptyText: 'Aucun projet' }}
-                />
+            {/* ── Liste / Tableau ── */}
+            <Card
+                style={{ borderRadius: 10, marginTop: 12 }}
+                styles={{ body: { padding: isMobile ? 12 : 0 } }}
+            >
+                {isMobile ? (
+                    <List
+                        dataSource={filtered}
+                        rowKey="id"
+                        loading={loading}
+                        locale={{ emptyText: 'Aucun projet' }}
+                        pagination={{
+                            pageSize: 8,
+                            showSizeChanger: false,
+                            showTotal: (t) => `${t} projet(s)`,
+                            size: 'small',
+                        }}
+                        renderItem={(row) => (
+                            <List.Item style={{ padding: 0, marginBottom: 10, border: 'none' }}>
+                                {renderMobileProjectCard(row)}
+                            </List.Item>
+                        )}
+                    />
+                ) : (
+                    <Table
+                        dataSource={filtered}
+                        columns={columns}
+                        rowKey="id"
+                        loading={loading}
+                        size="middle"
+                        scroll={{ x: isCompact ? 960 : undefined }}
+                        pagination={{
+                            pageSize: 20,
+                            showSizeChanger: true,
+                            showTotal: (t) => `${t} projet(s)`,
+                            responsive: true,
+                        }}
+                        locale={{ emptyText: 'Aucun projet' }}
+                    />
+                )}
             </Card>
 
             {/* ── Drawer détail ── */}
             <Drawer
                 open={!!drawerProject}
                 onClose={() => setDrawerProject(null)}
+                placement="right"
+                width={isMobile ? '100%' : 480}
+                styles={{
+                    body: { padding: isMobile ? '12px 14px' : '20px 24px' },
+                    header: { padding: isMobile ? '12px 14px' : undefined },
+                }}
                 extra={drawerProject?.id ? (
-                    <Space>
+                    <Space wrap size={[8, 8]} style={{ justifyContent: isMobile ? 'flex-start' : 'flex-end' }}>
                         {canManage && (
                             <Button
                                 size="small"
@@ -404,10 +636,15 @@ export default function Projects({ adminContext = false }) {
                                     navigate(projectFormPath(adminContext, drawerProject.id));
                                 }}
                             >
-                                Modifier
+                                {isMobile ? 'Modifier' : 'Modifier'}
                             </Button>
                         )}
-                        <Button type="primary" size="small" onClick={() => navigate(`/projects/${drawerProject.id}`)}>
+                        <Button
+                            type="primary"
+                            size="small"
+                            block={isMobile}
+                            onClick={() => navigate(`/projects/${drawerProject.id}`)}
+                        >
                             Page détail
                         </Button>
                     </Space>
@@ -429,10 +666,9 @@ export default function Projects({ adminContext = false }) {
                             />
                         ) : null}
                         <ProjectOutlined style={{ marginRight: 4 }} />
-                        <span>{drawerProject?.name}</span>
+                        <span style={{ wordBreak: 'break-word' }}>{drawerProject?.name}</span>
                     </span>
                 )}
-                width={480}
                 loading={drawerLoading}
             >
                 {drawerProject && (
@@ -464,6 +700,19 @@ export default function Projects({ adminContext = false }) {
                             </Descriptions.Item>
                             <Descriptions.Item label="Créateur">
                                 {drawerProject.createdBy?.name || drawerProject.createdBy?.email || '—'}
+                            </Descriptions.Item>
+                            <Descriptions.Item label="Responsable">
+                                {drawerProject.responsible ? (
+                                    <Space direction="vertical" size={0}>
+                                        <Text strong>{drawerProject.responsible.name}</Text>
+                                        <Text type="secondary" style={{ fontSize: 12 }}>
+                                            {drawerProject.responsible.email}
+                                            {drawerProject.responsible.role ? ` · ${drawerProject.responsible.role}` : ''}
+                                        </Text>
+                                    </Space>
+                                ) : (
+                                    <Text type="secondary">Non défini</Text>
+                                )}
                             </Descriptions.Item>
                             <Descriptions.Item label="Consolidateur">
                                 {drawerProject.consolidator ? (

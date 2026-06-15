@@ -11,7 +11,7 @@ const { isRoomAvailableForSlot, isRoomActive } = require('../utils/availability'
 const { formatAppTimeHm } = require('../utils/roomBooking');
 const { appDayBoundsFromYmd, toAppYmd } = require('../utils/calendarEvents');
 const { createAuditLog } = require('../utils/audit');
-const { ROLES, isPrivilegedAdmin, isSuperAdmin } = require('../config/roles');
+const { ROLES, isPrivilegedAdmin, isSuperAdmin, isResponsable } = require('../config/roles');
 const { MEETING_PENDING_FINAL } = require('../config/meetingWorkflow');
 const { isPendingCoordinatorValidation } = require('../config/planningWorkflow');
 const {
@@ -206,6 +206,7 @@ const {
     notifyConsolidatorsPendingMeeting,
     resolveProjectIdForConsolidation,
 } = require('../services/projectConsolidator.service');
+const { validateProjectForUserAction, PROJECT_WITH_RESPONSIBLE_SELECT } = require('../services/projectResponsible.service');
 
 const meetingsUploadDir = path.join(__dirname, '../../uploads/meetings');
 const uploadMeetingFile = multer({
@@ -303,7 +304,7 @@ router.get('/', async (req, res) => {
                     organizer: { select: { name: true, email: true, role: true } },
                     room: true,
                     direction: { select: { id: true, name: true, code: true } },
-                    project: { select: { id: true, name: true, code: true, consolidatorId: true, coordinatorId: true } },
+                    project: { select: { ...PROJECT_WITH_RESPONSIBLE_SELECT, consolidatorId: true, coordinatorId: true } },
                     eventType: EVENT_TYPE_INCLUDE,
                     invitations: { include: { user: true } },
                     ...(includeFiles
@@ -373,7 +374,7 @@ router.get('/:id', async (req, res) => {
                 organizer: true,
                 room: true,
                 direction: { select: { id: true, name: true, code: true } },
-                project: { select: { id: true, name: true, code: true, consolidatorId: true, coordinatorId: true } },
+                project: { select: { ...PROJECT_WITH_RESPONSIBLE_SELECT, consolidatorId: true, coordinatorId: true } },
                 eventType: EVENT_TYPE_INCLUDE,
                 invitations: { include: { user: true } },
                 messages: {
@@ -734,14 +735,19 @@ router.put('/:id', async (req, res) => {
                 if (!d) return res.status(400).json({ error: 'Direction introuvable.' });
             }
         }
+        let resolvedProjectIdForUpdate;
         if (projectId !== undefined) {
-            if (projectId) {
-                const p = await req.prisma.project.findUnique({ where: { id: projectId }, select: { id: true, isActive: true, status: true } });
-                if (!p) return res.status(400).json({ error: 'Projet introuvable.' });
-                if (!p.isActive || p.status !== 'ACTIVE') {
-                    return res.status(400).json({ error: 'Ce projet est en pause ou terminé et ne peut pas être sélectionné.' });
-                }
-            }
+            const projectCheck = await validateProjectForUserAction(
+                req.prisma,
+                req.user,
+                projectId || null,
+                { requiredForResponsable: false },
+            );
+            if (!projectCheck.ok) return res.status(403).json({ error: projectCheck.error });
+            resolvedProjectIdForUpdate = projectCheck.value;
+        } else if (isResponsable(req.user?.role) && meeting.projectId) {
+            const projectCheck = await validateProjectForUserAction(req.prisma, req.user, meeting.projectId);
+            if (!projectCheck.ok) return res.status(403).json({ error: projectCheck.error });
         }
 
         let eventTypeIdData = undefined;
@@ -760,7 +766,7 @@ router.put('/:id', async (req, res) => {
                 ...(agenda !== undefined && { agenda }),
                 ...(roomId !== undefined && { roomId: newRoomId }),
                 ...(directionId !== undefined && { directionId: directionId || null }),
-                ...(projectId !== undefined && { projectId: projectId || null }),
+                ...(projectId !== undefined && { projectId: resolvedProjectIdForUpdate ?? null }),
                 ...(hasMeetingLinkInPayload && { meetingLink: normalizedMeetingLink }),
                 ...(startTime !== undefined && { startTime: newStart }),
                 ...(endTime !== undefined && { endTime: newEnd }),
@@ -770,7 +776,7 @@ router.put('/:id', async (req, res) => {
                 organizer: { select: { name: true, email: true } },
                 room: true,
                 direction: { select: { id: true, name: true, code: true } },
-                project: { select: { id: true, name: true, code: true, consolidatorId: true, coordinatorId: true } },
+                project: { select: { ...PROJECT_WITH_RESPONSIBLE_SELECT, consolidatorId: true, coordinatorId: true } },
                 eventType: EVENT_TYPE_INCLUDE,
                 invitations: { include: { user: true } },
             },
@@ -960,13 +966,6 @@ router.post('/', async (req, res) => {
             const d = await req.prisma.direction.findUnique({ where: { id: directionId }, select: { id: true } });
             if (!d) return res.status(400).json({ error: 'Direction introuvable.' });
         }
-        if (projectId) {
-            const p = await req.prisma.project.findUnique({ where: { id: projectId }, select: { id: true, isActive: true, status: true } });
-            if (!p) return res.status(400).json({ error: 'Projet introuvable.' });
-            if (!p.isActive || p.status !== 'ACTIVE') {
-                return res.status(400).json({ error: 'Ce projet est en pause ou terminé et ne peut pas être sélectionné.' });
-            }
-        }
 
         let resolvedEventTypeId = undefined;
         if (Object.prototype.hasOwnProperty.call(req.body, 'eventTypeId')) {
@@ -977,8 +976,19 @@ router.post('/', async (req, res) => {
             }
         }
 
-        const effectiveProjectId = projectId
-            || await resolveProjectIdForConsolidation(req.prisma, null, req.user.id);
+        let effectiveProjectId;
+        if (isResponsable(req.user?.role)) {
+            const projectCheck = await validateProjectForUserAction(req.prisma, req.user, projectId || null);
+            if (!projectCheck.ok) return res.status(403).json({ error: projectCheck.error });
+            effectiveProjectId = projectCheck.value;
+        } else {
+            if (projectId) {
+                const projectCheck = await validateProjectForUserAction(req.prisma, req.user, projectId);
+                if (!projectCheck.ok) return res.status(400).json({ error: projectCheck.error });
+            }
+            effectiveProjectId = projectId
+                || await resolveProjectIdForConsolidation(req.prisma, null, req.user.id);
+        }
 
         const meeting = await req.prisma.meeting.create({
             data: {

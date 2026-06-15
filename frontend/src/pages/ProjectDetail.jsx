@@ -16,12 +16,14 @@ import {
     StopOutlined,
     MessageOutlined,
     UserOutlined,
+    PlusOutlined,
 } from '@ant-design/icons';
 import api, { API_BASE } from '../api/client';
 import { useAuth } from '../context/AuthContext';
 import { PDF_ACCEPT, isAcceptedPdfFile } from '../utils/pdfAttachment';
 import { resolveImageSrc } from '../utils/mediaUrl';
 import { canManageProjects } from '../utils/roles';
+import { isUserProjectResponsible } from '../utils/projectScope';
 
 const { Title, Text } = Typography;
 const STATUS_COLORS = { ACTIVE: 'success', PAUSED: 'warning', COMPLETED: 'default' };
@@ -37,6 +39,8 @@ export default function ProjectDetail() {
     const [uploading, setUploading] = useState(false);
 
     const canManage = canManageProjects(user?.role);
+    const isResponsible = isUserProjectResponsible(user, project);
+    const canCreateOnProject = isResponsible && project?.status === 'ACTIVE';
 
     const load = async () => {
         setLoading(true);
@@ -117,10 +121,27 @@ export default function ProjectDetail() {
                 <Button icon={<ArrowLeftOutlined />} onClick={() => navigate('/projects')}>
                     Retour aux projets
                 </Button>
-                {user?.projectId === project.id && (
+                {isResponsible && (
                     <Button icon={<MessageOutlined />} onClick={() => navigate('/discussions?channel=project')}>
                         Messagerie du projet
                     </Button>
+                )}
+                {canCreateOnProject && (
+                    <>
+                        <Button
+                            type="primary"
+                            icon={<TeamOutlined />}
+                            onClick={() => navigate(`/meetings/new?projectId=${project.id}`)}
+                        >
+                            Nouvelle réunion
+                        </Button>
+                        <Button
+                            icon={<FlagOutlined />}
+                            onClick={() => navigate(`/missions/new?projectId=${project.id}`)}
+                        >
+                            Nouvelle mission
+                        </Button>
+                    </>
                 )}
                 {canManage && (
                     <Button icon={<EditOutlined />} onClick={() => navigate(`/projects/${id}/edit`)}>
@@ -174,7 +195,7 @@ export default function ProjectDetail() {
                         okButtonProps={{ danger: true }}
                         onConfirm={handleDelete}
                     >
-                        <Button danger icon={<DeleteOutlined />}>Supprimer</Button>
+                        <Button danger icon={<DeleteOutlined />}>Supprimer le projet</Button>
                     </Popconfirm>
                 )}
             </Space>
@@ -218,6 +239,13 @@ export default function ProjectDetail() {
                         <Tag color={STATUS_COLORS[project.status] || 'default'}>
                             {STATUS_LABELS[project.status] || project.status}
                         </Tag>
+                        {project.responsible ? (
+                            <Tag icon={<UserOutlined />} color="green">
+                                Responsable : {project.responsible.name}
+                            </Tag>
+                        ) : (
+                            <Tag color="default">Responsable non défini</Tag>
+                        )}
                         {project.consolidator ? (
                             <Tag icon={<UserOutlined />} color="purple">
                                 Consolidateur : {project.consolidator.name}
@@ -239,6 +267,22 @@ export default function ProjectDetail() {
                     </Descriptions.Item>
                     <Descriptions.Item label="Créateur">
                         {project.createdBy?.name || project.createdBy?.email || '—'}
+                    </Descriptions.Item>
+                    <Descriptions.Item label="Responsable">
+                        {project.responsible ? (
+                            <Space direction="vertical" size={0}>
+                                <Text strong>
+                                    <UserOutlined style={{ marginRight: 6, color: '#52c41a' }} />
+                                    {project.responsible.name}
+                                </Text>
+                                <Text type="secondary" style={{ fontSize: 12 }}>
+                                    {project.responsible.email}
+                                    {project.responsible.role ? ` · ${project.responsible.role}` : ''}
+                                </Text>
+                            </Space>
+                        ) : (
+                            <Text type="secondary">Non défini — à configurer par l&apos;administration</Text>
+                        )}
                     </Descriptions.Item>
                     <Descriptions.Item label="Consolidateur">
                         {project.consolidator ? (
@@ -278,7 +322,20 @@ export default function ProjectDetail() {
                 </Descriptions>
             </Card>
 
-            <Card title={<><FlagOutlined style={{ marginRight: 6 }} />Missions ({project._count?.missions || 0})</>} style={{ marginBottom: 16 }}>
+            <Card
+                title={<><FlagOutlined style={{ marginRight: 6 }} />Missions ({project._count?.missions || 0})</>}
+                style={{ marginBottom: 16 }}
+                extra={canCreateOnProject && (
+                    <Button
+                        size="small"
+                        type="link"
+                        icon={<PlusOutlined />}
+                        onClick={() => navigate(`/missions/new?projectId=${project.id}`)}
+                    >
+                        Ajouter une mission
+                    </Button>
+                )}
+            >
                 {project.missions?.length > 0 ? (
                     <List
                         size="small"
@@ -292,7 +349,20 @@ export default function ProjectDetail() {
                 ) : <Text type="secondary">Aucune mission</Text>}
             </Card>
 
-            <Card title={<><TeamOutlined style={{ marginRight: 6 }} />Réunions ({project._count?.meetings || 0})</>} style={{ marginBottom: 16 }}>
+            <Card
+                title={<><TeamOutlined style={{ marginRight: 6 }} />Réunions ({project._count?.meetings || 0})</>}
+                style={{ marginBottom: 16 }}
+                extra={canCreateOnProject && (
+                    <Button
+                        size="small"
+                        type="link"
+                        icon={<PlusOutlined />}
+                        onClick={() => navigate(`/meetings/new?projectId=${project.id}`)}
+                    >
+                        Ajouter une réunion
+                    </Button>
+                )}
+            >
                 {project.meetings?.length > 0 ? (
                     <List
                         size="small"

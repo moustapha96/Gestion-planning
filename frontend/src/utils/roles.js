@@ -120,6 +120,11 @@ export function isProjectCoordinator(entity, user) {
     return coordinatorId === user.id;
 }
 
+export function isUserProjectResponsible(user, project) {
+    if (!user?.id || !project) return false;
+    return project.responsibleId === user.id;
+}
+
 function planningValidationFlags(planning) {
     return planning?.validation || null;
 }

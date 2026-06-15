@@ -21,6 +21,9 @@ import {
     ClockCircleOutlined,
     ReloadOutlined,
     PlusOutlined,
+    FlagOutlined,
+    CheckCircleOutlined,
+    BellOutlined,
 } from '@ant-design/icons';
 import { Link, useNavigate } from 'react-router-dom';
 import api from '../api/client';
@@ -28,9 +31,6 @@ import { useAuth } from '../context/AuthContext';
 import { isPrivilegedAdmin } from '../utils/roles';
 
 const { Title, Text } = Typography;
-
-const STATUS_COLORS = { FREE: 'success', OCCUPIED: 'error', BUSY: 'error' };
-const STATUS_LABELS = { FREE: 'Libre', OCCUPIED: 'Occupée', BUSY: 'Occupée' };
 
 function localYmd(d) {
     const x = d instanceof Date ? d : new Date(d);
@@ -116,27 +116,35 @@ export default function Dashboard() {
                 setData(todayRes.value.data);
             } else {
                 setData({
-                    freeRooms: 0,
-                    occupiedRooms: 0,
+                    scope: 'user',
                     meetingsToday: 0,
-                    pendingPlannings: 0,
-                    rooms: [],
+                    missionsToday: 0,
+                    activitiesToday: 0,
+                    pendingInvitations: 0,
+                    pendingValidations: 0,
+                    myMeetingsToday: [],
                 });
             }
             if (weekRes.status === 'fulfilled' && weekRes.value?.data) {
                 setWeekData(weekRes.value.data);
             } else {
                 setWeekData({
-                    occupancyRate: '0',
-                    bookedSlots: 0,
-                    submittedPlannings: 0,
-                    rooms: [],
+                    scope: 'user',
+                    meetingsThisWeek: 0,
+                    missionsThisWeek: 0,
+                    activitiesThisWeek: 0,
+                    planningsThisWeek: 0,
+                    pendingValidations: 0,
                 });
             }
         } catch (e) {
             console.error(e);
-            setData((prev) => prev || { freeRooms: 0, occupiedRooms: 0, meetingsToday: 0, pendingPlannings: 0, rooms: [] });
-            setWeekData((prev) => prev || { occupancyRate: '0', bookedSlots: 0, submittedPlannings: 0, rooms: [] });
+            setData((prev) => prev || {
+                meetingsToday: 0, missionsToday: 0, activitiesToday: 0, pendingInvitations: 0, myMeetingsToday: [],
+            });
+            setWeekData((prev) => prev || {
+                meetingsThisWeek: 0, missionsThisWeek: 0, activitiesThisWeek: 0, planningsThisWeek: 0,
+            });
         } finally {
             setLoading(false);
         }
@@ -204,59 +212,67 @@ export default function Dashboard() {
         }
     };
 
-    const roomColumns = [
-        { title: 'Salle', dataIndex: 'name', key: 'name' },
+    const showValidationCard = Boolean(data?.canValidate ?? weekData?.canValidate);
+    const fourthCardValue = showValidationCard
+        ? (data?.pendingValidations ?? 0)
+        : (data?.pendingInvitations ?? 0);
+    const fourthCardTitle = showValidationCard ? 'À valider' : 'Invitations en attente';
+    const fourthCardColor = fourthCardValue > 0 ? '#fa8c16' : '#8c8c8c';
+    const fourthCardIcon = showValidationCard ? <CheckCircleOutlined /> : <BellOutlined />;
+
+    const myMeetingsColumns = [
+        {
+            title: 'Réunion',
+            dataIndex: 'title',
+            key: 'title',
+            render: (title, row) => <Link to={row.link || `/meetings/${row.id}`}>{title}</Link>,
+        },
+        {
+            title: 'Horaire',
+            key: 'time',
+            render: (_, row) => {
+                if (!row.startTime) return '—';
+                const start = new Date(row.startTime).toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' });
+                const end = row.endTime
+                    ? new Date(row.endTime).toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' })
+                    : '';
+                return end ? `${start} – ${end}` : start;
+            },
+        },
+        {
+            title: 'Salle',
+            key: 'room',
+            render: (_, row) => row.room?.name || <Text type="secondary">—</Text>,
+        },
+        {
+            title: 'Projet',
+            key: 'project',
+            render: (_, row) => row.project?.name || <Text type="secondary">—</Text>,
+        },
         {
             title: 'Statut',
             dataIndex: 'status',
             key: 'status',
-            render: (s) => (
-                <Tag color={STATUS_COLORS[s] || 'default'}>{STATUS_LABELS[s] || s}</Tag>
-            ),
-        },
-        {
-            title: 'Créneaux réservés (aujourd\'hui)',
-            key: 'details',
-            render: (_, room) => {
-                const list = room.bookings || [];
-                if (list.length === 0) {
-                    return <Text type="success">Disponible toute la journée</Text>;
-                }
-                return (
-                    <Space orientation="vertical" size={4} style={{ width: '100%' }}>
-                        {list.map((b) => (
-                            <div key={b.id}>
-                                <Text strong>{b.startTime} – {b.endTime}</Text>
-                                {b.meetingTitle && (
-                                    <Text type="secondary" style={{ display: 'block', marginLeft: 8 }}>
-                                        {b.meetingTitle}
-                                    </Text>
-                                )}
-                                {b.meetingId && (
-                                    <Link to={`/meetings/${b.meetingId}`} style={{ marginLeft: 8, fontSize: 12 }}>
-                                        Voir réunion
-                                    </Link>
-                                )}
-                            </div>
-                        ))}
-                    </Space>
-                );
-            },
+            render: (s) => <Tag>{s}</Tag>,
         },
     ];
 
-    const totalRooms = data?.rooms?.length ?? 0;
-    const occupied = data?.occupiedRooms ?? 0;
-    const occupancyPct =
-        totalRooms > 0 ? Math.round((occupied / totalRooms) * 100) : 0;
+    const activitiesToday = data?.activitiesToday ?? ((data?.meetingsToday ?? 0) + (data?.missionsToday ?? 0));
+    const activitiesWeek = weekData?.activitiesThisWeek
+        ?? ((weekData?.meetingsThisWeek ?? 0) + (weekData?.missionsThisWeek ?? 0));
 
     return (
         <Spin spinning={loading}>
             <div>
                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 24, flexWrap: 'wrap', gap: 12 }}>
-                    <Title level={3} style={{ margin: 0 }}>
-                        Tableau de bord
-                    </Title>
+                    <div>
+                        <Title level={3} style={{ margin: 0 }}>
+                            Tableau de bord
+                        </Title>
+                        <Text type="secondary" style={{ fontSize: 13 }}>
+                            Vos indicateurs personnels — {user?.name || 'utilisateur connecté'}
+                        </Text>
+                    </div>
                     <Button icon={<ReloadOutlined />} onClick={load}>
                         Actualiser
                     </Button>
@@ -266,27 +282,7 @@ export default function Dashboard() {
                     <Col xs={12} sm={6}>
                         <Card>
                             <Statistic
-                                title="Salles libres"
-                                value={data?.freeRooms ?? 0}
-                                valueStyle={{ color: '#52c41a' }}
-                                prefix={<HomeOutlined />}
-                            />
-                        </Card>
-                    </Col>
-                    <Col xs={12} sm={6}>
-                        <Card>
-                            <Statistic
-                                title="Salles occupées"
-                                value={data?.occupiedRooms ?? 0}
-                                valueStyle={{ color: '#ff4d4f' }}
-                                prefix={<HomeOutlined />}
-                            />
-                        </Card>
-                    </Col>
-                    <Col xs={12} sm={6}>
-                        <Card>
-                            <Statistic
-                                title="Réunions aujourd\'hui."
+                                title="Mes réunions aujourd'hui"
                                 value={data?.meetingsToday ?? 0}
                                 valueStyle={{ color: '#1F5C8B' }}
                                 prefix={<CalendarOutlined />}
@@ -296,10 +292,36 @@ export default function Dashboard() {
                     <Col xs={12} sm={6}>
                         <Card>
                             <Statistic
-                                title="Plannings en attente"
-                                value={data?.pendingPlannings ?? 0}
-                                valueStyle={{ color: '#fa8c16' }}
+                                title="Mes missions actives"
+                                value={data?.missionsToday ?? 0}
+                                valueStyle={{ color: '#722ed1' }}
+                                prefix={<FlagOutlined />}
+                            />
+                        </Card>
+                    </Col>
+                    <Col xs={12} sm={6}>
+                        <Card>
+                            <Statistic
+                                title="Activités aujourd'hui"
+                                value={activitiesToday}
+                                valueStyle={{ color: '#52c41a' }}
                                 prefix={<ClockCircleOutlined />}
+                            />
+                        </Card>
+                    </Col>
+                    <Col xs={12} sm={6}>
+                        <Card
+                            hoverable={fourthCardValue > 0}
+                            onClick={() => {
+                                if (showValidationCard && fourthCardValue > 0) navigate('/a-valider');
+                            }}
+                            style={{ cursor: showValidationCard && fourthCardValue > 0 ? 'pointer' : 'default' }}
+                        >
+                            <Statistic
+                                title={fourthCardTitle}
+                                value={fourthCardValue}
+                                valueStyle={{ color: fourthCardColor }}
+                                prefix={fourthCardIcon}
                             />
                         </Card>
                     </Col>
@@ -307,37 +329,39 @@ export default function Dashboard() {
 
                 <Row gutter={[16, 16]} style={{ marginBottom: 24 }}>
                     <Col xs={24} md={12}>
-                        <Card title="Taux d'occupation des salles (aujourd\'hui.)">
+                        <Card title="Ma journée">
                             <Progress
-                                percent={occupancyPct}
-                                status={occupancyPct >= 80 ? 'exception' : 'active'}
-                                format={(p) => `${p}% (${occupied}/${totalRooms} occupées)`}
+                                percent={activitiesToday > 0 ? 100 : 0}
+                                status={activitiesToday > 0 ? 'active' : 'normal'}
+                                format={() => `${activitiesToday} activité${activitiesToday > 1 ? 's' : ''}`}
                             />
                             <Text type="secondary" style={{ marginTop: 8, display: 'block' }}>
-                                Vue en temps réel des réservations confirmées du jour.
+                                {data?.meetingsToday ?? 0} réunion(s) et {data?.missionsToday ?? 0} mission(s) vous concernent aujourd&apos;hui.
                             </Text>
+                            <Space style={{ marginTop: 12 }} wrap>
+                                <Link to="/meetings">Mes réunions</Link>
+                                <Link to="/missions">Mes missions</Link>
+                            </Space>
                         </Card>
                     </Col>
                     <Col xs={24} md={12}>
-                        <Card title="Semaine en cours">
+                        <Card title="Ma semaine en cours">
                             <Space orientation="vertical" style={{ width: '100%' }}>
                                 <Text>
-                                    Taux d&apos;occupation salles :{' '}
-                                    <strong>{weekData?.occupancyRate ?? 0}%</strong>
+                                    Activités cette semaine :{' '}
+                                    <strong>{activitiesWeek}</strong>
                                 </Text>
                                 <Text type="secondary">
-                                    Créneaux réservés : {weekData?.bookedSlots ?? 0}
+                                    {weekData?.meetingsThisWeek ?? 0} réunion(s) · {weekData?.missionsThisWeek ?? 0} mission(s)
+                                    {(weekData?.planningsThisWeek ?? 0) > 0 && ` · ${weekData.planningsThisWeek} planning(s)`}
                                 </Text>
-                                <Text>
-                                    Plannings validés :{' '}
-                                    <strong>{weekData?.submittedPlannings ?? 0}</strong>
-                                </Text>
-                                <Text>
-                                    Missions actives :{' '}
-                                    <strong>{weekData?.activeMissions ?? 0}</strong>
-                                </Text>
-                                <Link to="/calendar">Ouvrir le calendrier</Link>
-                                <Link to="/rooms">Gérer les salles</Link>
+                                {showValidationCard && (weekData?.pendingValidations ?? 0) > 0 && (
+                                    <Text type="warning">
+                                        {weekData.pendingValidations} élément(s) en attente de votre validation
+                                    </Text>
+                                )}
+                                <Link to="/planning">Mon planning</Link>
+                                <Link to="/calendar">Mon calendrier</Link>
                             </Space>
                         </Card>
                     </Col>
@@ -462,15 +486,15 @@ export default function Dashboard() {
                     </Spin>
                 </Card>
 
-                <Card title="État des salles aujourd\'hui.">
+                <Card title="Mes réunions aujourd'hui">
                     <Table
-                        columns={roomColumns}
-                        dataSource={data?.rooms || []}
+                        columns={myMeetingsColumns}
+                        dataSource={data?.myMeetingsToday || []}
                         rowKey="id"
                         pagination={false}
                         size="middle"
                         scroll={{ x: 'max-content' }}
-                        locale={{ emptyText: 'Aucune salle' }}
+                        locale={{ emptyText: 'Aucune réunion prévue aujourd\'hui' }}
                     />
                 </Card>
 
@@ -478,7 +502,7 @@ export default function Dashboard() {
                     <>
                         <Divider />
                         <Card
-                            title="Dashboard avancé"
+                            title="Statistiques globales (administration)"
                             loading={advancedLoading}
                             extra={(
                                 <Space>

@@ -1,4 +1,4 @@
-import { useEffect, useState, useCallback } from 'react';
+import { useEffect, useState, useCallback, useMemo } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import {
     Card, Typography, Button, Space, Tag, Spin, Modal, Input,
@@ -22,6 +22,11 @@ import {
 } from '../utils/roles';
 import { forceDeleteDescription, forceDeleteTitle } from '../utils/deleteConfirm';
 import ForceDeletePopconfirm from '../components/ForceDeletePopconfirm';
+import {
+    filterAssignableProjects,
+    projectFieldLabel,
+    projectSelectRules,
+} from '../utils/projectScope';
 
 const { Title, Text, Paragraph } = Typography;
 const { TextArea } = Input;
@@ -198,7 +203,7 @@ function WeekGrid({ events, weekStart, canEdit, onEdit, onDelete, onView, resolv
                                                     {ev.room?.name || ev.destination}
                                                 </Text>
                                             )}
-                                            {canEdit && (
+                                            {canEdit && !ev.readOnly && (
                                                 <div style={{ display: 'flex', gap: 2, marginTop: 3 }}>
                                                     <Button
                                                         type="text" size="small" icon={<EditOutlined />}
@@ -262,6 +267,12 @@ export default function PlanningDetail() {
     const [shareOpen,        setShareOpen]        = useState(false);
     const [eventForm]                             = Form.useForm();
     const [eventTypes, setEventTypes]             = useState([]);
+
+    const assignableProjects = useMemo(
+        () => filterAssignableProjects(user, projects),
+        [user, projects],
+    );
+    const singleProject = assignableProjects.length === 1;
 
     const resolvePlanningEventStyle = useCallback((ev) => {
         if (ev.eventType?.color) {
@@ -363,7 +374,12 @@ export default function PlanningDetail() {
 
     // ── Gestion événements ───────────────────────────────────────
     const openEventModal = (event = null) => {
-        setEventModal({ open: true, event });
+        if (event?.readOnly) {
+            openEventDetails(event);
+            return;
+        }
+        const manualId = event ? (event.planningEventId || event.id) : null;
+        setEventModal({ open: true, event: event ? { ...event, id: manualId } : null });
         if (event) {
             eventForm.setFieldsValue({
                 title:       event.title,
@@ -379,7 +395,9 @@ export default function PlanningDetail() {
         } else {
             // Pré-remplir la date avec le lundi de la semaine
             eventForm.resetFields();
-            const defaultTypeId = eventTypes.find((t) => t.code === 'REUNION')?.id || eventTypes[0]?.id;
+            const defaultTypeId = eventTypes.find((t) => t.code === 'AUTRE')?.id
+                || eventTypes.find((t) => t.code === 'FORMATION')?.id
+                || eventTypes[0]?.id;
             if (planning?.weekStart) {
                 const monday = dayjs(planning.weekStart).hour(9).minute(0).second(0);
                 eventForm.setFieldsValue({
@@ -445,8 +463,11 @@ export default function PlanningDetail() {
     };
 
     const handleDeleteEvent = async (eventId) => {
+        const rawId = String(eventId).includes(':')
+            ? String(eventId).split(':').pop()
+            : eventId;
         try {
-            await api.delete(`/plannings/${id}/events/${eventId}`);
+            await api.delete(`/plannings/${id}/events/${rawId}`);
             message.success('Événement supprimé');
             fetchPlanning();
         } catch (err) {
@@ -580,7 +601,7 @@ export default function PlanningDetail() {
             <Result
                 status="404"
                 title="Planning introuvable"
-                extra={<Button type="primary" onClick={() => navigate('/planning')}>Retour</Button>}
+                extra={<Button type="primary" onClick={() => navigate('/planning')}>Retour au planning</Button>}
             />
         );
     }
@@ -594,35 +615,27 @@ export default function PlanningDetail() {
 
     const isAdmin         = isPrivilegedAdmin(user?.role);
     const isOwner         = planning.userId === user?.id;
-    const project         = planning.user?.project;
+    const project         = planning.project || planning.user?.project;
     const isViewerOnly    = !isOwner && !isAdmin && canViewPlanningDetail(planning, user);
 
-    const canEditEvents  = planning.status !== 'CANCELLED' && (isAdmin || (isOwner && (planning.status === 'DRAFT' || planning.status === 'RETURNED')));
-    const canSubmit      = (isOwner || isAdmin) && (planning.status === 'DRAFT' || planning.status === 'RETURNED');
-    const canConsolidate = canConsolidatePlanning(planning, user);
-    const canValidateCoordinator = canCoordinatePlanning(planning, user);
-    const showReturnButton = canReturnPlanning(planning, user);
-    const validationHint = planningValidationHint(planning);
-    const autoFinalizeOnConsolidate = planningAutoFinalizeOnConsolidate(planning);
+    const canEditEvents  = planning.status !== 'CANCELLED' && (isAdmin || isOwner);
     const canCancel      = isAdmin && planning.status !== 'CANCELLED';
     const canDelete      = (isOwner && planning.status === 'DRAFT') || isAdmin;
     const isSuperAdmin   = canSuperAdminForceDelete(user?.role);
 
     const weekMissions = planning.weekMissions || [];
-    const workflowStep = getWorkflowStep(planning.status);
+    const weekMeetings = planning.weekMeetings || [];
+    const eventCounts = planning.counts || {
+        total: planning.events?.length || 0,
+        meetings: weekMeetings.length,
+        missions: weekMissions.length,
+        manualEvents: planning.manualEvents?.length || 0,
+    };
 
     const weekStart = new Date(planning.weekStart);
     const weekEnd   = new Date(weekStart);
     weekEnd.setDate(weekStart.getDate() + 6);
     const weekLabel = `${weekStart.toLocaleDateString('fr-FR', { day: 'numeric', month: 'long' })} – ${weekEnd.toLocaleDateString('fr-FR', { day: 'numeric', month: 'long', year: 'numeric' })}`;
-
-    const validateButtonLabel = (() => {
-        if (!project?.coordinatorId && normalizeRole(user?.role) === ROLES.CONSOLIDATEUR) {
-            return 'Valider (consolidateur rôle)';
-        }
-        if (isProjectCoordinator(planning, user)) return 'Valider (coordinateur projet)';
-        return 'Valider définitivement';
-    })();
 
     return (
         <div>
@@ -632,7 +645,7 @@ export default function PlanningDetail() {
                 marginBottom: 20, flexWrap: 'wrap',
             }}>
                 <Button icon={<ArrowLeftOutlined />} onClick={() => navigate('/planning')}>
-                    Retour
+                    Retour au planning
                 </Button>
 
                 <Button icon={<ShareAltOutlined />} onClick={handleShare}>
@@ -646,42 +659,7 @@ export default function PlanningDetail() {
                         type="dashed" icon={<PlusOutlined />}
                         onClick={() => openEventModal()}
                     >
-                        Ajouter un événement
-                    </Button>
-                )}
-
-                {canSubmit && (
-                    <Button
-                        type="primary" icon={<SendOutlined />}
-                        onClick={handleSubmit} loading={actionLoading}
-                    >
-                        {planning.status === 'RETURNED' ? 'Resoumettre' : 'Soumettre'}
-                    </Button>
-                )}
-
-                {canConsolidate && (
-                    <Button
-                        type="primary" icon={<CheckOutlined />}
-                        onClick={handleConsolidate} loading={actionLoading}
-                        style={{ background: autoFinalizeOnConsolidate ? '#52c41a' : '#722ed1', borderColor: autoFinalizeOnConsolidate ? '#52c41a' : '#722ed1' }}
-                    >
-                        {autoFinalizeOnConsolidate ? 'Consolider et valider' : 'Consolider'}
-                    </Button>
-                )}
-
-                {canValidateCoordinator && (
-                    <Button
-                        type="primary" icon={<CheckOutlined />}
-                        onClick={handleValidateCoordinator} loading={actionLoading}
-                        style={{ background: '#52c41a', borderColor: '#52c41a' }}
-                    >
-                        {validateButtonLabel}
-                    </Button>
-                )}
-
-                {showReturnButton && (
-                    <Button danger icon={<RollbackOutlined />} onClick={() => setReturnModal(true)}>
-                        Retourner
+                        Ajouter un événement manuel
                     </Button>
                 )}
 
@@ -691,11 +669,11 @@ export default function PlanningDetail() {
                         description="Action réservée à l'administration, même si le planning est déjà validé."
                         onConfirm={handleCancelPlanning}
                         okText="Annuler le planning"
-                        cancelText="Fermer"
+                        cancelText="Annuler"
                         okButtonProps={{ danger: true, loading: actionLoading }}
                     >
                         <Button danger icon={<StopOutlined />} loading={actionLoading}>
-                            Annuler
+                            Annuler le planning
                         </Button>
                     </Popconfirm>
                 )}
@@ -708,7 +686,7 @@ export default function PlanningDetail() {
                         onConfirm={handleDeletePlanning}
                     >
                         <Button danger icon={<DeleteOutlined />} loading={deleteLoading}>
-                            Supprimer
+                            Supprimer le planning
                         </Button>
                     </ForceDeletePopconfirm>
                 )}
@@ -721,43 +699,19 @@ export default function PlanningDetail() {
                         okButtonProps={{ danger: true, loading: deleteLoading }}
                     >
                         <Button danger icon={<DeleteOutlined />} loading={deleteLoading}>
-                            Supprimer
+                            Supprimer le planning
                         </Button>
                     </Popconfirm>
                 )}
             </div>
 
-            {validationHint && (canConsolidate || canValidateCoordinator || ['SUBMITTED', 'COORDINATOR_PENDING', 'CP_PENDING', 'IN_CONSOLIDATION'].includes(planning.status)) && (
-                <Alert
-                    type={canConsolidate || canValidateCoordinator ? 'info' : 'warning'}
-                    showIcon
-                    style={{ marginBottom: 16, borderRadius: 10 }}
-                    message={canValidateCoordinator ? 'Action de validation disponible' : 'Circuit de validation'}
-                    description={validationHint}
-                />
-            )}
-
-            {isViewerOnly && (canConsolidate || canValidateCoordinator) && !validationHint && (
-                <Alert
-                    type="info"
-                    showIcon
-                    style={{ marginBottom: 16, borderRadius: 10 }}
-                    message="Consultation validateur"
-                    description="Vous pouvez examiner ce planning et les événements de la semaine. Les actions de validation disponibles apparaissent à droite."
-                />
-            )}
-
-            {/* ── Alerte si retourné ── */}
-            {planning.status === 'RETURNED' && planning.returnComment && (
-                <Alert
-                    type="warning"
-                    showIcon
-                    icon={<RollbackOutlined />}
-                    message="Planning retourné pour correction"
-                    description={planning.returnComment}
-                    style={{ marginBottom: 16, borderRadius: 10 }}
-                />
-            )}
+            <Alert
+                type="info"
+                showIcon
+                style={{ marginBottom: 16, borderRadius: 10 }}
+                message="Vue consolidée"
+                description="Ce planning regroupe automatiquement les réunions publiées, les missions confirmées et les événements manuels du responsable. Aucune validation de planning n'est requise."
+            />
 
             {/* ── Carte principale ── */}
             <Card style={{ borderRadius: 12 }} styles={{ body: { padding: 24 } }}>
@@ -782,11 +736,8 @@ export default function PlanningDetail() {
                             </Text>
                         </Space>
                     </div>
-                    <Tag
-                        color={STATUS_COLORS[planning.status]}
-                        style={{ fontSize: 13, padding: '4px 12px', fontWeight: 600 }}
-                    >
-                        {STATUS_LABELS[planning.status] || planning.status}
+                    <Tag color="green" style={{ fontSize: 13, padding: '4px 12px', fontWeight: 600 }}>
+                        Consolidé ({eventCounts.total} élément{eventCounts.total > 1 ? 's' : ''})
                     </Tag>
                 </div>
 
@@ -794,78 +745,33 @@ export default function PlanningDetail() {
                     <Descriptions
                         size="small"
                         bordered
-                        column={{ xs: 1, sm: 2, md: 3 }}
+                        column={{ xs: 1, sm: 2, md: 4 }}
                         style={{ marginBottom: 20 }}
                     >
                         <Descriptions.Item label="Projet">
                             {project.code ? `${project.name} (${project.code})` : project.name}
                         </Descriptions.Item>
-                        <Descriptions.Item label="Consolidateur">
-                            {project.consolidator?.name || <Text type="secondary">Non défini</Text>}
+                        <Descriptions.Item label="Responsable">
+                            {project.responsible?.name || planning.user?.name || <Text type="secondary">Non défini</Text>}
                         </Descriptions.Item>
-                        <Descriptions.Item label="Coordinateur">
-                            {project.coordinator?.name || <Text type="secondary">Non défini</Text>}
+                        <Descriptions.Item label="Réunions">
+                            {eventCounts.meetings}
+                        </Descriptions.Item>
+                        <Descriptions.Item label="Missions">
+                            {eventCounts.missions}
                         </Descriptions.Item>
                     </Descriptions>
                 )}
 
-                {/* ── Workflow steps ── */}
-                <div style={{ marginBottom: 24 }}>
-                    <Steps
-                        current={workflowStep}
-                        status={planning.status === 'RETURNED' ? 'error' : 'process'}
-                        size="small"
-                        items={WORKFLOW_STEPS.map((s, i) => ({
-                            title: s.title,
-                            description: i === workflowStep ? s.desc : undefined,
-                            subTitle: i < workflowStep && s.key === 'VALIDATED' && planning.validatedAt
-                                ? new Date(planning.validatedAt).toLocaleDateString('fr-FR')
-                                : undefined,
-                        }))}
-                    />
+                <div style={{
+                    display: 'flex', gap: 16, flexWrap: 'wrap',
+                    background: '#f6ffed', borderRadius: 8,
+                    padding: '10px 16px', marginBottom: 20,
+                }}>
+                    <Text type="secondary" style={{ fontSize: 12 }}>
+                        {eventCounts.meetings} réunion(s) · {eventCounts.missions} mission(s) · {eventCounts.manualEvents} événement(s) manuel(s)
+                    </Text>
                 </div>
-
-                {/* ── Dates clés ── */}
-                {(planning.submittedAt || planning.consolidatedAt || planning.validatedAt) && (
-                    <div style={{
-                        display: 'flex', gap: 16, flexWrap: 'wrap',
-                        background: '#fafafa', borderRadius: 8,
-                        padding: '10px 16px', marginBottom: 20,
-                    }}>
-                        {planning.submittedAt && (
-                            <div>
-                                <Text type="secondary" style={{ fontSize: 11, display: 'block' }}>Soumis le</Text>
-                                <Text style={{ fontSize: 13 }}>
-                                    {new Date(planning.submittedAt).toLocaleString('fr-FR', {
-                                        dateStyle: 'short', timeStyle: 'short',
-                                    })}
-                                </Text>
-                            </div>
-                        )}
-                        {planning.consolidatedAt && (
-                            <div>
-                                <Text type="secondary" style={{ fontSize: 11, display: 'block' }}>Consolidé le</Text>
-                                <Text style={{ fontSize: 13 }}>
-                                    {new Date(planning.consolidatedAt).toLocaleString('fr-FR', {
-                                        dateStyle: 'short', timeStyle: 'short',
-                                    })}
-                                </Text>
-                            </div>
-                        )}
-                        {planning.validatedAt && (
-                            <div>
-                                <Text type="secondary" style={{ fontSize: 11, display: 'block' }}>Validé le</Text>
-                                <Text style={{ fontSize: 13, color: '#52c41a', fontWeight: 600 }}>
-                                    {new Date(planning.validatedAt).toLocaleString('fr-FR', {
-                                        dateStyle: 'short', timeStyle: 'short',
-                                    })}
-                                </Text>
-                            </div>
-                        )}
-                    </div>
-                )}
-
-                <Divider style={{ margin: '0 0 16px' }} />
 
                 {/* ── Grille hebdomadaire ── */}
                 <div style={{
@@ -873,10 +779,10 @@ export default function PlanningDetail() {
                     alignItems: 'center', marginBottom: 12, flexWrap: 'wrap', gap: 8,
                 }}>
                     <Title level={5} style={{ margin: 0 }}>
-                        Événements de la semaine
-                        {planning.events?.length > 0 && (
+                        Activités de la semaine
+                        {eventCounts.total > 0 && (
                             <Badge
-                                count={planning.events.length}
+                                count={eventCounts.total}
                                 style={{ backgroundColor: '#1565C0', marginLeft: 8 }}
                             />
                         )}
@@ -908,8 +814,8 @@ export default function PlanningDetail() {
                         <CalendarOutlined style={{ fontSize: 32, color: '#d9d9d9', display: 'block', marginBottom: 8 }} />
                         <Text type="secondary">
                             {canEditEvents
-                                ? 'Aucun événement — cliquez sur « Ajouter un événement » pour commencer'
-                                : 'Aucun événement pour cette semaine'}
+                                ? 'Aucune activité — ajoutez un événement manuel ou créez des réunions/missions validées'
+                                : 'Aucune activité pour cette semaine'}
                         </Text>
                     </div>
                 ) : (
@@ -928,24 +834,48 @@ export default function PlanningDetail() {
                 {canEditEvents && (
                     <Paragraph type="secondary" style={{ marginTop: 12, marginBottom: 0, fontSize: 12 }}>
                         <InfoCircleOutlined style={{ marginRight: 4 }} />
-                        {isAdmin
-                            ? 'Administrateur : vous pouvez modifier les événements quel que soit le statut.'
-                            : 'Vous pouvez modifier les événements tant que le planning est en brouillon ou retourné.'}
+                        Les réunions et missions validées apparaissent automatiquement. Vous pouvez ajouter des événements manuels (déplacement, formation, etc.).
                     </Paragraph>
                 )}
 
-                {/* ── Missions croisées ── */}
-                {(isAdmin || isOwner || canViewPlanningDetail(planning, user)) && (
+                {(weekMeetings.length > 0 || weekMissions.length > 0) && (
                     <>
                         <Divider style={{ margin: '24px 0 16px' }} />
+                        {weekMeetings.length > 0 && (
+                            <>
+                                <div style={{ marginBottom: 12 }}>
+                                    <Title level={5} style={{ margin: 0 }}>
+                                        Réunions publiées ({weekMeetings.length})
+                                    </Title>
+                                </div>
+                                <div style={{ display: 'flex', flexDirection: 'column', gap: 8, marginBottom: 20 }}>
+                                    {weekMeetings.map((m) => (
+                                        <div
+                                            key={m.id}
+                                            style={{
+                                                display: 'flex', gap: 12, padding: '10px 14px',
+                                                borderRadius: 8, background: '#EFF6FF',
+                                                borderLeft: '4px solid #1565C0', cursor: 'pointer',
+                                            }}
+                                            onClick={() => navigate(`/meetings/${m.id}`)}
+                                        >
+                                            <div style={{ flex: 1 }}>
+                                                <Text strong>{m.title}</Text>
+                                                <Text type="secondary" style={{ display: 'block', fontSize: 12 }}>
+                                                    {new Date(m.startTime).toLocaleString('fr-FR', { dateStyle: 'short', timeStyle: 'short' })}
+                                                </Text>
+                                            </div>
+                                            <Tag color="blue">Réunion</Tag>
+                                        </div>
+                                    ))}
+                                </div>
+                            </>
+                        )}
                         <div style={{ marginBottom: 12 }}>
                             <Title level={5} style={{ margin: 0 }}>
                                 <FlagOutlined style={{ color: '#722ed1', marginRight: 8 }} />
-                                Missions croisées cette semaine
+                                Missions confirmées ({weekMissions.length})
                             </Title>
-                            <Text type="secondary" style={{ fontSize: 12 }}>
-                                Missions où {planning.user?.name} est créateur ou intervenant
-                            </Text>
                         </div>
 
                         {weekMissions.length === 0 ? (
@@ -1007,7 +937,8 @@ export default function PlanningDetail() {
                 open={eventModal.open}
                 onOk={handleSaveEvent}
                 onCancel={() => { setEventModal({ open: false, event: null }); eventForm.resetFields(); }}
-                okText={eventModal.event ? 'Enregistrer' : 'Ajouter'}
+                okText={eventModal.event ? 'Enregistrer' : 'Ajouter l\'événement'}
+                cancelText="Annuler"
                 confirmLoading={eventSaving}
                 destroyOnClose
             >
@@ -1076,11 +1007,16 @@ export default function PlanningDetail() {
                             </Form.Item>
                         </Col>
                         <Col xs={24} sm={12}>
-                            <Form.Item name="projectId" label="Projet (optionnel)">
+                            <Form.Item
+                                name="projectId"
+                                label={projectFieldLabel(user)}
+                                rules={projectSelectRules(user)}
+                            >
                                 <Select
-                                    allowClear
+                                    allowClear={!projectSelectRules(user).length}
+                                    disabled={singleProject && projectSelectRules(user).length > 0}
                                     placeholder="Projet"
-                                    options={projects.map((p) => ({ value: p.id, label: p.code ? `${p.name} (${p.code})` : p.name }))}
+                                    options={assignableProjects.map((p) => ({ value: p.id, label: p.code ? `${p.name} (${p.code})` : p.name }))}
                                 />
                             </Form.Item>
                         </Col>
@@ -1143,7 +1079,8 @@ export default function PlanningDetail() {
                 open={returnModal}
                 onOk={handleReturn}
                 onCancel={() => { setReturnModal(false); setReturnComment(''); }}
-                okText="Retourner"
+                okText="Retourner pour correction"
+                cancelText="Annuler"
                 okButtonProps={{ danger: true }}
                 confirmLoading={returnLoading}
             >
@@ -1172,7 +1109,7 @@ export default function PlanningDetail() {
                         icon={<CopyOutlined />}
                         onClick={handleCopyShare}
                     >
-                        Copier
+                        Copier le texte
                     </Button>,
                     <Button key="close" onClick={() => setShareOpen(false)}>
                         Fermer

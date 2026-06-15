@@ -80,6 +80,7 @@ export default function ProjectFormPage({ adminContext = false }) {
                 description: data.description || '',
                 logoUrl: data.logoUrl || '',
                 status: data.status || 'ACTIVE',
+                responsibleId: data.responsibleId || undefined,
                 consolidatorId: data.consolidatorId || undefined,
                 coordinatorId: data.coordinatorId || undefined,
             });
@@ -172,8 +173,9 @@ export default function ProjectFormPage({ adminContext = false }) {
 
     const handleSubmit = async () => {
         const values = await form.validateFields();
-        const { logoUrl: logoUrlVal, consolidatorId, coordinatorId, status, ...rest } = values;
+        const { logoUrl: logoUrlVal, responsibleId, consolidatorId, coordinatorId, status, ...rest } = values;
         const payload = { ...rest };
+        payload.responsibleId = responsibleId || null;
         payload.consolidatorId = consolidatorId || null;
         payload.coordinatorId = coordinatorId || null;
 
@@ -217,6 +219,13 @@ export default function ProjectFormPage({ adminContext = false }) {
         value: u.id,
         label: `${u.name} (${u.email}) — ${u.role}`,
     }));
+
+    const responsableOptions = allUsers
+        .filter((u) => u.role === 'RESPONSABLE')
+        .map((u) => ({
+            value: u.id,
+            label: `${u.name} (${u.email})`,
+        }));
 
     if (!canManage) return null;
 
@@ -296,7 +305,7 @@ export default function ProjectFormPage({ adminContext = false }) {
                         </Card>
 
                         <Card
-                            title="Circuit de validation"
+                            title="Équipe projet"
                             style={{ borderRadius: 12, marginBottom: 20 }}
                             extra={<UserOutlined style={{ color: '#722ed1' }} />}
                         >
@@ -304,21 +313,37 @@ export default function ProjectFormPage({ adminContext = false }) {
                                 type="info"
                                 showIcon
                                 style={{ marginBottom: 20 }}
-                                message="Ordre de validation"
+                                message="Rôles du projet"
                                 description={(
-                                    <ol style={{ margin: '8px 0 0', paddingLeft: 18 }}>
-                                        <li>Si un <strong>consolidateur</strong> est défini, il valide en premier.</li>
-                                        <li>Sinon, le <strong>coordinateur</strong> valide directement.</li>
-                                        <li>Si aucun des deux n&apos;est défini, les utilisateurs au rôle <strong>CONSOLIDATEUR</strong> interviennent.</li>
-                                    </ol>
+                                    <ul style={{ margin: '8px 0 0', paddingLeft: 18 }}>
+                                        <li>Le <strong>responsable</strong> porte le planning hebdomadaire consolidé.</li>
+                                        <li>Le <strong>consolidateur</strong> valide les réunions en brouillon.</li>
+                                        <li>Le <strong>coordinateur</strong> valide définitivement réunions et missions.</li>
+                                    </ul>
                                 )}
                             />
                             <Row gutter={16}>
-                                <Col xs={24} md={12}>
+                                <Col xs={24} md={8}>
+                                    <Form.Item
+                                        name="responsibleId"
+                                        label="Responsable du projet"
+                                        rules={[{ required: true, message: 'Choisissez un responsable' }]}
+                                        extra="Utilisateur au rôle Responsable."
+                                    >
+                                        <Select
+                                            allowClear
+                                            showSearch
+                                            placeholder="Choisir un responsable"
+                                            optionFilterProp="label"
+                                            options={responsableOptions}
+                                        />
+                                    </Form.Item>
+                                </Col>
+                                <Col xs={24} md={8}>
                                     <Form.Item
                                         name="consolidatorId"
                                         label="Consolidateur"
-                                        extra="Valide les réunions en brouillon et consolide les plannings soumis."
+                                        extra="Valide les réunions en brouillon."
                                     >
                                         <Select
                                             allowClear
@@ -329,11 +354,11 @@ export default function ProjectFormPage({ adminContext = false }) {
                                         />
                                     </Form.Item>
                                 </Col>
-                                <Col xs={24} md={12}>
+                                <Col xs={24} md={8}>
                                     <Form.Item
                                         name="coordinatorId"
                                         label="Coordinateur"
-                                        extra="Valide définitivement plannings et demandes du projet."
+                                        extra="Valide définitivement réunions et missions."
                                     >
                                         <Select
                                             allowClear

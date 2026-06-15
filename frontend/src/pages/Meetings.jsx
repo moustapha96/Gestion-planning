@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useState, useMemo } from 'react';
 import { Table, Tag, Button, Card, Typography, Space, Modal, Form, Input, Select, DatePicker, App, Row, Col, Alert } from 'antd';
 import { PlusOutlined, StopOutlined, CheckCircleOutlined, RollbackOutlined, VideoCameraOutlined, DeleteOutlined, EditOutlined } from '@ant-design/icons';
 import { useNavigate, useSearchParams } from 'react-router-dom';
@@ -12,6 +12,11 @@ import {
     meetingNeedsConsolidatorApproval,
 } from '../utils/roles';
 import { forceDeleteDescription, forceDeleteTitle } from '../utils/deleteConfirm';
+import {
+    filterAssignableProjects,
+    projectFieldLabel,
+    projectSelectRules,
+} from '../utils/projectScope';
 
 const { Title, Text } = Typography;
 
@@ -48,6 +53,12 @@ export default function Meetings() {
     const [page, setPage] = useState(1);
     const [pageSize, setPageSize] = useState(10);
     const [total, setTotal] = useState(0);
+
+    const assignableProjects = useMemo(
+        () => filterAssignableProjects(user, projects),
+        [user, projects],
+    );
+    const singleProject = assignableProjects.length === 1;
 
     const formatConflictError = (err) => {
         const data = err?.response?.data || {};
@@ -351,7 +362,7 @@ export default function Meetings() {
             render: (_, record) => (
                 <Space>
                     <Button size="small" type="link" onClick={() => navigate(`/meetings/${record.id}`)}>
-                        Détail
+                        Voir le détail
                     </Button>
                     {canEditMeeting(record, user) && (
                         <Button
@@ -360,22 +371,22 @@ export default function Meetings() {
                             icon={<EditOutlined />}
                             onClick={() => navigate(`/meetings/${record.id}/edit`)}
                         >
-                            Modifier
+                            Modifier la réunion
                         </Button>
                     )}
                     {record.status !== 'CANCELLED' && record.status !== 'COMPLETED' && canManageMeeting(record, user) && (
                         <Button size="small" type="default" icon={<CheckCircleOutlined />} onClick={() => handleComplete(record.id)}>
-                            Terminer
+                            Terminer la réunion
                         </Button>
                     )}
                     {record.status !== 'CANCELLED' && record.status !== 'COMPLETED' && canManageMeeting(record, user) && (
                         <Button size="small" danger icon={<StopOutlined />} onClick={() => handleCancel(record.id)}>
-                            Annuler
+                            Annuler la réunion
                         </Button>
                     )}
                     {record.status === 'COMPLETED' && (canManageMeeting(record, user) || user?.role === 'RESPONSABLE') && (
                         <Button size="small" icon={<RollbackOutlined />} onClick={() => handleReopen(record.id)}>
-                            Rouvrir
+                            Rouvrir la réunion
                         </Button>
                     )}
                     {canForceDelete && (
@@ -385,7 +396,7 @@ export default function Meetings() {
                             icon={<DeleteOutlined />}
                             onClick={() => handlePermanentDeleteMeeting(record.id)}
                         >
-                            Supprimer
+                            Supprimer définitivement
                         </Button>
                     )}
                 </Space>
@@ -455,7 +466,8 @@ export default function Meetings() {
                 open={createModal}
                 onOk={() => form.submit()}
                 onCancel={() => { setCreateModal(false); form.resetFields(); setCreateModalError(''); }}
-                okText="Créer"
+                okText="Créer la réunion"
+                cancelText="Annuler"
                 confirmLoading={createLoading}
             >
                 {createModalError && (
@@ -493,11 +505,16 @@ export default function Meetings() {
                             </Form.Item>
                         </Col>
                         <Col xs={24} sm={12}>
-                            <Form.Item name="projectId" label="Projet (optionnel)">
+                            <Form.Item
+                                name="projectId"
+                                label={projectFieldLabel(user)}
+                                rules={projectSelectRules(user)}
+                            >
                                 <Select
-                                    allowClear
+                                    allowClear={!projectSelectRules(user).length}
+                                    disabled={singleProject && projectSelectRules(user).length > 0}
                                     placeholder="Choisir un projet"
-                                    options={projects.map((p) => ({ value: p.id, label: p.code ? `${p.name} (${p.code})` : p.name }))}
+                                    options={assignableProjects.map((p) => ({ value: p.id, label: p.code ? `${p.name} (${p.code})` : p.name }))}
                                 />
                             </Form.Item>
                         </Col>

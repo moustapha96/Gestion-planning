@@ -12,6 +12,17 @@ const {
     PROJECT_CONSOLIDATOR_INCLUDE,
     notifyProjectConsolidatorAssigned,
 } = require('../services/projectConsolidator.service');
+const {
+    validateResponsibleId,
+    PROJECT_RESPONSIBLE_INCLUDE,
+    syncResponsibleProjectMembership,
+    projectsFilterWhereForUser,
+} = require('../services/projectResponsible.service');
+
+const PROJECT_TAXONOMY_INCLUDE = {
+    ...PROJECT_RESPONSIBLE_INCLUDE,
+    ...PROJECT_CONSOLIDATOR_INCLUDE,
+};
 
 const router = express.Router();
 const directionLogosDir = path.join(__dirname, '../../uploads/directions');
@@ -458,19 +469,25 @@ router.post('/projects', async (req, res) => {
         if (!name) return res.status(400).json({ error: 'Le nom du projet est requis.' });
         const consolidatorCheck = await validateConsolidatorId(req.prisma, req.body?.consolidatorId ?? null);
         if (!consolidatorCheck.ok) return res.status(400).json({ error: consolidatorCheck.error });
+        const responsibleCheck = await validateResponsibleId(req.prisma, req.body?.responsibleId ?? null);
+        if (!responsibleCheck.ok) return res.status(400).json({ error: responsibleCheck.error });
         const created = await req.prisma.project.create({
             data: {
                 name,
                 code,
                 description,
                 logoUrl,
+                responsibleId: responsibleCheck.value ?? null,
                 consolidatorId: consolidatorCheck.value ?? null,
                 isActive: true,
                 status: 'ACTIVE',
                 createdById: req.user?.id || null,
             },
-            include: PROJECT_CONSOLIDATOR_INCLUDE,
+            include: PROJECT_TAXONOMY_INCLUDE,
         });
+        if (created.responsibleId) {
+            await syncResponsibleProjectMembership(req.prisma, created.id, created.responsibleId);
+        }
         if (created.consolidatorId) {
             await notifyProjectConsolidatorAssigned(req.prisma, created.id, created.consolidatorId, {
                 assignedByName: req.user?.name,
@@ -499,14 +516,15 @@ router.post('/projects/logo', uploadProjectLogo.single('logo'), async (req, res)
 router.get('/taxonomy', async (req, res) => {
     try {
         const includeInactive = canManageDirections(req.user?.role) && String(req.query?.all || '') === '1';
+        const projectBaseWhere = includeInactive ? {} : { isActive: true, status: 'ACTIVE' };
         const [directions, projects, eventTypes] = await Promise.all([
             req.prisma.direction.findMany({
                 where: includeInactive ? {} : { isActive: true },
                 orderBy: { name: 'asc' },
             }),
             req.prisma.project.findMany({
-                where: includeInactive ? {} : { isActive: true, status: 'ACTIVE' },
-                include: PROJECT_CONSOLIDATOR_INCLUDE,
+                where: { ...projectBaseWhere, ...projectsFilterWhereForUser(req.user) },
+                include: PROJECT_TAXONOMY_INCLUDE,
                 orderBy: { name: 'asc' },
             }),
             req.prisma.eventType.findMany({
@@ -573,6 +591,11 @@ router.put('/projects/:id', async (req, res) => {
         if (description !== undefined) data.description = description;
         if (logoUrl !== undefined) data.logoUrl = logoUrl;
         if (isActive !== undefined) data.isActive = isActive;
+        if (req.body?.responsibleId !== undefined) {
+            const responsibleCheck = await validateResponsibleId(req.prisma, req.body.responsibleId);
+            if (!responsibleCheck.ok) return res.status(400).json({ error: responsibleCheck.error });
+            data.responsibleId = responsibleCheck.value ?? null;
+        }
         if (req.body?.consolidatorId !== undefined) {
             const consolidatorCheck = await validateConsolidatorId(req.prisma, req.body.consolidatorId);
             if (!consolidatorCheck.ok) return res.status(400).json({ error: consolidatorCheck.error });
@@ -592,8 +615,11 @@ router.put('/projects/:id', async (req, res) => {
         const updated = await req.prisma.project.update({
             where: { id: req.params.id },
             data,
-            include: PROJECT_CONSOLIDATOR_INCLUDE,
+            include: PROJECT_TAXONOMY_INCLUDE,
         });
+        if (req.body?.responsibleId !== undefined && updated.responsibleId) {
+            await syncResponsibleProjectMembership(req.prisma, updated.id, updated.responsibleId);
+        }
         if (req.body?.consolidatorId !== undefined && updated.consolidatorId && updated.consolidatorId !== existing.consolidatorId) {
             await notifyProjectConsolidatorAssigned(req.prisma, updated.id, updated.consolidatorId, {
                 assignedByName: req.user?.name,

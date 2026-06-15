@@ -228,7 +228,7 @@ export default function MissionDetail() {
                         <Space>
                             {canEdit && (
                                 <Button icon={<EditOutlined />} onClick={() => navigate(`/missions/${id}/edit`)}>
-                                    Modifier
+                                    Modifier la mission
                                 </Button>
                             )}
                             {mission.status === 'CANCELLED' && isAdmin && (
@@ -261,7 +261,7 @@ export default function MissionDetail() {
                                     onConfirm={handlePermanentDelete}
                                 >
                                     <Button danger type="primary" icon={<DeleteOutlined />} loading={permanentDeleteLoading}>
-                                        Supprimer
+                                        Supprimer la mission
                                     </Button>
                                 </ForceDeletePopconfirm>
                             )}
@@ -298,7 +298,18 @@ export default function MissionDetail() {
                     </Descriptions.Item>
                     <Descriptions.Item label="Projet">
                         {mission.project?.name ? (
-                            <Tag color="blue">{mission.project.code ? `${mission.project.name} (${mission.project.code})` : mission.project.name}</Tag>
+                            <Space direction="vertical" size={0}>
+                                <Tag color="blue">
+                                    {mission.project.code
+                                        ? `${mission.project.name} (${mission.project.code})`
+                                        : mission.project.name}
+                                </Tag>
+                                {mission.project.responsible?.name && (
+                                    <Text type="secondary" style={{ fontSize: 12 }}>
+                                        Responsable : {mission.project.responsible.name}
+                                    </Text>
+                                )}
+                            </Space>
                         ) : '—'}
                     </Descriptions.Item>
                     {mission.description && (
@@ -347,7 +358,8 @@ export default function MissionDetail() {
                     open={addVisible}
                     onCancel={() => { setAddVisible(false); addForm.resetFields(); }}
                     onOk={handleAddParticipants}
-                    okText="Ajouter"
+                    okText="Ajouter les intervenants"
+                    cancelText="Annuler"
                     confirmLoading={addParticipantsLoading}
                     width={520}
                     destroyOnClose

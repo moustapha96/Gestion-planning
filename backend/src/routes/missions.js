@@ -6,8 +6,9 @@ const { logger } = require('../utils/logger');
 const { notificationService } = require('../services/notification.service');
 const { createAuditLog } = require('../utils/audit');
 const {
-    ROLES, isPrivilegedAdmin, isSuperAdmin, canViewMission, missionScopeWhere,
+    ROLES, isPrivilegedAdmin, isSuperAdmin, canViewMission, missionScopeWhere, isResponsable,
 } = require('../config/roles');
+const { validateProjectForUserAction, PROJECT_WITH_RESPONSIBLE_SELECT } = require('../services/projectResponsible.service');
 const { pdfOnlyMulterFileFilter, wrapMulterUpload } = require('../utils/pdfUpload');
 
 const router = express.Router();
@@ -78,7 +79,7 @@ router.get('/', async (req, res) => {
                 include: {
                     createdBy: { select: { id: true, name: true, email: true } },
                     direction: { select: { id: true, name: true, code: true } },
-                    project: { select: { id: true, name: true, code: true } },
+                    project: { select: PROJECT_WITH_RESPONSIBLE_SELECT },
                     assignments: { include: { user: { select: { id: true, name: true, email: true } } } },
                 },
                 orderBy: { startTime: 'desc' },
@@ -113,7 +114,7 @@ router.get('/:id', async (req, res) => {
             include: {
                 createdBy: { select: { id: true, name: true, email: true } },
                 direction: { select: { id: true, name: true, code: true } },
-                project: { select: { id: true, name: true, code: true } },
+                project: { select: PROJECT_WITH_RESPONSIBLE_SELECT },
                 assignments: { include: { user: { select: { id: true, name: true, email: true } } } },
                 files: {
                     include: { uploadedBy: { select: { id: true, name: true, email: true } } },
@@ -159,13 +160,9 @@ router.post('/', async (req, res) => {
             const d = await req.prisma.direction.findUnique({ where: { id: directionId }, select: { id: true } });
             if (!d) return res.status(400).json({ error: 'Direction introuvable.' });
         }
-        if (projectId) {
-            const p = await req.prisma.project.findUnique({ where: { id: projectId }, select: { id: true, isActive: true, status: true } });
-            if (!p) return res.status(400).json({ error: 'Projet introuvable.' });
-            if (!p.isActive || p.status !== 'ACTIVE') {
-                return res.status(400).json({ error: 'Ce projet est en pause ou terminé et ne peut pas être sélectionné.' });
-            }
-        }
+        const projectCheck = await validateProjectForUserAction(req.prisma, req.user, projectId || null);
+        if (!projectCheck.ok) return res.status(403).json({ error: projectCheck.error });
+        const resolvedProjectId = projectCheck.value;
 
         const mission = await req.prisma.mission.create({
             data: {
@@ -175,7 +172,7 @@ router.post('/', async (req, res) => {
                 startTime: start,
                 endTime: end,
                 directionId: directionId || null,
-                projectId: projectId || null,
+                projectId: resolvedProjectId || null,
                 createdById: req.user.id,
                 status: 'CONFIRMED',
             },
@@ -192,7 +189,7 @@ router.post('/', async (req, res) => {
             include: {
                 createdBy: { select: { name: true, email: true } },
                 direction: { select: { id: true, name: true, code: true } },
-                project: { select: { id: true, name: true, code: true } },
+                project: { select: PROJECT_WITH_RESPONSIBLE_SELECT },
                 assignments: { include: { user: { select: { id: true, name: true, email: true } } } },
             },
         });
@@ -273,14 +270,17 @@ router.put('/:id', async (req, res) => {
             data.directionId = directionId || null;
         }
         if (projectId !== undefined) {
-            if (projectId) {
-                const p = await req.prisma.project.findUnique({ where: { id: projectId }, select: { id: true, isActive: true, status: true } });
-                if (!p) return res.status(400).json({ error: 'Projet introuvable.' });
-                if (!p.isActive || p.status !== 'ACTIVE') {
-                    return res.status(400).json({ error: 'Ce projet est en pause ou terminé et ne peut pas être sélectionné.' });
-                }
-            }
-            data.projectId = projectId || null;
+            const projectCheck = await validateProjectForUserAction(
+                req.prisma,
+                req.user,
+                projectId || null,
+                { requiredForResponsable: false },
+            );
+            if (!projectCheck.ok) return res.status(403).json({ error: projectCheck.error });
+            data.projectId = projectCheck.value;
+        } else if (isResponsable(req.user?.role) && mission.projectId) {
+            const projectCheck = await validateProjectForUserAction(req.prisma, req.user, mission.projectId);
+            if (!projectCheck.ok) return res.status(403).json({ error: projectCheck.error });
         }
         if (Object.keys(data).length) {
             await req.prisma.mission.update({ where: { id: req.params.id }, data });
@@ -300,7 +300,7 @@ router.put('/:id', async (req, res) => {
             include: {
                 createdBy: { select: { id: true, name: true, email: true } },
                 direction: { select: { id: true, name: true, code: true } },
-                project: { select: { id: true, name: true, code: true } },
+                project: { select: PROJECT_WITH_RESPONSIBLE_SELECT },
                 assignments: { include: { user: { select: { id: true, name: true, email: true } } } },
             },
         });

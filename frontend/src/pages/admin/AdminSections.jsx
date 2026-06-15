@@ -1163,7 +1163,7 @@ export function AppConfigTab() {
                                 }
                             }}
                         >
-                            <Button>Uploader un logo</Button>
+                            <Button>Importer un logo</Button>
                         </Upload>
                         <Form.Item name="app_logo_url" noStyle>
                             <Input type="hidden" />

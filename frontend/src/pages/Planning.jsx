@@ -338,10 +338,7 @@ export default function Planning() {
     };
 
     // ── Données dérivées ─────────────────────────────────────────
-    const filteredPlannings = useMemo(
-        () => statusFilter === 'ALL' ? plannings : plannings.filter((p) => p.status === statusFilter),
-        [plannings, statusFilter],
-    );
+    const filteredPlannings = plannings;
 
     const statusCounts = useMemo(() => {
         const c = {
@@ -372,21 +369,20 @@ export default function Planning() {
             ),
         },
         {
-            title: 'Statut',
-            dataIndex: 'status',
-            key: 'status',
-            render: (s) => (
-                <Tag color={STATUS_COLORS[s]} style={{ fontWeight: 500 }}>
-                    {STATUS_LABELS[s] || s}
-                </Tag>
+            title: 'Projet',
+            key: 'project',
+            render: (_, r) => (
+                <Text style={{ fontSize: 12 }}>
+                    {r.project?.name || r.user?.project?.name || '—'}
+                </Text>
             ),
         },
         {
-            title: 'Événements',
+            title: 'Activités',
             key: 'events',
             align: 'center',
             render: (_, r) => {
-                const count = r._count?.events ?? r.events?.length ?? 0;
+                const count = r.counts?.total ?? r._count?.events ?? r.events?.length ?? 0;
                 return (
                     <Badge
                         count={count}
@@ -397,145 +393,18 @@ export default function Planning() {
             },
         },
         {
-            title: 'Soumis le',
-            dataIndex: 'submittedAt',
-            key: 'submittedAt',
-            render: (d) => d
-                ? <Text style={{ fontSize: 12 }}>{new Date(d).toLocaleDateString('fr-FR', { day: '2-digit', month: 'short' })}</Text>
-                : <Text type="secondary">—</Text>,
-        },
-        {
-            title: 'Validé le',
-            dataIndex: 'validatedAt',
-            key: 'validatedAt',
-            render: (d) => d
-                ? <Text style={{ fontSize: 12 }}>{new Date(d).toLocaleDateString('fr-FR', { day: '2-digit', month: 'short' })}</Text>
-                : <Text type="secondary">—</Text>,
-        },
-        {
             title: 'Actions',
             key: 'actions',
             fixed: 'right',
-            render: (_, record) => {
-                const canSubmit = (record.userId === user?.id || isAdmin) &&
-                    (record.status === 'DRAFT' || record.status === 'RETURNED');
-                const canConsol = canConsolidatePlanning(record, user);
-                const autoFinalize = planningAutoFinalizeOnConsolidate(record);
-                const canApproveCp = canCoordinatePlanning(record, user);
-                const canApproveSg = (isSG || isDG || isAdmin) && record.status === 'SG_PENDING';
-                const canValidFinal = ((isSG || isDG) && record.status === 'DG_PENDING')
-                    || (isAdmin && PENDING_VALIDATION.includes(record.status));
-                const canRet = canReturnPlanning(record, user);
-                const canDel    = (record.userId === user?.id && record.status === 'DRAFT') || isAdmin;
-
-                return (
-                    <Space size={4} wrap>
-                        <Button
-                            size="small" icon={<EyeOutlined />}
-                            onClick={(e) => { e.stopPropagation(); navigate(`/planning/${record.id}`); }}
-                        >
-                            Voir
-                        </Button>
-
-                        {canSubmit && (
-                            <Button
-                                size="small" type="primary" icon={<SendOutlined />}
-                                onClick={(e) => { e.stopPropagation(); handleSubmit(record.id); }}
-                                loading={actionLoadingId === record.id}
-                            >
-                                {record.status === 'RETURNED' ? 'Resoumettre' : 'Soumettre'}
-                            </Button>
-                        )}
-
-                        {canConsol && (
-                            <Button
-                                size="small" type="primary" icon={<CheckOutlined />}
-                                onClick={(e) => { e.stopPropagation(); handleConsolidate(record.id); }}
-                                loading={actionLoadingId === record.id}
-                                style={{
-                                    background: autoFinalize ? '#52c41a' : '#722ed1',
-                                    borderColor: autoFinalize ? '#52c41a' : '#722ed1',
-                                }}
-                            >
-                                {autoFinalize ? 'Consolider et valider' : 'Consolider'}
-                            </Button>
-                        )}
-
-                        {canApproveCp && (
-                            <Button
-                                size="small" type="primary" icon={<CheckOutlined />}
-                                onClick={(e) => { e.stopPropagation(); handleApproveCp(record.id); }}
-                                loading={actionLoadingId === record.id}
-                                style={{ background: '#2f54eb', borderColor: '#2f54eb' }}
-                            >
-                                Accord coord.
-                            </Button>
-                        )}
-                        {canApproveSg && (
-                            <Button
-                                size="small" type="primary" icon={<CheckOutlined />}
-                                onClick={(e) => { e.stopPropagation(); handleApproveSg(record.id); }}
-                                loading={actionLoadingId === record.id}
-                                style={{ background: '#13c2c2', borderColor: '#13c2c2' }}
-                            >
-                                Accord SG / dir.
-                            </Button>
-                        )}
-                        {canValidFinal && (
-                            <Button
-                                size="small" type="primary" icon={<CheckOutlined />}
-                                onClick={(e) => { e.stopPropagation(); handleValidate(record.id); }}
-                                loading={actionLoadingId === record.id}
-                                style={{ background: '#52c41a', borderColor: '#52c41a' }}
-                            >
-                                {isAdmin && record.status !== 'DG_PENDING' ? 'Valider déf. (admin)' : 'Valider déf.'}
-                            </Button>
-                        )}
-
-                        {canRet && (
-                            <Button
-                                size="small" danger icon={<RollbackOutlined />}
-                                onClick={(e) => {
-                                    e.stopPropagation();
-                                    setReturnModal({ open: true, planningId: record.id });
-                                }}
-                            >
-                                Retourner
-                            </Button>
-                        )}
-
-                        {canDel && (
-                            <Popconfirm
-                                title="Supprimer ce planning ?"
-                                description="Le brouillon sera définitivement supprimé."
-                                onConfirm={(e) => { e?.stopPropagation(); handleDelete(record.id); }}
-                                okText="Supprimer" cancelText="Annuler"
-                                okButtonProps={{ danger: true, loading: deleteLoadingId === record.id }}
-                            >
-                                <Button
-                                    size="small" type="text" danger icon={<DeleteOutlined />}
-                                    loading={deleteLoadingId === record.id}
-                                    onClick={(e) => e.stopPropagation()}
-                                />
-                            </Popconfirm>
-                        )}
-                    </Space>
-                );
-            },
+            render: (_, record) => (
+                <Button
+                    size="small" icon={<EyeOutlined />}
+                    onClick={(e) => { e.stopPropagation(); navigate(`/planning/${record.id}`); }}
+                >
+                    Voir
+                </Button>
+            ),
         },
-    ];
-
-    const STATUS_FILTER_OPTIONS = [
-        { value: 'ALL',            label: 'Tous les statuts' },
-        { value: 'DRAFT',          label: 'Brouillon' },
-        { value: 'SUBMITTED',      label: 'Soumis' },
-        { value: 'IN_CONSOLIDATION', label: 'En consolidation' },
-        { value: 'CP_PENDING',       label: 'Att. coordinateur' },
-        { value: 'SG_PENDING',       label: 'Att. SG ou direction' },
-        { value: 'DG_PENDING',       label: 'Att. fin. SG/DG' },
-        { value: 'VALIDATED',      label: 'Validé' },
-        { value: 'RETURNED',       label: 'Retourné' },
-        { value: 'CANCELLED',      label: 'Annulé' },
     ];
 
     return (
@@ -550,6 +419,7 @@ export default function Planning() {
                         <Text type="secondary" style={{ fontSize: 14 }}>
                             Semaine du{' '}
                             <strong>{weekRangeLabel(selectedDate)}</strong>
+                            {' — '}vue consolidée (réunions, missions, événements validés)
                         </Text>
                     </Col>
                     <Col xs={24} md={10}>
@@ -572,58 +442,12 @@ export default function Planning() {
                 </Row>
             </div>
 
-            {/* ── Compteurs par statut (cliquables pour filtrer) ── */}
-            {plannings.length > 0 && (
-                <div style={{ display: 'flex', gap: 8, marginBottom: 16, flexWrap: 'wrap', alignItems: 'center' }}>
-                    {[
-                        { key: 'DRAFT',            color: 'default' },
-                        { key: 'SUBMITTED',        color: 'blue'    },
-                        { key: 'IN_CONSOLIDATION', color: 'purple'  },
-                        { key: 'CP_PENDING',       color: 'geekblue' },
-                        { key: 'SG_PENDING',       color: 'cyan' },
-                        { key: 'DG_PENDING',       color: 'gold' },
-                        { key: 'VALIDATED',        color: 'green'   },
-                        { key: 'RETURNED',         color: 'orange'  },
-                        { key: 'CANCELLED',        color: 'red'     },
-                    ]
-                        .filter((s) => statusCounts[s.key] > 0)
-                        .map((s) => (
-                            <Tag
-                                key={s.key}
-                                color={statusFilter === s.key ? s.color : undefined}
-                                style={{
-                                    cursor: 'pointer', padding: '3px 10px', fontSize: 12,
-                                    border: statusFilter === s.key ? undefined : '1px solid #d9d9d9',
-                                    fontWeight: statusFilter === s.key ? 600 : 400,
-                                }}
-                                onClick={() => setStatusFilter(statusFilter === s.key ? 'ALL' : s.key)}
-                            >
-                                {STATUS_LABELS[s.key]}{' '}
-                                <strong>{statusCounts[s.key]}</strong>
-                            </Tag>
-                        ))
-                    }
-                    {statusFilter !== 'ALL' && (
-                        <Button size="small" type="link" onClick={() => setStatusFilter('ALL')} style={{ padding: 0 }}>
-                            Effacer le filtre ×
-                        </Button>
-                    )}
-                </div>
-            )}
-
             {/* ── Barre de filtres ── */}
             <Card style={{ marginBottom: 16, borderRadius: 10 }} styles={{ body: { padding: '10px 16px' } }}>
                 <Row gutter={[12, 8]} align="middle" justify="space-between">
                     <Col>
                         <Space size={8} wrap>
                             <FilterOutlined style={{ color: '#8c8c8c' }} />
-                            <Select
-                                value={statusFilter}
-                                onChange={setStatusFilter}
-                                options={STATUS_FILTER_OPTIONS}
-                                style={{ width: 170 }}
-                                size="small"
-                            />
                             {canSeeAll && (
                                 <Select
                                     value={mineOnly ? 'mine' : 'all'}
@@ -724,7 +548,8 @@ export default function Planning() {
                     setReturnModal({ open: false, planningId: null });
                     setReturnComment('');
                 }}
-                okText="Retourner"
+                okText="Retourner pour correction"
+                cancelText="Annuler"
                 okButtonProps={{ danger: true }}
             >
                 <p style={{ marginBottom: 8, color: '#595959' }}>
@@ -752,7 +577,7 @@ export default function Planning() {
                         icon={<CopyOutlined />}
                         onClick={() => handleCopyShare(shareModal.text)}
                     >
-                        Copier
+                        Copier le texte
                     </Button>,
                     <Button key="close" onClick={() => setShareModal({ open: false, text: '' })}>
                         Fermer

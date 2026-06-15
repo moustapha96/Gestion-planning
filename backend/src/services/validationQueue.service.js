@@ -319,9 +319,7 @@ async function getPendingValidations(prisma, user) {
         };
     }
 
-    const designatedProjects = await getUserDesignatedProjectIds(prisma, user.id);
-
-    const [meetingDraftRaw, meetingFinalizeRaw, planningsConsolidateRaw, planningsCoordinateRaw] = await Promise.all([
+    const [meetingDraftRaw, meetingFinalizeRaw] = await Promise.all([
         prisma.meeting.findMany({
             where: buildMeetingDraftWhere(user),
             include: MEETING_INCLUDE,
@@ -334,23 +332,6 @@ async function getPendingValidations(prisma, user) {
             orderBy: { startTime: 'asc' },
             take: 100,
         }),
-        prisma.planning.findMany({
-            where: buildPlanningsToConsolidateWhere(user, designatedProjects.consolidatorProjectIds),
-            include: PLANNING_INCLUDE,
-            orderBy: { weekStart: 'desc' },
-            take: 50,
-        }),
-        prisma.planning.findMany({
-            where: buildPlanningsToCoordinateWhere(user, designatedProjects.coordinatorProjectIds),
-            include: PLANNING_INCLUDE,
-            orderBy: { weekStart: 'desc' },
-            take: 50,
-        }),
-    ]);
-
-    await Promise.all([
-        ...planningsConsolidateRaw.map((p) => attachPlanningValidationProject(prisma, p)),
-        ...planningsCoordinateRaw.map((p) => attachPlanningValidationProject(prisma, p)),
     ]);
 
     const meetingDraftIds = new Set();
@@ -367,62 +348,18 @@ async function getPendingValidations(prisma, user) {
             .map(mapMeetingItem),
     ];
 
-    const planningsConsolidate = (
-        await Promise.all(
-            planningsConsolidateRaw
-                .filter((p) => canConsolidateSubmittedPlanning(p, user))
-                .map(async (p) => {
-                    const missionsCount = await countWeekMissionsForPlanning(prisma, p);
-                    return mapPlanningItem(p, 'consolidate', missionsCount, user);
-                }),
-        )
-    );
-
-    const seenPlanningIds = new Set(planningsConsolidate.map((p) => p.id));
-    const planningsCoordinate = (
-        await Promise.all(
-            planningsCoordinateRaw
-                .filter((p) => canValidatePlanningAsCoordinator(p, user) && !seenPlanningIds.has(p.id))
-                .map(async (p) => {
-                    const missionsCount = await countWeekMissionsForPlanning(prisma, p);
-                    const action = planningValidationActionLabel(p) === 'fallback' ? 'fallback' : 'coordinate';
-                    return mapPlanningItem(p, action, missionsCount, user);
-                }),
-        )
-    );
-
-    const relatedPlannings = [
-        ...planningsConsolidateRaw.filter((p) => canConsolidateSubmittedPlanning(p, user)),
-        ...planningsCoordinateRaw.filter(
-            (p) => canValidatePlanningAsCoordinator(p, user) && !seenPlanningIds.has(p.id),
-        ),
-    ];
-    const missions = await fetchWeekMissionsForPlannings(prisma, relatedPlannings);
-
-    const planningEvents = relatedPlannings.flatMap((p) =>
-        (p.events || []).map((ev) => ({
-            id: ev.id,
-            kind: 'planningEvent',
-            title: ev.title,
-            type: ev.type,
-            startTime: ev.startTime,
-            endTime: ev.endTime,
-            eventType: ev.eventType,
-            room: ev.room,
-            planningId: p.id,
-            weekLabel: formatPlanningWeekLabel(p.weekStart),
-            ownerName: p.user?.name,
-            link: `/planning/${p.id}`,
-        })),
-    );
+    const planningsConsolidate = [];
+    const planningsCoordinate = [];
+    const missions = [];
+    const planningEvents = [];
 
     const counts = {
         meetings: meetings.length,
-        planningsConsolidate: planningsConsolidate.length,
-        planningsCoordinate: planningsCoordinate.length,
-        missions: missions.length,
-        events: planningEvents.length,
-        total: meetings.length + planningsConsolidate.length + planningsCoordinate.length,
+        planningsConsolidate: 0,
+        planningsCoordinate: 0,
+        missions: 0,
+        events: 0,
+        total: meetings.length,
     };
 
     return {

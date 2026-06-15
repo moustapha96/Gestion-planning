@@ -14,9 +14,9 @@ const { validateUserRoleForDirection } = require('../services/roleConfig.service
 const { syncDirectionDiscussionMembers } = require('../services/directionDiscussion.service');
 const { syncProjectDiscussionMembers } = require('../services/projectDiscussion.service');
 const {
-    assignUserAsProjectConsolidator,
-    clearProjectConsolidatorIfUser,
-} = require('../services/projectConsolidator.service');
+    assignUserAsProjectResponsible,
+    clearProjectResponsibleIfUser,
+} = require('../services/projectResponsible.service');
 const {
     validatePasswordStrength,
     createPasswordResetToken,
@@ -215,11 +215,11 @@ router.post('/', roleMiddleware(ADMIN_ROUTE_ROLES), async (req, res) => {
         if (user.directionId) {
             await syncDirectionDiscussionMembers(req.prisma, user.directionId);
         }
-        if (user.projectId) {
+        if (user.projectId && user.role === ROLES.RESPONSABLE) {
             await syncProjectDiscussionMembers(req.prisma, user.projectId);
-            await assignUserAsProjectConsolidator(req.prisma, user.projectId, user.id, {
-                assignedByName: req.user?.name,
-            });
+            await assignUserAsProjectResponsible(req.prisma, user.projectId, user.id);
+        } else if (user.projectId) {
+            await syncProjectDiscussionMembers(req.prisma, user.projectId);
         }
 
         logger.info('USER_CREATED', `Utilisateur ${email} créé par admin ${req.user.id}`, {
@@ -382,13 +382,13 @@ router.put('/:id', roleMiddleware(ADMIN_ROUTE_ROLES), async (req, res) => {
         const nextProjectId = updated.projectId || null;
         if (previousProjectId && previousProjectId !== nextProjectId) {
             await syncProjectDiscussionMembers(req.prisma, previousProjectId);
-            await clearProjectConsolidatorIfUser(req.prisma, previousProjectId, updated.id);
+            await clearProjectResponsibleIfUser(req.prisma, previousProjectId, updated.id);
         }
         if (nextProjectId) {
             await syncProjectDiscussionMembers(req.prisma, nextProjectId);
-            await assignUserAsProjectConsolidator(req.prisma, nextProjectId, updated.id, {
-                assignedByName: req.user?.name,
-            });
+            if (updated.role === ROLES.RESPONSABLE) {
+                await assignUserAsProjectResponsible(req.prisma, nextProjectId, updated.id);
+            }
         }
 
         // Si le rôle a changé : email + notification in-app à l'utilisateur concerné

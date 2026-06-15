@@ -1,6 +1,7 @@
 import { StrictMode } from 'react';
 import { createRoot } from 'react-dom/client';
 import { ConfigProvider, App as AntApp, theme as antdTheme } from 'antd';
+import frFR from 'antd/locale/fr_FR';
 import './utils/datetime';
 import './index.css';
 import App from './App.jsx';
@@ -11,6 +12,7 @@ function ThemedProviders() {
     const { isDark } = useThemeMode();
     return (
         <ConfigProvider
+            locale={frFR}
             getPopupContainer={() => document.getElementById('popup-root') || document.body}
             theme={{
                 algorithm: isDark ? antdTheme.darkAlgorithm : antdTheme.defaultAlgorithm,

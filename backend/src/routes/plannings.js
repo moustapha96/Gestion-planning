@@ -6,7 +6,7 @@ const { logger } = require('../utils/logger');
 const { createAuditLog } = require('../utils/audit');
 
 const router = express.Router();
-const { ROLES, ADMIN_ROUTE_ROLES, isPrivilegedAdmin, planningScopeWhere } = require('../config/roles');
+const { ROLES, ADMIN_ROUTE_ROLES, isPrivilegedAdmin, planningScopeWhere, isResponsable } = require('../config/roles');
 const {
     COORDINATOR_PENDING,
     STATUS_AFTER_CONSOLIDATION,
@@ -19,7 +19,7 @@ const {
     attachPlanningValidationProject,
     formatPlanningWeekLabel,
 } = require('../services/projectConsolidator.service');
-const { canUserViewPlanning } = require('../services/validationPolicy.service');
+const { validateProjectForUserAction } = require('../services/projectResponsible.service');
 const {
     canUserCoordinatePlanning,
     coordinatorApproveBlockingReason,
@@ -31,6 +31,12 @@ const {
     enrichPlanningForUser,
     enrichPlanningsForUser,
 } = require('../services/planningValidation.service');
+const {
+    enrichPlanningWithAggregation,
+    enrichPlanningsWithAggregation,
+    ensureWeekPlanningsForResponsibles,
+    ensurePlanningForResponsible,
+} = require('../services/planningAggregation.service');
 
 /** N'interrompt pas le workflow si l'e-mail ou la notification échoue. */
 async function safeNotify(label, fn) {
@@ -113,6 +119,8 @@ router.get('/week/:date', async (req, res) => {
         const weekStart = getMondayOfWeek(date);
         const weekEnd = new Date(weekStart.getTime() + 7 * 24 * 60 * 60 * 1000);
 
+        await ensureWeekPlanningsForResponsibles(req.prisma, weekStart);
+
         const scope = planningScopeWhere(req.user);
         const where = {
             weekStart: { gte: weekStart, lt: weekEnd },
@@ -131,7 +139,17 @@ router.get('/week/:date', async (req, res) => {
                         name: true,
                         email: true,
                         projectId: true,
-                        project: { select: { id: true, name: true, consolidatorId: true, coordinatorId: true } },
+                        project: {
+                            select: {
+                                id: true,
+                                name: true,
+                                code: true,
+                                responsibleId: true,
+                                consolidatorId: true,
+                                coordinatorId: true,
+                                responsible: { select: { id: true, name: true, email: true } },
+                            },
+                        },
                     },
                 },
                 events: { include: PLANNING_EVENT_INCLUDE },
@@ -140,7 +158,8 @@ router.get('/week/:date', async (req, res) => {
             orderBy: [{ user: { name: 'asc' } }, { weekStart: 'asc' }],
         });
 
-        const enriched = await enrichPlanningsForUser(req.prisma, plannings, req.user);
+        const aggregated = await enrichPlanningsWithAggregation(req.prisma, plannings);
+        const enriched = await enrichPlanningsForUser(req.prisma, aggregated, req.user);
         res.json(enriched);
     } catch (error) {
         logger.error('GET_PLANNINGS_WEEK', 'Erreur récupération plannings semaine', {
@@ -202,7 +221,12 @@ router.post('/admin/create', roleMiddleware(ADMIN_ROUTE_ROLES), async (req, res)
             return res.status(409).json({ error: 'Un planning existe déjà pour cet utilisateur cette semaine.', planningId: existing.id });
         }
         const planning = await req.prisma.planning.create({
-            data: { userId, weekStart: weekStartNorm, status: 'DRAFT' },
+            data: {
+                userId,
+                weekStart: weekStartNorm,
+                status: 'VALIDATED',
+                validatedAt: new Date(),
+            },
             include: { user: { select: { id: true, name: true, email: true } } },
         });
         await createAuditLog(req, 'PLANNING_ADMIN_CREATE', 'Planning', planning.id, `Planning créé par admin pour ${user.email}`);
@@ -312,8 +336,10 @@ router.get('/:id', async (req, res) => {
                                 id: true,
                                 name: true,
                                 code: true,
+                                responsibleId: true,
                                 consolidatorId: true,
                                 coordinatorId: true,
+                                responsible: { select: { id: true, name: true, email: true } },
                                 consolidator: { select: { id: true, name: true, email: true } },
                                 coordinator: { select: { id: true, name: true, email: true } },
                             },
@@ -336,24 +362,10 @@ router.get('/:id', async (req, res) => {
 
         const weekStart = new Date(planning.weekStart);
         const weekEnd = new Date(weekStart.getTime() + 7 * 24 * 60 * 60 * 1000);
-        const weekMissions = await req.prisma.mission.findMany({
-            where: {
-                status: { not: 'CANCELLED' },
-                OR: [{ createdById: planning.userId }, { assignments: { some: { userId: planning.userId } } }],
-                AND: [{ startTime: { lt: weekEnd } }, { endTime: { gt: weekStart } }],
-            },
-            include: {
-                createdBy: { select: { id: true, name: true } },
-                assignments: { include: { user: { select: { id: true, name: true } } } },
-            },
-            orderBy: { startTime: 'asc' },
-        });
 
-        const enriched = await enrichPlanningForUser(req.prisma, planning, req.user);
-        res.json({
-            ...enriched,
-            weekMissions,
-        });
+        const aggregated = await enrichPlanningWithAggregation(req.prisma, planning);
+        const enriched = await enrichPlanningForUser(req.prisma, aggregated, req.user);
+        res.json(enriched);
     } catch (error) {
         logger.error('GET_PLANNING', 'Erreur récupération planning', {
             planningId: req.params.id,
@@ -414,7 +426,8 @@ router.post('/', async (req, res) => {
             data: {
                 userId: req.user.id,
                 weekStart: weekStartNorm,
-                status: 'DRAFT',
+                status: 'VALIDATED',
+                validatedAt: new Date(),
             },
         });
 
@@ -1109,13 +1122,12 @@ router.delete('/:id', async (req, res) => {
     }
 });
 
-const editableEventStatuses = ['DRAFT', 'RETURNED'];
+const editableEventStatuses = ['DRAFT', 'RETURNED', 'VALIDATED', 'SUBMITTED', 'IN_CONSOLIDATION', 'CP_PENDING', 'SG_PENDING', 'DG_PENDING'];
 
 function canManagePlanningEvents(planning, user) {
     if (planning.status === 'CANCELLED') return false;
     if (isPrivilegedAdmin(user.role)) return true;
-    if (planning.userId !== user.id) return false;
-    return editableEventStatuses.includes(planning.status);
+    return planning.userId === user.id;
 }
 
 // POST /:id/events — responsable (brouillon/retour) ou ADMIN (tout statut)
@@ -1136,9 +1148,16 @@ router.post('/:id/events', async (req, res) => {
             const d = await req.prisma.direction.findUnique({ where: { id: req.body.directionId }, select: { id: true } });
             if (!d) return res.status(400).json({ error: 'Direction introuvable.' });
         }
-        if (req.body?.projectId) {
-            const p = await req.prisma.project.findUnique({ where: { id: req.body.projectId }, select: { id: true } });
-            if (!p) return res.status(400).json({ error: 'Projet introuvable.' });
+        let eventProjectId = req.body?.projectId || null;
+        if (eventProjectId || isResponsable(req.user?.role)) {
+            const projectCheck = await validateProjectForUserAction(
+                req.prisma,
+                req.user,
+                eventProjectId,
+                { requiredForResponsable: false },
+            );
+            if (!projectCheck.ok) return res.status(403).json({ error: projectCheck.error });
+            eventProjectId = projectCheck.value;
         }
 
         const title = String(req.body?.title || '').trim();
@@ -1164,7 +1183,7 @@ router.post('/:id/events', async (req, res) => {
                 endTime: new Date(req.body.endTime),
                 roomId: req.body.roomId || null,
                 directionId: req.body.directionId || null,
-                projectId: req.body.projectId || null,
+                projectId: eventProjectId,
                 destination: req.body.destination ?? null,
                 description: req.body.description ?? null,
             },
@@ -1215,9 +1234,20 @@ router.put('/:id/events/:eventId', async (req, res) => {
             const d = await req.prisma.direction.findUnique({ where: { id: req.body.directionId }, select: { id: true } });
             if (!d) return res.status(400).json({ error: 'Direction introuvable.' });
         }
-        if (req.body.projectId) {
-            const p = await req.prisma.project.findUnique({ where: { id: req.body.projectId }, select: { id: true } });
-            if (!p) return res.status(400).json({ error: 'Projet introuvable.' });
+        if (req.body.projectId !== undefined || isResponsable(req.user?.role)) {
+            const targetProjectId = req.body.projectId !== undefined
+                ? (req.body.projectId || null)
+                : (existing.projectId || null);
+            const projectCheck = await validateProjectForUserAction(
+                req.prisma,
+                req.user,
+                targetProjectId,
+                { requiredForResponsable: false },
+            );
+            if (!projectCheck.ok) return res.status(403).json({ error: projectCheck.error });
+            if (req.body.projectId !== undefined) {
+                clean.projectId = projectCheck.value;
+            }
         }
         if (req.body.type !== undefined || req.body.eventTypeId !== undefined) {
             let typeFields;

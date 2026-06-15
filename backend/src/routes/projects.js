@@ -13,8 +13,14 @@ const {
     PROJECT_COORDINATOR_INCLUDE,
     notifyProjectCoordinatorAssigned,
 } = require('../services/projectCoordinator.service');
+const {
+    validateResponsibleId,
+    PROJECT_RESPONSIBLE_INCLUDE,
+    syncResponsibleProjectMembership,
+} = require('../services/projectResponsible.service');
 
 const PROJECT_PEOPLE_INCLUDE = {
+    ...PROJECT_RESPONSIBLE_INCLUDE,
     ...PROJECT_CONSOLIDATOR_INCLUDE,
     ...PROJECT_COORDINATOR_INCLUDE,
 };
@@ -131,10 +137,13 @@ router.post('/', async (req, res) => {
     if (!canCreateProject(req.user)) return res.status(403).json({ error: 'Accès refusé' });
     const {
         name, code, description, logoUrl: logoUrlRaw,
+        responsibleId: responsibleIdRaw,
         consolidatorId: consolidatorIdRaw, coordinatorId: coordinatorIdRaw,
     } = req.body;
     if (!name?.trim()) return res.status(400).json({ error: 'Le nom est requis' });
     const logoUrl = logoUrlRaw !== undefined ? String(logoUrlRaw || '').trim() : null;
+    const responsibleCheck = await validateResponsibleId(req.prisma, responsibleIdRaw ?? null);
+    if (!responsibleCheck.ok) return res.status(400).json({ error: responsibleCheck.error });
     const consolidatorCheck = await validateConsolidatorId(req.prisma, consolidatorIdRaw ?? null);
     if (!consolidatorCheck.ok) return res.status(400).json({ error: consolidatorCheck.error });
     const coordinatorCheck = await validateCoordinatorId(req.prisma, coordinatorIdRaw ?? null);
@@ -146,6 +155,7 @@ router.post('/', async (req, res) => {
                 code: code?.trim() || null,
                 description: description?.trim() || null,
                 ...(logoUrl ? { logoUrl } : {}),
+                responsibleId: responsibleCheck.value ?? null,
                 consolidatorId: consolidatorCheck.value ?? null,
                 coordinatorId: coordinatorCheck.value ?? null,
                 status: 'ACTIVE',
@@ -154,6 +164,9 @@ router.post('/', async (req, res) => {
             },
             include: PROJECT_PEOPLE_INCLUDE,
         });
+        if (project.responsibleId) {
+            await syncResponsibleProjectMembership(req.prisma, project.id, project.responsibleId);
+        }
         if (project.consolidatorId) {
             await notifyProjectConsolidatorAssigned(req.prisma, project.id, project.consolidatorId, {
                 assignedByName: req.user?.name,
@@ -178,6 +191,7 @@ router.put('/:id', async (req, res) => {
 
     const {
         name, code, description, isActive, logoUrl: logoUrlBody,
+        responsibleId: responsibleIdRaw,
         consolidatorId: consolidatorIdRaw, coordinatorId: coordinatorIdRaw,
     } = req.body;
     const data = {};
@@ -188,6 +202,13 @@ router.put('/:id', async (req, res) => {
     if (logoUrlBody !== undefined) {
         const lu = String(logoUrlBody || '').trim();
         data.logoUrl = lu || '/logo-gp.png';
+    }
+    let nextResponsibleId;
+    if (responsibleIdRaw !== undefined) {
+        const responsibleCheck = await validateResponsibleId(req.prisma, responsibleIdRaw);
+        if (!responsibleCheck.ok) return res.status(400).json({ error: responsibleCheck.error });
+        nextResponsibleId = responsibleCheck.value ?? null;
+        data.responsibleId = nextResponsibleId;
     }
     let nextConsolidatorId;
     if (consolidatorIdRaw !== undefined) {
@@ -223,6 +244,9 @@ router.put('/:id', async (req, res) => {
             await notifyProjectCoordinatorAssigned(req.prisma, updated.id, updated.coordinatorId, {
                 assignedByName: req.user?.name,
             });
+        }
+        if (responsibleIdRaw !== undefined && updated.responsibleId) {
+            await syncResponsibleProjectMembership(req.prisma, updated.id, updated.responsibleId);
         }
         res.json(updated);
     } catch (err) {

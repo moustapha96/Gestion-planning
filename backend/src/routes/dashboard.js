@@ -4,6 +4,7 @@ const {
     ROLES, ADMIN_ROUTE_ROLES, isPrivilegedAdmin, isSuperAdmin, missionScopeWhere, planningScopeWhere, isResponsable,
 } = require('../config/roles');
 const { meetingListWhereForUser } = require('../config/meetingVisibility');
+const { buildUserTodayStats, buildUserWeekStats } = require('../services/dashboardUserScope.service');
 
 const router = express.Router();
 
@@ -123,154 +124,56 @@ function endOfDay(d) {
     return x;
 }
 
-// GET /api/dashboard/today - Dashboard for today (salles occupées / libres)
+// GET /api/dashboard/today - Indicateurs personnels du jour (utilisateur connecté)
 router.get('/today', async (req, res) => {
     const emptyPayload = {
+        scope: 'user',
+        meetingsToday: 0,
+        missionsToday: 0,
+        activitiesToday: 0,
+        pendingInvitations: 0,
+        pendingValidations: 0,
+        myMeetingsToday: [],
         freeRooms: 0,
         occupiedRooms: 0,
-        meetingsToday: 0,
         pendingPlannings: 0,
         rooms: [],
     };
     try {
-        if (!req.prisma) {
+        if (!req.prisma || !req.user?.id) {
             return res.status(200).json(emptyPayload);
         }
-        const todayStart = startOfDay(new Date());
-        const todayEnd = endOfDay(new Date());
-
-        const rooms = await req.prisma.room.findMany({
-            where: { status: 'ACTIVE' },
-            include: {
-                bookings: {
-                    where: {
-                        status: 'CONFIRMED',
-                        date: {
-                            gte: todayStart,
-                            lte: todayEnd,
-                        },
-                    },
-                    include: { meeting: { select: { id: true, title: true } } },
-                    orderBy: { createdAt: 'desc' },
-                },
-            },
-        });
-
-        const meetingsToday = await req.prisma.meeting.count({
-            where: {
-                status: { not: 'CANCELLED' },
-                startTime: { gte: todayStart, lte: todayEnd },
-            },
-        });
-
-        const pendingPlannings = await req.prisma.planning.count({
-            where: {
-                status: { in: ['SUBMITTED', 'IN_CONSOLIDATION', 'CP_PENDING', 'SG_PENDING', 'DG_PENDING'] },
-            },
-        });
-
-        const roomsWithStatus = (rooms || []).map((r) => {
-            const bookingsList = (r.bookings || []).map((b) => ({
-                id: b.id,
-                startTime: b.startTime,
-                endTime: b.endTime,
-                meetingTitle: (b.meeting && b.meeting.title) || null,
-                meetingId: b.meetingId,
-            }));
-            const occupied = bookingsList.length > 0;
-            return {
-                id: r.id,
-                name: r.name,
-                capacity: r.capacity,
-                location: r.location || '',
-                status: occupied ? 'OCCUPIED' : 'FREE',
-                bookings: bookingsList,
-                booking: bookingsList[0] || null,
-            };
-        });
-
-        const occupiedRooms = roomsWithStatus.filter((r) => r.status === 'OCCUPIED').length;
-        const freeRooms = roomsWithStatus.length - occupiedRooms;
-
-        res.status(200).json({
-            freeRooms,
-            occupiedRooms,
-            meetingsToday,
-            pendingPlannings,
-            rooms: roomsWithStatus,
-        });
+        const stats = await buildUserTodayStats(req.prisma, req.user);
+        res.status(200).json(stats);
     } catch (error) {
         console.error('Dashboard today error:', error);
         res.status(200).json(emptyPayload);
     }
 });
 
-// GET /api/dashboard/week - Occupation sur la semaine
+// GET /api/dashboard/week - Indicateurs personnels de la semaine (utilisateur connecté)
 router.get('/week', async (req, res) => {
     const emptyPayload = {
+        scope: 'user',
+        meetingsThisWeek: 0,
+        missionsThisWeek: 0,
+        activitiesThisWeek: 0,
+        planningsThisWeek: 0,
+        pendingValidations: 0,
         occupancyRate: '0',
         bookedSlots: 0,
         submittedPlannings: 0,
+        activeMissions: 0,
         weekStart: new Date().toISOString(),
         weekEnd: new Date().toISOString(),
         rooms: [],
     };
     try {
-        if (!req.prisma) {
+        if (!req.prisma || !req.user?.id) {
             return res.status(200).json(emptyPayload);
         }
-        const now = new Date();
-        const weekStart = startOfDay(new Date(now));
-        weekStart.setDate(now.getDate() - ((now.getDay() + 6) % 7)); // Monday
-        const weekEnd = endOfDay(new Date(weekStart));
-        weekEnd.setDate(weekStart.getDate() + 6);
-
-        const rooms = await req.prisma.room.findMany({
-            where: { status: 'ACTIVE' },
-            include: {
-                bookings: {
-                    where: {
-                        status: 'CONFIRMED',
-                        date: { gte: weekStart, lte: weekEnd },
-                    },
-                },
-            },
-        });
-
-        const totalSlots = (rooms && rooms.length) ? rooms.length * 7 * 11 : 0;
-        const bookedCount = (rooms || []).reduce((sum, room) => sum + (room.bookings ? room.bookings.length : 0), 0);
-
-        const [submittedPlannings, activeMissions] = await Promise.all([
-            req.prisma.planning.count({
-                where: {
-                    status: 'VALIDATED',
-                    weekStart: { gte: weekStart, lte: weekEnd },
-                },
-            }),
-            // Missions actives chevauchant la semaine — CDC §3.7.2
-            req.prisma.mission.count({
-                where: {
-                    status: 'CONFIRMED',
-                    startTime: { lte: weekEnd },
-                    endTime: { gte: weekStart },
-                },
-            }),
-        ]);
-
-        res.status(200).json({
-            occupancyRate:
-                totalSlots > 0 ? ((bookedCount / totalSlots) * 100).toFixed(1) : '0',
-            bookedSlots: bookedCount,
-            submittedPlannings,
-            activeMissions,
-            weekStart: weekStart.toISOString(),
-            weekEnd: weekEnd.toISOString(),
-            rooms: (rooms || []).map((r) => ({
-                id: r.id,
-                name: r.name,
-                bookingsCount: r.bookings ? r.bookings.length : 0,
-            })),
-        });
+        const stats = await buildUserWeekStats(req.prisma, req.user);
+        res.status(200).json(stats);
     } catch (error) {
         console.error('Dashboard week error:', error);
         res.status(200).json(emptyPayload);

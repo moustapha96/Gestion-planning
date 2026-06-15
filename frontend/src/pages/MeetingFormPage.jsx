@@ -6,6 +6,12 @@ import {
 import { ArrowLeftOutlined, TeamOutlined } from '@ant-design/icons';
 import dayjs from 'dayjs';
 import api from '../api/client';
+import { useAuth } from '../context/AuthContext';
+import {
+    filterAssignableProjects,
+    projectFieldLabel,
+    projectSelectRules,
+} from '../utils/projectScope';
 
 const { Title, Text } = Typography;
 
@@ -96,6 +102,7 @@ export default function MeetingFormPage() {
     const [searchParams] = useSearchParams();
     const navigate = useNavigate();
     const { message } = App.useApp();
+    const { user } = useAuth();
     const [form] = Form.useForm();
 
     const [rooms, setRooms] = useState([]);
@@ -113,6 +120,12 @@ export default function MeetingFormPage() {
     const startTime = Form.useWatch('startTime', form);
     const endTime = Form.useWatch('endTime', form);
     const selectedRoomId = Form.useWatch('roomId', form);
+
+    const assignableProjects = useMemo(
+        () => filterAssignableProjects(user, projects),
+        [user, projects],
+    );
+    const singleProject = assignableProjects.length === 1;
 
     const roomSelectOptions = useMemo(
         () => mergeRoomOptions({
@@ -151,8 +164,10 @@ export default function MeetingFormPage() {
                 setRooms(roomRes.data || []);
                 setUsers(userRes.data || []);
                 setDirections(taxonomyRes?.data?.directions || []);
-                setProjects(taxonomyRes?.data?.projects || []);
+                const loadedProjects = taxonomyRes?.data?.projects || [];
+                setProjects(loadedProjects);
                 setEventTypes(taxonomyRes?.data?.eventTypes || []);
+                const assignable = filterAssignableProjects(user, loadedProjects);
 
                 if (isEdit) {
                     const { data } = await api.get(`/meetings/${id}`);
@@ -198,6 +213,14 @@ export default function MeetingFormPage() {
                         title: '',
                         agenda: '',
                         participantIds: [],
+                        projectId: (() => {
+                            const projectParam = searchParams.get('projectId');
+                            if (projectParam && assignable.some((p) => p.id === projectParam)) {
+                                return projectParam;
+                            }
+                            if (assignable.length === 1) return assignable[0].id;
+                            return undefined;
+                        })(),
                         ...(defaultEt ? { eventTypeId: defaultEt.id } : {}),
                     });
                 }
@@ -306,7 +329,7 @@ export default function MeetingFormPage() {
         <div>
             <Space style={{ marginBottom: 16 }}>
                 <Button icon={<ArrowLeftOutlined />} onClick={() => navigate(isEdit ? `/meetings/${id}` : '/meetings')}>
-                    Retour
+                    {isEdit ? 'Retour à la réunion' : 'Retour aux réunions'}
                 </Button>
                 <Title level={3} style={{ margin: 0 }}>{pageTitle}</Title>
             </Space>
@@ -335,8 +358,16 @@ export default function MeetingFormPage() {
                             </Form.Item>
                         </Col>
                         <Col xs={24} sm={12}>
-                            <Form.Item name="projectId" label="Projet (optionnel)">
-                                <Select allowClear options={projects.map((p) => ({ value: p.id, label: p.code ? `${p.name} (${p.code})` : p.name }))} />
+                            <Form.Item
+                                name="projectId"
+                                label={projectFieldLabel(user)}
+                                rules={projectSelectRules(user)}
+                            >
+                                <Select
+                                    allowClear={!projectSelectRules(user).length}
+                                    disabled={singleProject && projectSelectRules(user).length > 0}
+                                    options={assignableProjects.map((p) => ({ value: p.id, label: p.code ? `${p.name} (${p.code})` : p.name }))}
+                                />
                             </Form.Item>
                         </Col>
                     </Row>
@@ -393,11 +424,18 @@ export default function MeetingFormPage() {
                             />
                         </Form.Item>
                     )}
-                    <Space>
-                        <Button type="primary" htmlType="submit" loading={saving}>
-                            {isEdit ? 'Enregistrer' : 'Créer la réunion'}
-                        </Button>
-                        <Text type="secondary">Salle ou lien visio obligatoire.</Text>
+                    <Space direction="vertical" size={4}>
+                        <Space>
+                            <Button type="primary" htmlType="submit" loading={saving}>
+                                {isEdit ? 'Enregistrer les modifications' : 'Créer la réunion'}
+                            </Button>
+                            <Button onClick={() => navigate(isEdit ? `/meetings/${id}` : '/meetings')}>
+                                Annuler
+                            </Button>
+                        </Space>
+                        <Text type="secondary" style={{ fontSize: 12 }}>
+                            Une salle ou un lien de visioconférence est obligatoire.
+                        </Text>
                     </Space>
                 </Form>
             </Card>

@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useMemo } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import {
     Card,
@@ -16,18 +16,31 @@ import {
 import { ArrowLeftOutlined, FlagOutlined } from '@ant-design/icons';
 import dayjs from 'dayjs';
 import api from '../api/client';
+import { useAuth } from '../context/AuthContext';
+import {
+    filterAssignableProjects,
+    projectFieldLabel,
+    projectSelectRules,
+} from '../utils/projectScope';
 
 const { Title, Text } = Typography;
 
 export default function MissionCreate() {
     const navigate = useNavigate();
     const [searchParams] = useSearchParams();
+    const { user } = useAuth();
     const { message } = App.useApp();
     const [form] = Form.useForm();
     const [users, setUsers] = useState([]);
     const [directions, setDirections] = useState([]);
     const [projects, setProjects] = useState([]);
     const [submitting, setSubmitting] = useState(false);
+
+    const assignableProjects = useMemo(
+        () => filterAssignableProjects(user, projects),
+        [user, projects],
+    );
+    const singleProject = assignableProjects.length === 1;
 
     useEffect(() => {
         Promise.all([
@@ -55,6 +68,15 @@ export default function MissionCreate() {
             endTime: d.hour(12).minute(0).second(0),
         });
     }, [searchParams, form]);
+
+    useEffect(() => {
+        const projectParam = searchParams.get('projectId');
+        if (projectParam && assignableProjects.some((p) => p.id === projectParam)) {
+            form.setFieldsValue({ projectId: projectParam });
+        } else if (singleProject) {
+            form.setFieldsValue({ projectId: assignableProjects[0].id });
+        }
+    }, [searchParams, form, assignableProjects, singleProject]);
 
     const handleSubmit = async (values) => {
         const start = values.startTime?.toISOString?.() ?? values.startTime;
@@ -160,11 +182,16 @@ export default function MissionCreate() {
                             size="large"
                         />
                     </Form.Item>
-                    <Form.Item name="projectId" label="Projet (optionnel)">
+                    <Form.Item
+                        name="projectId"
+                        label={projectFieldLabel(user)}
+                        rules={projectSelectRules(user)}
+                    >
                         <Select
-                            allowClear
+                            allowClear={!projectSelectRules(user).length}
+                            disabled={singleProject && projectSelectRules(user).length > 0}
                             placeholder="Choisir un projet"
-                            options={projects.map((p) => ({ value: p.id, label: p.code ? `${p.name} (${p.code})` : p.name }))}
+                            options={assignableProjects.map((p) => ({ value: p.id, label: p.code ? `${p.name} (${p.code})` : p.name }))}
                             size="large"
                         />
                     </Form.Item>

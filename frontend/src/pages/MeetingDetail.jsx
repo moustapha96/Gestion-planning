@@ -700,11 +700,11 @@ export default function MeetingDetail() {
         <div>
             <Space style={{ marginBottom: 24 }}>
                 <Button icon={<ArrowLeftOutlined />} onClick={() => navigate('/meetings')}>
-                    Retour
+                    Retour aux réunions
                 </Button>
                 {canEdit && (
                     <Button icon={<EditOutlined />} onClick={() => navigate(`/meetings/${id}/edit`)}>
-                        Modifier
+                        Modifier la réunion
                     </Button>
                 )}
                 {canConsolidate && (
@@ -750,7 +750,7 @@ export default function MeetingDetail() {
                         onConfirm={handlePermanentDeleteMeeting}
                     >
                         <Button danger icon={<DeleteOutlined />} loading={deleteLoading}>
-                            Supprimer
+                            Supprimer la réunion
                         </Button>
                     </ForceDeletePopconfirm>
                 )}
@@ -765,7 +765,7 @@ export default function MeetingDetail() {
                 )}
                 {canUseVisio && (
                     <Button icon={<VideoCameraOutlined />} onClick={() => setVisioOpen((v) => !v)}>
-                        {visioOpen ? 'Fermer la visio intégrée' : 'Ouvrir visio intégrée'}
+                        {visioOpen ? 'Fermer la visio intégrée' : 'Ouvrir la visio intégrée'}
                     </Button>
                 )}
             </Space>
@@ -811,7 +811,8 @@ export default function MeetingDetail() {
                 open={addVisible}
                 onCancel={() => { setAddVisible(false); addForm.resetFields(); setAddParticipantsError(''); }}
                 onOk={handleAddParticipants}
-                okText="Ajouter"
+                okText="Ajouter les participants"
+                cancelText="Annuler"
                 confirmLoading={addParticipantsLoading}
                 width={520}
                 destroyOnClose
@@ -852,7 +853,8 @@ export default function MeetingDetail() {
                 open={editVisible}
                 onCancel={() => setEditVisible(false)}
                 onOk={handleEditSubmit}
-                okText="Enregistrer"
+                okText="Enregistrer les modifications"
+                cancelText="Annuler"
                 confirmLoading={updateLoading}
                 width={520}
                 destroyOnClose
@@ -972,7 +974,18 @@ export default function MeetingDetail() {
                     </Descriptions.Item>
                     <Descriptions.Item label="Projet">
                         {meeting.project?.name ? (
-                            <Tag color="blue">{meeting.project.code ? `${meeting.project.name} (${meeting.project.code})` : meeting.project.name}</Tag>
+                            <Space direction="vertical" size={0}>
+                                <Tag color="blue">
+                                    {meeting.project.code
+                                        ? `${meeting.project.name} (${meeting.project.code})`
+                                        : meeting.project.name}
+                                </Tag>
+                                {meeting.project.responsible?.name && (
+                                    <Text type="secondary" style={{ fontSize: 12 }}>
+                                        Responsable : {meeting.project.responsible.name}
+                                    </Text>
+                                )}
+                            </Space>
                         ) : '—'}
                     </Descriptions.Item>
                 </Descriptions>

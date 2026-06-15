@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useMemo } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import {
     Card,
@@ -15,6 +15,12 @@ import {
 import { ArrowLeftOutlined, FlagOutlined } from '@ant-design/icons';
 import dayjs from 'dayjs';
 import api from '../api/client';
+import { useAuth } from '../context/AuthContext';
+import {
+    filterAssignableProjects,
+    projectFieldLabel,
+    projectSelectRules,
+} from '../utils/projectScope';
 
 const { Title } = Typography;
 
@@ -22,6 +28,7 @@ export default function MissionEdit() {
     const { id } = useParams();
     const navigate = useNavigate();
     const { message } = App.useApp();
+    const { user } = useAuth();
     const [form] = Form.useForm();
     const [users, setUsers] = useState([]);
     const [directions, setDirections] = useState([]);
@@ -29,6 +36,12 @@ export default function MissionEdit() {
     const [mission, setMission] = useState(null);
     const [loading, setLoading] = useState(true);
     const [submitting, setSubmitting] = useState(false);
+
+    const assignableProjects = useMemo(
+        () => filterAssignableProjects(user, projects),
+        [user, projects],
+    );
+    const singleProject = assignableProjects.length === 1;
 
     useEffect(() => {
         Promise.all([
@@ -142,11 +155,16 @@ export default function MissionEdit() {
                             size="large"
                         />
                     </Form.Item>
-                    <Form.Item name="projectId" label="Projet (optionnel)">
+                    <Form.Item
+                        name="projectId"
+                        label={projectFieldLabel(user)}
+                        rules={projectSelectRules(user)}
+                    >
                         <Select
-                            allowClear
+                            allowClear={!projectSelectRules(user).length}
+                            disabled={singleProject && projectSelectRules(user).length > 0}
                             placeholder="Choisir un projet"
-                            options={projects.map((p) => ({ value: p.id, label: p.code ? `${p.name} (${p.code})` : p.name }))}
+                            options={assignableProjects.map((p) => ({ value: p.id, label: p.code ? `${p.name} (${p.code})` : p.name }))}
                             size="large"
                         />
                     </Form.Item>
@@ -184,7 +202,7 @@ export default function MissionEdit() {
                     <Form.Item>
                         <Space>
                             <Button type="primary" htmlType="submit" loading={submitting} size="large">
-                                Enregistrer
+                                Enregistrer les modifications
                             </Button>
                             <Button size="large" onClick={() => navigate(`/missions/${id}`)}>
                                 Annuler

@@ -60,6 +60,7 @@ model User {
   projectDiscussionMemberships ProjectDiscussionMember[]
   projectsAsConsolidator Project[] @relation("ProjectConsolidator")
   projectsAsCoordinator  Project[] @relation("ProjectCoordinator")
+  projectsAsResponsible  Project[] @relation("ProjectResponsible")
 
   @@index([directionId])
   @@index([projectId])
@@ -469,14 +470,17 @@ model Project {
   isActive      Boolean        @default(true)
   status        String         @default("ACTIVE") // ACTIVE | PAUSED | COMPLETED
   createdById   String?
-  /// Utilisateur désigné consolidateur du projet (validation réunions brouillon, consolidation planning)
+  /// Responsable du projet (rôle RESPONSABLE) — propriétaire du planning hebdomadaire
+  responsibleId  String?
+  /// Utilisateur désigné consolidateur du projet (validation réunions brouillon)
   consolidatorId String?
-  /// Utilisateur désigné coordinateur du projet (validation finale planning, missions, etc.)
+  /// Utilisateur désigné coordinateur du projet (validation finale réunions, missions, etc.)
   coordinatorId  String?
   createdAt     DateTime       @default(now())
   updatedAt     DateTime       @updatedAt
 
   createdBy     User?          @relation("ProjectCreatedBy", fields: [createdById], references: [id], onDelete: SetNull)
+  responsible   User?          @relation("ProjectResponsible", fields: [responsibleId], references: [id], onDelete: SetNull)
   consolidator  User?          @relation("ProjectConsolidator", fields: [consolidatorId], references: [id], onDelete: SetNull)
   coordinator   User?          @relation("ProjectCoordinator", fields: [coordinatorId], references: [id], onDelete: SetNull)
   meetings      Meeting[]
@@ -490,6 +494,7 @@ model Project {
   @@unique([name])
   @@index([status])
   @@index([createdById])
+  @@index([responsibleId])
   @@index([consolidatorId])
   @@index([coordinatorId])
 }

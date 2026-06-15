@@ -59,7 +59,7 @@ const PUBLIC_PLANNING_EVENT_INCLUDE = {
 function publicPlanningEventsWhere(rangeStart, rangeEnd) {
     return {
         ...timedEventOverlapsRange(rangeStart, rangeEnd),
-        planning: { status: 'VALIDATED' },
+        planning: { status: { not: 'CANCELLED' } },
         NOT: {
             OR: [
                 { type: 'REUNION' },
