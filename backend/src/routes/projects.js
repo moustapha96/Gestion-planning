@@ -2,7 +2,7 @@ const express = require('express');
 const path = require('path');
 const fs = require('fs');
 const multer = require('multer');
-const { ROLES, isPrivilegedAdmin, isResponsable } = require('../config/roles');
+const { ROLES, isPrivilegedAdmin, isResponsable, canManageProjects } = require('../config/roles');
 const {
     validateConsolidatorId,
     PROJECT_CONSOLIDATOR_INCLUDE,

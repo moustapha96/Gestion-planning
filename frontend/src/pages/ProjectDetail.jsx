@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
-import { Card, Typography, Tag, Button, Space, Descriptions, List, Upload, Popconfirm, App, Spin, Alert } from 'antd';
+import { Card, Typography, Tag, Button, Space, Descriptions, List, Upload, Popconfirm, App, Spin, Alert, Result } from 'antd';
 import {
     ArrowLeftOutlined,
     ProjectOutlined,
@@ -38,6 +38,7 @@ export default function ProjectDetail() {
     const [project, setProject] = useState(null);
     const [loading, setLoading] = useState(true);
     const [uploading, setUploading] = useState(false);
+    const [forbidden, setForbidden] = useState(false);
 
     const canManage = canManageProjects(user?.role);
     const isResponsible = isUserProjectResponsible(user, project);
@@ -46,12 +47,18 @@ export default function ProjectDetail() {
 
     const load = async () => {
         setLoading(true);
+        setForbidden(false);
         try {
             const { data } = await api.get(`/projects/${id}`);
             setProject(data);
         } catch (err) {
-            message.error(err?.response?.data?.error || 'Projet introuvable');
-            navigate('/projects');
+            if (err?.response?.status === 403) {
+                setForbidden(true);
+                message.error('Vous n\'avez pas accès à ce projet');
+            } else {
+                message.error(err?.response?.data?.error || 'Projet introuvable');
+                navigate('/projects');
+            }
         } finally {
             setLoading(false);
         }
@@ -113,8 +120,27 @@ export default function ProjectDetail() {
         }
     };
 
-    if (loading || !project) {
+    if (loading) {
         return <div style={{ textAlign: 'center', padding: 48 }}><Spin size="large" /></div>;
+    }
+
+    if (forbidden) {
+        return (
+            <Result
+                status="403"
+                title="Accès refusé"
+                subTitle="Ce projet ne fait pas partie de ceux dont vous êtes responsable."
+                extra={(
+                    <Button type="primary" onClick={() => navigate('/projects')}>
+                        Retour à mes projets
+                    </Button>
+                )}
+            />
+        );
+    }
+
+    if (!project) {
+        return null;
     }
 
     return (

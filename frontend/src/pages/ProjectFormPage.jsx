@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 import {
-    Alert, Button, Card, Col, Divider, Form, Input, List, Popconfirm, Row, Select,
+    Alert, Button, Card, Col, Divider, Form, Input, List, Popconfirm, Result, Row, Select,
     Space, Spin, Tag, Typography, Upload, App,
 } from 'antd';
 import {
@@ -12,7 +12,7 @@ import api, { API_BASE } from '../api/client';
 import { useAuth } from '../context/AuthContext';
 import { PDF_ACCEPT, isAcceptedPdfFile } from '../utils/pdfAttachment';
 import { resolveImageSrc } from '../utils/mediaUrl';
-import { canManageProjects } from '../utils/roles';
+import { canManageProjects, isResponsable } from '../utils/roles';
 
 const { Title, Text, Paragraph } = Typography;
 
@@ -51,15 +51,20 @@ export default function ProjectFormPage({ adminContext = false }) {
 
     const listPath = projectListPath(adminContext);
     const canManage = adminContext || canManageProjects(user?.role);
+    const isResponsibleUser = isResponsable(user?.role);
     const logoUrl = Form.useWatch('logoUrl', form);
 
     const logoPreview = useMemo(() => resolveImageSrc(logoUrl), [logoUrl]);
 
     useEffect(() => {
-        if (!canManage) {
-            navigate(listPath, { replace: true });
+        if (canManage || !user) return;
+        if (isEdit && isResponsibleUser) {
+            message.warning('Seuls les administrateurs peuvent modifier un projet.');
+            navigate(`/projects/${id}`, { replace: true });
+            return;
         }
-    }, [canManage, listPath, navigate]);
+        navigate(listPath, { replace: true });
+    }, [canManage, user, isEdit, isResponsibleUser, id, listPath, navigate, message]);
 
     useEffect(() => {
         api.get('/users/participants')
@@ -227,7 +232,24 @@ export default function ProjectFormPage({ adminContext = false }) {
             label: `${u.name} (${u.email})`,
         }));
 
-    if (!canManage) return null;
+    if (!canManage) {
+        return (
+            <Result
+                status="403"
+                title="Accès refusé"
+                subTitle={
+                    isResponsibleUser
+                        ? 'La modification des projets est réservée aux administrateurs. Consultez la fiche projet pour créer des réunions ou missions.'
+                        : 'Vous n\'avez pas les droits pour créer ou modifier un projet.'
+                }
+                extra={(
+                    <Button type="primary" onClick={() => navigate(isEdit && id ? `/projects/${id}` : listPath)}>
+                        {isEdit && isResponsibleUser ? 'Voir la fiche projet' : 'Retour à la liste'}
+                    </Button>
+                )}
+            />
+        );
+    }
 
     if (loading) {
         return (
