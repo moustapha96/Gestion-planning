@@ -82,7 +82,7 @@ export default function Login() {
                 {/* Header logo */}
                 <div style={{ textAlign: 'center' }}>
                     <img src={logo} alt="ADM GP logo" style={{ height: 148, display: 'block', margin: '0 auto 2px' }} />
-                    <Text style={{ color: 'rgba(255,255,255,0.75)' }}>
+                    <Text style={{ color: ADM_BLUE }}>
                         {step === 'credentials' ? 'Connectez-vous à votre compte' : 'Vérification en deux étapes'}
                     </Text>
                 </div>

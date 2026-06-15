@@ -1,4 +1,4 @@
-import { useState, useEffect, useMemo } from 'react';
+import { useState, useEffect } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import {
     Card,
@@ -11,19 +11,15 @@ import {
     Typography,
     App,
     Tag,
-    Alert,
 } from 'antd';
 import { ArrowLeftOutlined, FlagOutlined } from '@ant-design/icons';
 import dayjs from 'dayjs';
 import api from '../api/client';
 import { useAuth } from '../context/AuthContext';
-import {
-    filterAssignableProjects,
-    projectFieldLabel,
-    projectSelectRules,
-} from '../utils/projectScope';
+import ResponsibleProjectField, { ResponsibleProjectBanner } from '../components/ResponsibleProjectField';
+import { applyDefaultProjectToForm, useResponsibleProjectScope } from '../hooks/useResponsibleProjectScope';
 
-const { Title, Text } = Typography;
+const { Title } = Typography;
 
 export default function MissionCreate() {
     const navigate = useNavigate();
@@ -33,30 +29,28 @@ export default function MissionCreate() {
     const [form] = Form.useForm();
     const [users, setUsers] = useState([]);
     const [directions, setDirections] = useState([]);
-    const [projects, setProjects] = useState([]);
     const [submitting, setSubmitting] = useState(false);
 
-    const assignableProjects = useMemo(
-        () => filterAssignableProjects(user, projects),
-        [user, projects],
-    );
-    const singleProject = assignableProjects.length === 1;
+    const projectIdFromUrl = searchParams.get('projectId');
+    const {
+        loading: projectLoading,
+        assignableProjects,
+        defaultProjectId,
+        primaryProject,
+        lockedSingle,
+        canSubmit,
+    } = useResponsibleProjectScope(user, { projectIdFromUrl });
 
     useEffect(() => {
-        Promise.all([
-            api.get('/users/participants'),
-            api.get('/events/taxonomy'),
-        ])
-            .then(([usersRes, taxonomyRes]) => {
-                setUsers(usersRes.data || []);
-                setDirections(taxonomyRes?.data?.directions || []);
-                setProjects(taxonomyRes?.data?.projects || []);
-            })
-            .catch(() => {
-                setUsers([]);
-                setDirections([]);
-                setProjects([]);
-            });
+        api.get('/users/participants')
+            .then((usersRes) => setUsers(usersRes.data || []))
+            .catch(() => setUsers([]));
+    }, []);
+
+    useEffect(() => {
+        api.get('/events/taxonomy')
+            .then((taxonomyRes) => setDirections(taxonomyRes?.data?.directions || []))
+            .catch(() => setDirections([]));
     }, []);
 
     useEffect(() => {
@@ -70,15 +64,16 @@ export default function MissionCreate() {
     }, [searchParams, form]);
 
     useEffect(() => {
-        const projectParam = searchParams.get('projectId');
-        if (projectParam && assignableProjects.some((p) => p.id === projectParam)) {
-            form.setFieldsValue({ projectId: projectParam });
-        } else if (singleProject) {
-            form.setFieldsValue({ projectId: assignableProjects[0].id });
+        if (defaultProjectId) {
+            applyDefaultProjectToForm(form, defaultProjectId);
         }
-    }, [searchParams, form, assignableProjects, singleProject]);
+    }, [defaultProjectId, form]);
 
     const handleSubmit = async (values) => {
+        if (!canSubmit) {
+            message.warning("Vous n'êtes responsable d'aucun projet actif.");
+            return;
+        }
         const start = values.startTime?.toISOString?.() ?? values.startTime;
         const end = values.endTime?.toISOString?.() ?? values.endTime;
         if (!start || !end || new Date(start) >= new Date(end)) {
@@ -92,7 +87,7 @@ export default function MissionCreate() {
                 description: values.description || undefined,
                 location: values.location,
                 directionId: values.directionId || undefined,
-                projectId: values.projectId || undefined,
+                projectId: values.projectId || defaultProjectId || undefined,
                 startTime: start,
                 endTime: end,
                 userIds: values.userIds || [],
@@ -133,19 +128,12 @@ export default function MissionCreate() {
                     </Tag>
                 </div>
 
-                {/* <Alert
-                    type="info"
-                    showIcon
-                    title="Type d'événement verrouillé"
-                    description={
-                        <Text style={{ fontSize: 13 }}>
-                            Toutes les entrées créées ici sont automatiquement de type <Text strong>Mission</Text>.
-                            Pour créer un autre type d'événement (réunion, atelier, formation…), utilisez la
-                            page <Text strong>« Événements »</Text> ou <Text strong>« Réunions »</Text>.
-                        </Text>
-                    }
-                    style={{ marginBottom: 20 }}
-                /> */}
+                <ResponsibleProjectBanner
+                    user={user}
+                    assignableProjects={assignableProjects}
+                    loading={projectLoading}
+                    primaryProject={primaryProject}
+                />
 
                 <Form
                     form={form}
@@ -162,17 +150,17 @@ export default function MissionCreate() {
                         label="Titre de la mission"
                         rules={[{ required: true, message: 'Requis' }]}
                     >
-                        <Input placeholder="Ex. Intervention client X" size="large" />
+                        <Input placeholder="Ex. Intervention client X" size="large" disabled={!canSubmit} />
                     </Form.Item>
                     <Form.Item
                         name="location"
                         label="Lieu"
                         rules={[{ required: true, message: 'Requis' }]}
                     >
-                        <Input placeholder="Adresse ou lieu de la mission" size="large" />
+                        <Input placeholder="Adresse ou lieu de la mission" size="large" disabled={!canSubmit} />
                     </Form.Item>
                     <Form.Item name="description" label="Description">
-                        <Input.TextArea rows={4} placeholder="Détails de la mission..." />
+                        <Input.TextArea rows={4} placeholder="Détails de la mission..." disabled={!canSubmit} />
                     </Form.Item>
                     <Form.Item name="directionId" label="Direction (optionnel)">
                         <Select
@@ -180,34 +168,28 @@ export default function MissionCreate() {
                             placeholder="Choisir une direction"
                             options={directions.map((d) => ({ value: d.id, label: d.code ? `${d.name} (${d.code})` : d.name }))}
                             size="large"
+                            disabled={!canSubmit}
                         />
                     </Form.Item>
-                    <Form.Item
-                        name="projectId"
-                        label={projectFieldLabel(user)}
-                        rules={projectSelectRules(user)}
-                    >
-                        <Select
-                            allowClear={!projectSelectRules(user).length}
-                            disabled={singleProject && projectSelectRules(user).length > 0}
-                            placeholder="Choisir un projet"
-                            options={assignableProjects.map((p) => ({ value: p.id, label: p.code ? `${p.name} (${p.code})` : p.name }))}
-                            size="large"
-                        />
-                    </Form.Item>
+                    <ResponsibleProjectField
+                        user={user}
+                        assignableProjects={assignableProjects}
+                        lockedSingle={lockedSingle}
+                        size="large"
+                    />
                     <Form.Item
                         name="startTime"
                         label="Date et heure de début"
                         rules={[{ required: true, message: 'Requis' }]}
                     >
-                        <DatePicker showTime format="DD/MM/YYYY HH:mm" style={{ width: '100%' }} size="large" />
+                        <DatePicker showTime format="DD/MM/YYYY HH:mm" style={{ width: '100%' }} size="large" disabled={!canSubmit} />
                     </Form.Item>
                     <Form.Item
                         name="endTime"
                         label="Date et heure de fin"
                         rules={[{ required: true, message: 'Requis' }]}
                     >
-                        <DatePicker showTime format="DD/MM/YYYY HH:mm" style={{ width: '100%' }} size="large" />
+                        <DatePicker showTime format="DD/MM/YYYY HH:mm" style={{ width: '100%' }} size="large" disabled={!canSubmit} />
                     </Form.Item>
                     <Form.Item
                         name="userIds"
@@ -224,11 +206,12 @@ export default function MissionCreate() {
                             }))}
                             filterOption={(input, opt) => (opt?.label ?? '').toLowerCase().includes(input.toLowerCase())}
                             size="large"
+                            disabled={!canSubmit}
                         />
                     </Form.Item>
                     <Form.Item>
                         <Space>
-                            <Button type="primary" htmlType="submit" loading={submitting} size="large">
+                            <Button type="primary" htmlType="submit" loading={submitting} size="large" disabled={!canSubmit}>
                                 Créer et notifier les intervenants
                             </Button>
                             <Button size="large" onClick={() => navigate('/missions')}>

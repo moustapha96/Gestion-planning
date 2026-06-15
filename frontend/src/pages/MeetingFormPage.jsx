@@ -7,11 +7,8 @@ import { ArrowLeftOutlined, TeamOutlined } from '@ant-design/icons';
 import dayjs from 'dayjs';
 import api from '../api/client';
 import { useAuth } from '../context/AuthContext';
-import {
-    filterAssignableProjects,
-    projectFieldLabel,
-    projectSelectRules,
-} from '../utils/projectScope';
+import ResponsibleProjectField, { ResponsibleProjectBanner } from '../components/ResponsibleProjectField';
+import { applyDefaultProjectToForm, useResponsibleProjectScope } from '../hooks/useResponsibleProjectScope';
 
 const { Title, Text } = Typography;
 
@@ -117,15 +114,25 @@ export default function MeetingFormPage() {
     const [saving, setSaving] = useState(false);
     const [submitError, setSubmitError] = useState('');
 
+    const projectIdFromUrl = searchParams.get('projectId');
+    const {
+        loading: projectScopeLoading,
+        assignableProjects,
+        defaultProjectId,
+        primaryProject,
+        lockedSingle,
+        canSubmit,
+    } = useResponsibleProjectScope(user, { projectIdFromUrl, enabled: !isEdit });
+
     const startTime = Form.useWatch('startTime', form);
     const endTime = Form.useWatch('endTime', form);
     const selectedRoomId = Form.useWatch('roomId', form);
 
-    const assignableProjects = useMemo(
-        () => filterAssignableProjects(user, projects),
-        [user, projects],
-    );
-    const singleProject = assignableProjects.length === 1;
+    useEffect(() => {
+        if (!isEdit && defaultProjectId) {
+            applyDefaultProjectToForm(form, defaultProjectId);
+        }
+    }, [isEdit, defaultProjectId, form]);
 
     const roomSelectOptions = useMemo(
         () => mergeRoomOptions({
@@ -167,7 +174,6 @@ export default function MeetingFormPage() {
                 const loadedProjects = taxonomyRes?.data?.projects || [];
                 setProjects(loadedProjects);
                 setEventTypes(taxonomyRes?.data?.eventTypes || []);
-                const assignable = filterAssignableProjects(user, loadedProjects);
 
                 if (isEdit) {
                     const { data } = await api.get(`/meetings/${id}`);
@@ -213,14 +219,7 @@ export default function MeetingFormPage() {
                         title: '',
                         agenda: '',
                         participantIds: [],
-                        projectId: (() => {
-                            const projectParam = searchParams.get('projectId');
-                            if (projectParam && assignable.some((p) => p.id === projectParam)) {
-                                return projectParam;
-                            }
-                            if (assignable.length === 1) return assignable[0].id;
-                            return undefined;
-                        })(),
+                        ...(defaultProjectId ? { projectId: defaultProjectId } : {}),
                         ...(defaultEt ? { eventTypeId: defaultEt.id } : {}),
                     });
                 }
@@ -260,6 +259,10 @@ export default function MeetingFormPage() {
     }, [startTime, endTime, id, isEdit]);
 
     const onSubmit = async (values) => {
+        if (!isEdit && !canSubmit) {
+            setSubmitError("Vous n'êtes responsable d'aucun projet actif. Contactez l'administration.");
+            return;
+        }
         const start = values.startTime?.toDate?.() ?? values.startTime;
         const end = values.endTime?.toDate?.() ?? values.endTime;
         const link = String(values.meetingLink || '').trim();
@@ -305,7 +308,7 @@ export default function MeetingFormPage() {
                 agenda: values.agenda,
                 roomId: values.roomId || undefined,
                 directionId: values.directionId || undefined,
-                projectId: values.projectId || undefined,
+                projectId: values.projectId || defaultProjectId || undefined,
                 eventTypeId: values.eventTypeId || undefined,
                 meetingLink: link || undefined,
                 startTime: start.toISOString(),
@@ -336,6 +339,14 @@ export default function MeetingFormPage() {
 
             <Card>
                 {submitError && <Alert type="error" showIcon message={submitError} style={{ marginBottom: 16 }} />}
+                {!isEdit && (
+                    <ResponsibleProjectBanner
+                        user={user}
+                        assignableProjects={assignableProjects}
+                        loading={projectScopeLoading}
+                        primaryProject={primaryProject}
+                    />
+                )}
                 <Form form={form} layout="vertical" onFinish={onSubmit}>
                     <Form.Item name="title" label="Titre" rules={[{ required: true, message: 'Titre requis' }]}>
                         <Input />
@@ -358,17 +369,11 @@ export default function MeetingFormPage() {
                             </Form.Item>
                         </Col>
                         <Col xs={24} sm={12}>
-                            <Form.Item
-                                name="projectId"
-                                label={projectFieldLabel(user)}
-                                rules={projectSelectRules(user)}
-                            >
-                                <Select
-                                    allowClear={!projectSelectRules(user).length}
-                                    disabled={singleProject && projectSelectRules(user).length > 0}
-                                    options={assignableProjects.map((p) => ({ value: p.id, label: p.code ? `${p.name} (${p.code})` : p.name }))}
-                                />
-                            </Form.Item>
+                            <ResponsibleProjectField
+                                user={user}
+                                assignableProjects={isEdit ? projects : assignableProjects}
+                                lockedSingle={!isEdit && lockedSingle}
+                            />
                         </Col>
                     </Row>
                     <Row gutter={16}>
@@ -426,7 +431,7 @@ export default function MeetingFormPage() {
                     )}
                     <Space direction="vertical" size={4}>
                         <Space>
-                            <Button type="primary" htmlType="submit" loading={saving}>
+                            <Button type="primary" htmlType="submit" loading={saving} disabled={!isEdit && !canSubmit}>
                                 {isEdit ? 'Enregistrer les modifications' : 'Créer la réunion'}
                             </Button>
                             <Button onClick={() => navigate(isEdit ? `/meetings/${id}` : '/meetings')}>

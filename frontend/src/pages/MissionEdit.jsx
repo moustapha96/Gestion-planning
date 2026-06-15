@@ -1,4 +1,4 @@
-import { useState, useEffect, useMemo } from 'react';
+import { useState, useEffect } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import {
     Card,
@@ -16,11 +16,8 @@ import { ArrowLeftOutlined, FlagOutlined } from '@ant-design/icons';
 import dayjs from 'dayjs';
 import api from '../api/client';
 import { useAuth } from '../context/AuthContext';
-import {
-    filterAssignableProjects,
-    projectFieldLabel,
-    projectSelectRules,
-} from '../utils/projectScope';
+import ResponsibleProjectField, { ResponsibleProjectBanner } from '../components/ResponsibleProjectField';
+import { useResponsibleProjectScope } from '../hooks/useResponsibleProjectScope';
 
 const { Title } = Typography;
 
@@ -37,11 +34,13 @@ export default function MissionEdit() {
     const [loading, setLoading] = useState(true);
     const [submitting, setSubmitting] = useState(false);
 
-    const assignableProjects = useMemo(
-        () => filterAssignableProjects(user, projects),
-        [user, projects],
-    );
-    const singleProject = assignableProjects.length === 1;
+    const {
+        assignableProjects,
+        lockedSingle,
+        canSubmit,
+        primaryProject,
+        loading: projectLoading,
+    } = useResponsibleProjectScope(user);
 
     useEffect(() => {
         Promise.all([
@@ -73,6 +72,10 @@ export default function MissionEdit() {
     }, [id, navigate]);
 
     const handleSubmit = async (values) => {
+        if (!canSubmit) {
+            message.warning("Vous n'êtes responsable d'aucun projet actif.");
+            return;
+        }
         const start = values.startTime?.toISOString?.() ?? values.startTime;
         const end = values.endTime?.toISOString?.() ?? values.endTime;
         if (!start || !end || new Date(start) >= new Date(end)) {
@@ -124,6 +127,13 @@ export default function MissionEdit() {
                     Modifier la mission
                 </Title>
 
+                <ResponsibleProjectBanner
+                    user={user}
+                    assignableProjects={assignableProjects}
+                    loading={projectLoading}
+                    primaryProject={primaryProject}
+                />
+
                 <Form
                     form={form}
                     layout="vertical"
@@ -155,19 +165,12 @@ export default function MissionEdit() {
                             size="large"
                         />
                     </Form.Item>
-                    <Form.Item
-                        name="projectId"
-                        label={projectFieldLabel(user)}
-                        rules={projectSelectRules(user)}
-                    >
-                        <Select
-                            allowClear={!projectSelectRules(user).length}
-                            disabled={singleProject && projectSelectRules(user).length > 0}
-                            placeholder="Choisir un projet"
-                            options={assignableProjects.map((p) => ({ value: p.id, label: p.code ? `${p.name} (${p.code})` : p.name }))}
-                            size="large"
-                        />
-                    </Form.Item>
+                    <ResponsibleProjectField
+                        user={user}
+                        assignableProjects={assignableProjects}
+                        lockedSingle={lockedSingle}
+                        size="large"
+                    />
                     <Form.Item
                         name="startTime"
                         label="Date et heure de début"

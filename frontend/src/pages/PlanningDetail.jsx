@@ -19,11 +19,8 @@ import {
 } from '../utils/roles';
 import { forceDeleteDescription, forceDeleteTitle } from '../utils/deleteConfirm';
 import ForceDeletePopconfirm from '../components/ForceDeletePopconfirm';
-import {
-    filterAssignableProjects,
-    projectFieldLabel,
-    projectSelectRules,
-} from '../utils/projectScope';
+import ResponsibleProjectField, { ResponsibleProjectBanner } from '../components/ResponsibleProjectField';
+import { applyDefaultProjectToForm, useResponsibleProjectScope } from '../hooks/useResponsibleProjectScope';
 
 const { Title, Text, Paragraph } = Typography;
 
@@ -215,11 +212,21 @@ export default function PlanningDetail() {
     const [eventForm]                             = Form.useForm();
     const [eventTypes, setEventTypes]             = useState([]);
 
-    const assignableProjects = useMemo(
-        () => filterAssignableProjects(user, projects),
-        [user, projects],
-    );
-    const singleProject = assignableProjects.length === 1;
+    const planningProjectId = planning?.project?.id || planning?.user?.project?.id || null;
+    const {
+        loading: projectScopeLoading,
+        assignableProjects,
+        defaultProjectId,
+        primaryProject,
+        lockedSingle,
+        canSubmit,
+    } = useResponsibleProjectScope(user, { projectIdFromUrl: planningProjectId });
+
+    useEffect(() => {
+        if (!eventModal.open || eventModal.event) return;
+        const pid = planningProjectId || defaultProjectId;
+        if (pid) applyDefaultProjectToForm(eventForm, pid);
+    }, [eventModal.open, eventModal.event, planningProjectId, defaultProjectId, eventForm]);
 
     const resolvePlanningEventStyle = useCallback((ev) => {
         if (ev.eventType?.color) {
@@ -321,6 +328,10 @@ export default function PlanningDetail() {
     };
 
     const handleSaveEvent = async () => {
+        if (!eventModal.event && !canSubmit) {
+            message.warning("Vous n'êtes responsable d'aucun projet actif.");
+            return;
+        }
         try {
             const values = await eventForm.validateFields();
             const startTime = values.startTime?.toISOString?.() ?? values.startTime;
@@ -337,7 +348,7 @@ export default function PlanningDetail() {
                 endTime,
                 roomId:      values.roomId      || null,
                 directionId: values.directionId || null,
-                projectId:   values.projectId   || null,
+                projectId:   values.projectId   || defaultProjectId || planningProjectId || null,
                 destination: values.destination || null,
                 description: values.description || null,
             };
@@ -850,8 +861,17 @@ export default function PlanningDetail() {
                 okText={eventModal.event ? 'Enregistrer' : 'Ajouter l\'événement'}
                 cancelText="Annuler"
                 confirmLoading={eventSaving}
+                okButtonProps={{ disabled: !eventModal.event && !canSubmit }}
                 destroyOnClose
             >
+                {!eventModal.event && (
+                    <ResponsibleProjectBanner
+                        user={user}
+                        assignableProjects={assignableProjects}
+                        loading={projectScopeLoading}
+                        primaryProject={primaryProject}
+                    />
+                )}
                 <Form form={eventForm} layout="vertical" style={{ marginTop: 16 }}>
                     <Row gutter={12}>
                         <Col xs={24} sm={16}>
@@ -917,18 +937,11 @@ export default function PlanningDetail() {
                             </Form.Item>
                         </Col>
                         <Col xs={24} sm={12}>
-                            <Form.Item
-                                name="projectId"
-                                label={projectFieldLabel(user)}
-                                rules={projectSelectRules(user)}
-                            >
-                                <Select
-                                    allowClear={!projectSelectRules(user).length}
-                                    disabled={singleProject && projectSelectRules(user).length > 0}
-                                    placeholder="Projet"
-                                    options={assignableProjects.map((p) => ({ value: p.id, label: p.code ? `${p.name} (${p.code})` : p.name }))}
-                                />
-                            </Form.Item>
+                            <ResponsibleProjectField
+                                user={user}
+                                assignableProjects={eventModal.event ? projects : assignableProjects}
+                                lockedSingle={!eventModal.event && lockedSingle}
+                            />
                         </Col>
                     </Row>
 

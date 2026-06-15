@@ -2,7 +2,7 @@ const express = require('express');
 const path = require('path');
 const fs = require('fs');
 const multer = require('multer');
-const { canManageProjects } = require('../config/roles');
+const { ROLES, isPrivilegedAdmin, isResponsable } = require('../config/roles');
 const {
     validateConsolidatorId,
     PROJECT_CONSOLIDATOR_INCLUDE,
@@ -17,6 +17,7 @@ const {
     validateResponsibleId,
     PROJECT_RESPONSIBLE_INCLUDE,
     syncResponsibleProjectMembership,
+    getOwnedResponsibleProject,
 } = require('../services/projectResponsible.service');
 
 const PROJECT_PEOPLE_INCLUDE = {
@@ -96,6 +97,33 @@ router.get('/', async (req, res) => {
             orderBy: { name: 'asc' },
         });
         res.json(projects);
+    } catch (err) {
+        res.status(500).json({ error: 'Erreur serveur' });
+    }
+});
+
+/** Projets dont l'utilisateur connecté est responsable (création réunion / mission / événement). */
+router.get('/my-responsible', async (req, res) => {
+    try {
+        if (!req.user?.id) return res.status(401).json({ error: 'Non authentifié' });
+
+        const projects = await req.prisma.project.findMany({
+            where: {
+                responsibleId: req.user.id,
+                isActive: true,
+                status: 'ACTIVE',
+            },
+            include: PROJECT_RESPONSIBLE_INCLUDE,
+            orderBy: { name: 'asc' },
+        });
+
+        const primary = projects[0] || (await getOwnedResponsibleProject(req.prisma, req.user.id));
+
+        res.json({
+            projects,
+            primary: primary && projects.some((p) => p.id === primary.id) ? primary : (projects[0] || null),
+            isResponsable: isResponsable(req.user?.role),
+        });
     } catch (err) {
         res.status(500).json({ error: 'Erreur serveur' });
     }

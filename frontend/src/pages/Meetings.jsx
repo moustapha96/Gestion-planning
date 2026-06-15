@@ -1,4 +1,4 @@
-import { useEffect, useState, useMemo } from 'react';
+import { useEffect, useState } from 'react';
 import { Table, Tag, Button, Card, Typography, Space, Modal, Form, Input, Select, DatePicker, App, Row, Col, Alert } from 'antd';
 import { PlusOutlined, StopOutlined, CheckCircleOutlined, RollbackOutlined, VideoCameraOutlined, DeleteOutlined, EditOutlined } from '@ant-design/icons';
 import { useNavigate, useSearchParams } from 'react-router-dom';
@@ -12,11 +12,8 @@ import {
     meetingNeedsConsolidatorApproval,
 } from '../utils/roles';
 import { forceDeleteDescription, forceDeleteTitle } from '../utils/deleteConfirm';
-import {
-    filterAssignableProjects,
-    projectFieldLabel,
-    projectSelectRules,
-} from '../utils/projectScope';
+import ResponsibleProjectField, { ResponsibleProjectBanner } from '../components/ResponsibleProjectField';
+import { applyDefaultProjectToForm, useResponsibleProjectScope } from '../hooks/useResponsibleProjectScope';
 
 const { Title, Text } = Typography;
 
@@ -54,11 +51,19 @@ export default function Meetings() {
     const [pageSize, setPageSize] = useState(10);
     const [total, setTotal] = useState(0);
 
-    const assignableProjects = useMemo(
-        () => filterAssignableProjects(user, projects),
-        [user, projects],
-    );
-    const singleProject = assignableProjects.length === 1;
+    const {
+        assignableProjects,
+        defaultProjectId,
+        primaryProject,
+        lockedSingle,
+        canSubmit,
+        loading: projectScopeLoading,
+    } = useResponsibleProjectScope(user);
+
+    useEffect(() => {
+        if (!createModal || !defaultProjectId) return;
+        applyDefaultProjectToForm(form, defaultProjectId);
+    }, [createModal, defaultProjectId, form]);
 
     const formatConflictError = (err) => {
         const data = err?.response?.data || {};
@@ -175,6 +180,10 @@ export default function Meetings() {
     };
 
     const handleCreate = async (values) => {
+        if (!canSubmit) {
+            message.warning("Vous n'êtes responsable d'aucun projet actif.");
+            return;
+        }
         const start = values.startTime?.toDate?.() ?? values.startTime;
         const end = values.endTime?.toDate?.() ?? values.endTime;
         const link = String(values.meetingLink || '').trim();
@@ -212,7 +221,7 @@ export default function Meetings() {
                 agenda: values.agenda,
                 roomId: values.roomId || undefined,
                 directionId: values.directionId || undefined,
-                projectId: values.projectId || undefined,
+                projectId: values.projectId || defaultProjectId || undefined,
                 eventTypeId: values.eventTypeId || undefined,
                 meetingLink: link || undefined,
                 startTime: (start && start.toISOString) ? start.toISOString() : new Date(start).toISOString(),
@@ -469,6 +478,7 @@ export default function Meetings() {
                 okText="Créer la réunion"
                 cancelText="Annuler"
                 confirmLoading={createLoading}
+                okButtonProps={{ disabled: !canSubmit }}
             >
                 {createModalError && (
                     <Alert
@@ -478,6 +488,12 @@ export default function Meetings() {
                         style={{ marginTop: 12, marginBottom: 12 }}
                     />
                 )}
+                <ResponsibleProjectBanner
+                    user={user}
+                    assignableProjects={assignableProjects}
+                    loading={projectScopeLoading}
+                    primaryProject={primaryProject}
+                />
                 <Form form={form} layout="vertical" onFinish={handleCreate} style={{ marginTop: 16 }}>
                     <Form.Item name="title" label="Titre" rules={[{ required: true, message: 'Titre requis' }]}>
                         <Input />
@@ -505,18 +521,11 @@ export default function Meetings() {
                             </Form.Item>
                         </Col>
                         <Col xs={24} sm={12}>
-                            <Form.Item
-                                name="projectId"
-                                label={projectFieldLabel(user)}
-                                rules={projectSelectRules(user)}
-                            >
-                                <Select
-                                    allowClear={!projectSelectRules(user).length}
-                                    disabled={singleProject && projectSelectRules(user).length > 0}
-                                    placeholder="Choisir un projet"
-                                    options={assignableProjects.map((p) => ({ value: p.id, label: p.code ? `${p.name} (${p.code})` : p.name }))}
-                                />
-                            </Form.Item>
+                            <ResponsibleProjectField
+                                user={user}
+                                assignableProjects={assignableProjects}
+                                lockedSingle={lockedSingle}
+                            />
                         </Col>
                     </Row>
                     <Row gutter={16}>

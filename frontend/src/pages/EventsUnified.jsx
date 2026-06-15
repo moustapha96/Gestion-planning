@@ -1,9 +1,11 @@
 import { useEffect, useMemo, useState } from 'react';
-import { Card, Col, Empty, Input, Row, Select, Space, Spin, Table, Tag, Typography, Drawer, Descriptions, Button, Grid, Segmented, Dropdown } from 'antd';
+import { Card, Col, Empty, Input, Row, Select, Space, Spin, Table, Tag, Typography, Drawer, Descriptions, Button, Grid, Segmented, Dropdown, App } from 'antd';
 import { Link, useNavigate } from 'react-router-dom';
 import { PlusOutlined, CalendarOutlined, DownOutlined, FlagOutlined, TeamOutlined, AppstoreOutlined } from '@ant-design/icons';
 import api from '../api/client';
 import { useAuth } from '../context/AuthContext';
+import { useResponsibleProjectScope } from '../hooks/useResponsibleProjectScope';
+import { NO_RESPONSIBLE_PROJECT_DESCRIPTION } from '../utils/projectScope';
 
 const { Title, Text } = Typography;
 const { useBreakpoint } = Grid;
@@ -32,6 +34,7 @@ const STATUS_LABELS = {
 
 export default function EventsUnified() {
     const { user } = useAuth();
+    const { message } = App.useApp();
     const navigate = useNavigate();
     const [loading, setLoading] = useState(false);
     const [items, setItems] = useState([]);
@@ -48,6 +51,13 @@ export default function EventsUnified() {
     const [page, setPage] = useState(1);
     const [pageSize, setPageSize] = useState(25);
     const screens = useBreakpoint();
+
+    const {
+        defaultProjectId,
+        canSubmit,
+        needsResponsibleProject,
+    } = useResponsibleProjectScope(user);
+
     const isMobile = !screens.md;
 
     const [detailsOpen, setDetailsOpen] = useState(false);
@@ -276,14 +286,21 @@ export default function EventsUnified() {
      */
     const handleCreateByType = (eventTypeRecord) => {
         if (!eventTypeRecord) return;
-        const code = String(eventTypeRecord.code || '').toUpperCase();
-        if (code === 'MISSION') {
-            navigate(`/missions/new?date=${todayParam}`);
+        if (needsResponsibleProject && !canSubmit) {
+            message.warning({
+                content: NO_RESPONSIBLE_PROJECT_DESCRIPTION,
+                duration: 6,
+            });
             return;
         }
-        // Pour REUNION et tous les autres codes (ATELIER, FORMATION, AUDIENCE, AUTRE…)
-        // on utilise le formulaire de réunion avec eventTypeId pré-sélectionné.
+        const projectParam = defaultProjectId ? `&projectId=${defaultProjectId}` : '';
+        const code = String(eventTypeRecord.code || '').toUpperCase();
+        if (code === 'MISSION') {
+            navigate(`/missions/new?date=${todayParam}${projectParam}`);
+            return;
+        }
         const params = new URLSearchParams({ date: todayParam, eventTypeId: eventTypeRecord.id });
+        if (defaultProjectId) params.set('projectId', defaultProjectId);
         navigate(`/meetings/new?${params.toString()}`);
     };
 
@@ -324,7 +341,7 @@ export default function EventsUnified() {
                 handleCreateByType(t);
             },
         };
-    }, [eventTypeCategories, todayParam]);
+    }, [eventTypeCategories, todayParam, defaultProjectId, canSubmit, needsResponsibleProject, navigate, message]);
 
     return (
         <div>
