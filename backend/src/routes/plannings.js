@@ -31,6 +31,7 @@ const {
     enrichPlanningForUser,
     enrichPlanningsForUser,
 } = require('../services/planningValidation.service');
+const { canUserViewPlanning } = require('../services/validationPolicy.service');
 const {
     enrichPlanningWithAggregation,
     enrichPlanningsWithAggregation,
@@ -416,10 +417,14 @@ router.post('/', async (req, res) => {
             },
         });
         if (existing) {
-            return res.status(409).json({
-                error: 'Un planning existe déjà pour cette semaine.',
-                planningId: existing.id,
+            const aggregated = await enrichPlanningWithAggregation(req.prisma, {
+                ...existing,
+                events: await req.prisma.planningEvent.findMany({
+                    where: { planningId: existing.id },
+                    include: PLANNING_EVENT_INCLUDE,
+                }),
             });
+            return res.json(aggregated);
         }
 
         const planning = await req.prisma.planning.create({
@@ -1137,10 +1142,9 @@ router.post('/:id/events', async (req, res) => {
         if (!planning) return res.status(404).json({ error: 'Planning introuvable' });
         if (!canManagePlanningEvents(planning, req.user)) {
             return res.status(403).json({
-                error:
-                    isPrivilegedAdmin(req.user.role)
-                        ? 'Accès refusé'
-                        : 'Modification possible uniquement en brouillon ou après retour (ou compte administrateur).',
+                error: isPrivilegedAdmin(req.user.role)
+                    ? 'Accès refusé.'
+                    : 'Seul le responsable du planning ou un administrateur peut modifier les événements manuels.',
             });
         }
 

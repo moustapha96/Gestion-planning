@@ -119,7 +119,7 @@ async function fetchWeekMissions(prisma, planning, project, weekStart, weekEnd) 
 
     return prisma.mission.findMany({
         where: {
-            status: { not: 'CANCELLED' },
+            status: 'CONFIRMED',
             OR: or,
             startTime: { lt: weekEnd },
             endTime: { gt: weekStart },

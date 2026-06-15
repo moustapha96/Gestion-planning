@@ -2,23 +2,20 @@ import { useEffect, useState, useCallback, useMemo } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import {
     Card, Typography, Button, Space, Tag, Spin, Modal, Input,
-    Form, Select, DatePicker, Popconfirm, App, Steps, Alert,
-    Row, Col, Badge, Divider, Tooltip, Descriptions, Result,
+    Form, Select, DatePicker, Popconfirm, App, Alert,
+    Row, Col, Badge, Divider, Descriptions, Result,
 } from 'antd';
 import {
-    ArrowLeftOutlined, SendOutlined, CheckOutlined, RollbackOutlined,
-    CalendarOutlined, UserOutlined, PlusOutlined, EditOutlined,
+    ArrowLeftOutlined, CalendarOutlined, UserOutlined, PlusOutlined, EditOutlined,
     DeleteOutlined, FlagOutlined, EnvironmentOutlined, ClockCircleOutlined,
     InfoCircleOutlined, StopOutlined, ShareAltOutlined, CopyOutlined,
+    TeamOutlined,
 } from '@ant-design/icons';
 import dayjs from 'dayjs';
 import api from '../api/client';
 import { useAuth } from '../context/AuthContext';
 import {
-    isPrivilegedAdmin, canSuperAdminForceDelete, canConsolidatePlanning,
-    isProjectCoordinator, canCoordinatePlanning, canReturnPlanning,
-    planningValidationHint, planningAutoFinalizeOnConsolidate,
-    isPendingCoordinatorStatus, canViewPlanningDetail, ROLES, normalizeRole,
+    isPrivilegedAdmin, canSuperAdminForceDelete,
 } from '../utils/roles';
 import { forceDeleteDescription, forceDeleteTitle } from '../utils/deleteConfirm';
 import ForceDeletePopconfirm from '../components/ForceDeletePopconfirm';
@@ -29,34 +26,8 @@ import {
 } from '../utils/projectScope';
 
 const { Title, Text, Paragraph } = Typography;
-const { TextArea } = Input;
 
 // ── Constantes ───────────────────────────────────────────────────
-const STATUS_COLORS = {
-    DRAFT:            'default',
-    SUBMITTED:        'blue',
-    IN_CONSOLIDATION: 'purple',
-    COORDINATOR_PENDING: 'geekblue',
-    CP_PENDING:       'geekblue',
-    SG_PENDING:       'cyan',
-    DG_PENDING:       'gold',
-    VALIDATED:        'green',
-    RETURNED:         'orange',
-    CANCELLED:        'red',
-};
-const STATUS_LABELS = {
-    DRAFT:            'Brouillon',
-    SUBMITTED:        'Soumis',
-    IN_CONSOLIDATION: 'En consolidation',
-    COORDINATOR_PENDING: 'Att. coordinateur projet',
-    CP_PENDING:       'Att. coordinateur projet',
-    SG_PENDING:       'Att. coordinateur (ancien)',
-    DG_PENDING:       'Att. coordinateur (ancien)',
-    VALIDATED:        'Validé',
-    RETURNED:         'Retourné',
-    CANCELLED:        'Annulé',
-};
-
 const EVENT_STYLES = {
     REUNION:     { bg: '#EFF6FF', border: '#1565C0', color: '#1D4ED8', label: 'Réunion'     },
     MISSION:     { bg: '#f9f0ff', border: '#722ed1', color: '#531dab', label: 'Mission'     },
@@ -64,28 +35,6 @@ const EVENT_STYLES = {
     FORMATION:   { bg: '#f6ffed', border: '#52c41a', color: '#389e0d', label: 'Formation'   },
     AUTRE:       { bg: '#f5f5f5', border: '#d9d9d9', color: '#595959', label: 'Autre'       },
 };
-
-// Workflow (sans RETURNED / CANCELLED)
-const WORKFLOW_STEPS = [
-    { key: 'DRAFT',      title: 'Brouillon',              desc: 'En cours de rédaction' },
-    { key: 'SUBMITTED',  title: 'Soumis',                 desc: 'Consolidateur du projet' },
-    { key: 'COORDINATOR_PENDING', title: 'Coordinateur', desc: 'Validation par le coordinateur désigné' },
-    { key: 'VALIDATED',  title: 'Validé',                 desc: 'Circuit terminé' },
-];
-
-function normalizePlanningStatus(status) {
-    if (['IN_CONSOLIDATION', 'CP_PENDING', 'SG_PENDING', 'DG_PENDING'].includes(status)) {
-        return 'COORDINATOR_PENDING';
-    }
-    return status;
-}
-
-function getWorkflowStep(status) {
-    if (status === 'RETURNED' || status === 'CANCELLED') return 0;
-    const s = normalizePlanningStatus(status);
-    const idx = WORKFLOW_STEPS.findIndex((step) => step.key === s);
-    return idx >= 0 ? idx : 0;
-}
 
 // ── Grille hebdomadaire ──────────────────────────────────────────
 function WeekGrid({ events, weekStart, canEdit, onEdit, onDelete, onView, resolveEventStyle }) {
@@ -213,7 +162,8 @@ function WeekGrid({ events, weekStart, canEdit, onEdit, onDelete, onView, resolv
                                                     <Popconfirm
                                                         title="Supprimer cet événement ?"
                                                         onConfirm={() => onDelete(ev.id)}
-                                                        okText="Oui" cancelText="Non"
+                                                        okText="Supprimer"
+                                                        cancelText="Annuler"
                                                     >
                                                         <Button
                                                             type="text" size="small" danger icon={<DeleteOutlined />}
@@ -252,15 +202,12 @@ export default function PlanningDetail() {
     const [loading,       setLoading]       = useState(true);
     const [notFound,      setNotFound]      = useState(false);
     const [forbidden,     setForbidden]     = useState(false);
-    const [returnModal,   setReturnModal]   = useState(false);
-    const [returnComment, setReturnComment] = useState('');
     const [eventModal,    setEventModal]    = useState({ open: false, event: null });
     const [rooms,         setRooms]         = useState([]);
     const [directions,    setDirections]    = useState([]);
     const [projects,      setProjects]      = useState([]);
     const [eventSaving,   setEventSaving]   = useState(false);
     const [actionLoading, setActionLoading] = useState(false);
-    const [returnLoading, setReturnLoading] = useState(false);
     const [deleteLoading, setDeleteLoading] = useState(false);
     const [eventDetailsOpen, setEventDetailsOpen] = useState(false);
     const [eventDetails,     setEventDetails]     = useState(null);
@@ -319,58 +266,6 @@ export default function PlanningDetail() {
     };
 
     useEffect(() => { fetchPlanning(); }, [id]); // eslint-disable-line
-
-    // ── Actions workflow ─────────────────────────────────────────
-    const handleSubmit = async () => {
-        setActionLoading(true);
-        try {
-            await api.put(`/plannings/${id}/submit`);
-            message.success('Planning soumis');
-            fetchPlanning();
-        } catch (err) {
-            message.error(err.response?.data?.error || 'Erreur');
-        } finally { setActionLoading(false); }
-    };
-
-    const handleConsolidate = async () => {
-        setActionLoading(true);
-        try {
-            const res = await api.put(`/plannings/${id}/consolidate`);
-            if (res.data?.autoFinalized || res.data?.status === 'VALIDATED') {
-                message.success('Planning consolidé et validé — publié ✓');
-            } else {
-                message.success('Planning consolidé — en attente de validation finale');
-            }
-            fetchPlanning();
-        } catch (err) {
-            message.error(err.response?.data?.error || 'Erreur');
-        } finally { setActionLoading(false); }
-    };
-
-    const handleValidateCoordinator = async () => {
-        setActionLoading(true);
-        try {
-            await api.put(`/plannings/${id}/approve-coordinator`);
-            message.success('Planning validé par le coordinateur du projet ✓');
-            fetchPlanning();
-        } catch (err) {
-            message.error(err.response?.data?.error || 'Erreur');
-        } finally { setActionLoading(false); }
-    };
-
-    const handleReturn = async () => {
-        if (!returnComment.trim()) { message.warning('Veuillez saisir un commentaire'); return; }
-        setReturnLoading(true);
-        try {
-            await api.put(`/plannings/${id}/return`, { comment: returnComment });
-            message.success('Planning retourné pour correction');
-            setReturnModal(false);
-            setReturnComment('');
-            fetchPlanning();
-        } catch (err) {
-            message.error(err.response?.data?.error || 'Erreur');
-        } finally { setReturnLoading(false); }
-    };
 
     // ── Gestion événements ───────────────────────────────────────
     const openEventModal = (event = null) => {
@@ -503,9 +398,21 @@ export default function PlanningDetail() {
     };
 
     const buildShareText = () => {
+        if (!planning) return '';
         const events = (planning.events || []).slice().sort(
             (a, b) => new Date(a.startTime) - new Date(b.startTime),
         );
+        const proj = planning.project || planning.user?.project;
+        const counts = planning.counts || {
+            meetings: planning.weekMeetings?.length || 0,
+            missions: planning.weekMissions?.length || 0,
+            manualEvents: planning.manualEvents?.length || 0,
+            total: events.length,
+        };
+        const ws = new Date(planning.weekStart);
+        const we = new Date(ws);
+        we.setDate(ws.getDate() + 6);
+        const wLabel = `${ws.toLocaleDateString('fr-FR', { day: 'numeric', month: 'long' })} – ${we.toLocaleDateString('fr-FR', { day: 'numeric', month: 'long', year: 'numeric' })}`;
 
         const fmtTime = (iso) => {
             if (!iso) return '';
@@ -529,14 +436,14 @@ export default function PlanningDetail() {
 
         const lines = [
             `Planning ADM GP — ${planning.user?.name || ''}`,
-            `Semaine du ${weekLabel}`,
-            `Statut : ${STATUS_LABELS[planning.status] || planning.status}`,
-            planning.user?.direction?.name ? `Direction : ${planning.user.direction.name}` : '',
+            `Semaine du ${wLabel}`,
+            proj?.name ? `Projet : ${proj.name}` : '',
             `Généré le ${new Date().toLocaleDateString('fr-FR', { day: 'numeric', month: 'long', year: 'numeric' })}`,
+            `${counts.meetings} réunion(s) · ${counts.missions} mission(s) · ${counts.manualEvents} événement(s) manuel(s)`,
             '',
             '═'.repeat(48),
             '',
-        ].filter((l) => l !== null);
+        ].filter(Boolean);
 
         if (!events.length) {
             lines.push('   Aucun événement cette semaine.');
@@ -613,15 +520,14 @@ export default function PlanningDetail() {
         );
     }
 
-    const isAdmin         = isPrivilegedAdmin(user?.role);
-    const isOwner         = planning.userId === user?.id;
-    const project         = planning.project || planning.user?.project;
-    const isViewerOnly    = !isOwner && !isAdmin && canViewPlanningDetail(planning, user);
+    const isAdmin = isPrivilegedAdmin(user?.role);
+    const isOwner = planning.userId === user?.id;
+    const project = planning.project || planning.user?.project;
+    const isSuperAdmin = canSuperAdminForceDelete(user?.role);
 
-    const canEditEvents  = planning.status !== 'CANCELLED' && (isAdmin || isOwner);
-    const canCancel      = isAdmin && planning.status !== 'CANCELLED';
-    const canDelete      = (isOwner && planning.status === 'DRAFT') || isAdmin;
-    const isSuperAdmin   = canSuperAdminForceDelete(user?.role);
+    const canEditEvents = planning.status !== 'CANCELLED' && (isAdmin || isOwner);
+    const canCancel = isAdmin && planning.status !== 'CANCELLED';
+    const canDelete = isSuperAdmin;
 
     const weekMissions = planning.weekMissions || [];
     const weekMeetings = planning.weekMeetings || [];
@@ -654,6 +560,23 @@ export default function PlanningDetail() {
 
                 <div style={{ flex: 1 }} />
 
+                {canEditEvents && project?.id && (
+                    <>
+                        <Button
+                            icon={<TeamOutlined />}
+                            onClick={() => navigate(`/meetings/new?projectId=${project.id}`)}
+                        >
+                            Nouvelle réunion
+                        </Button>
+                        <Button
+                            icon={<FlagOutlined />}
+                            onClick={() => navigate(`/missions/new?projectId=${project.id}`)}
+                        >
+                            Nouvelle mission
+                        </Button>
+                    </>
+                )}
+
                 {canEditEvents && (
                     <Button
                         type="dashed" icon={<PlusOutlined />}
@@ -678,10 +601,10 @@ export default function PlanningDetail() {
                     </Popconfirm>
                 )}
 
-                {canDelete && isSuperAdmin && (
+                {canDelete && (
                     <ForceDeletePopconfirm
                         title={forceDeleteTitle('ce planning')}
-                        description={forceDeleteDescription({ entityLabel: 'ce planning et tous ses événements' })}
+                        description={forceDeleteDescription({ entityLabel: 'ce planning et tous ses événements manuels' })}
                         loading={deleteLoading}
                         onConfirm={handleDeletePlanning}
                     >
@@ -689,19 +612,6 @@ export default function PlanningDetail() {
                             Supprimer le planning
                         </Button>
                     </ForceDeletePopconfirm>
-                )}
-                {canDelete && !isSuperAdmin && (
-                    <Popconfirm
-                        title="Supprimer ce planning ?"
-                        description="Le brouillon sera définitivement supprimé."
-                        onConfirm={handleDeletePlanning}
-                        okText="Supprimer" cancelText="Annuler"
-                        okButtonProps={{ danger: true, loading: deleteLoading }}
-                    >
-                        <Button danger icon={<DeleteOutlined />} loading={deleteLoading}>
-                            Supprimer le planning
-                        </Button>
-                    </Popconfirm>
                 )}
             </div>
 
@@ -1066,35 +976,6 @@ export default function PlanningDetail() {
                         </Space>
                     </>
                 )}
-            </Modal>
-
-            {/* ── Modal retour ── */}
-            <Modal
-                title={
-                    <span>
-                        <RollbackOutlined style={{ marginRight: 8, color: '#fa8c16' }} />
-                        Retourner le planning pour correction
-                    </span>
-                }
-                open={returnModal}
-                onOk={handleReturn}
-                onCancel={() => { setReturnModal(false); setReturnComment(''); }}
-                okText="Retourner pour correction"
-                cancelText="Annuler"
-                okButtonProps={{ danger: true }}
-                confirmLoading={returnLoading}
-            >
-                <p style={{ marginBottom: 8, color: '#595959' }}>
-                    Ce commentaire sera affiché au responsable :
-                </p>
-                <TextArea
-                    rows={4}
-                    value={returnComment}
-                    onChange={(e) => setReturnComment(e.target.value)}
-                    placeholder="Décrivez les modifications attendues..."
-                    showCount
-                    maxLength={500}
-                />
             </Modal>
 
             {/* ── Modale partage événements ── */}
