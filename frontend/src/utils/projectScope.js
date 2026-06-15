@@ -30,12 +30,16 @@ export function mergeResponsibleProjects(user, taxonomyProjects, myResponsiblePr
     return Array.from(map.values()).sort((a, b) => String(a.name || '').localeCompare(String(b.name || ''), 'fr'));
 }
 
+/**
+ * Projet par défaut : URL explicite, ou unique projet actif.
+ * Si plusieurs projets, pas de présélection (choix obligatoire).
+ */
 export function resolveDefaultProjectId(urlProjectId, assignableProjects) {
     const list = assignableProjects || [];
     if (urlProjectId && list.some((p) => p.id === urlProjectId)) {
         return urlProjectId;
     }
-    if (list.length >= 1) {
+    if (list.length === 1) {
         return list[0].id;
     }
     return null;
@@ -46,19 +50,36 @@ export function projectLabel(project) {
     return project.code ? `${project.name} (${project.code})` : project.name;
 }
 
+export function projectsSummaryLabel(projects) {
+    const list = projects || [];
+    if (!list.length) return '';
+    if (list.length === 1) return projectLabel(list[0]);
+    return `${list.length} projets : ${list.map(projectLabel).join(', ')}`;
+}
+
 export function isProjectRequiredForUser(user) {
     return isResponsable(user?.role);
 }
 
-export function projectSelectRules(user) {
-    if (isProjectRequiredForUser(user)) {
-        return [{ required: true, message: 'Votre projet est requis' }];
-    }
-    return [];
+export function hasMultipleAssignableProjects(assignableProjects) {
+    return (assignableProjects || []).length > 1;
 }
 
-export function projectFieldLabel(user) {
-    return isProjectRequiredForUser(user) ? 'Projet' : 'Projet (optionnel)';
+export function projectSelectRules(user, assignableProjects) {
+    if (!isProjectRequiredForUser(user)) return [];
+    const multiple = hasMultipleAssignableProjects(assignableProjects);
+    return [{
+        required: true,
+        message: multiple ? 'Choisissez le projet concerné' : 'Votre projet est requis',
+    }];
+}
+
+export function projectFieldLabel(user, assignableProjects) {
+    if (!isProjectRequiredForUser(user)) return 'Projet (optionnel)';
+    if (hasMultipleAssignableProjects(assignableProjects)) {
+        return 'Projet (choisissez parmi vos projets)';
+    }
+    return 'Projet';
 }
 
 export function canSubmitWithResponsibleProject(user, assignableProjects) {

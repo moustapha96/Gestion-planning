@@ -86,6 +86,9 @@ router.get('/', async (req, res) => {
         const where = {};
         if (active !== undefined) where.isActive = active === 'true';
         if (status && PROJECT_STATUSES.includes(String(status).toUpperCase())) where.status = String(status).toUpperCase();
+        if (isResponsable(req.user?.role) && !isPrivilegedAdmin(req.user?.role)) {
+            where.responsibleId = req.user.id;
+        }
 
         const projects = await req.prisma.project.findMany({
             where,
@@ -155,6 +158,13 @@ router.get('/:id', async (req, res) => {
             },
         });
         if (!project) return res.status(404).json({ error: 'Projet introuvable' });
+        if (
+            isResponsable(req.user?.role)
+            && !isPrivilegedAdmin(req.user?.role)
+            && project.responsibleId !== req.user.id
+        ) {
+            return res.status(403).json({ error: 'Accès refusé à ce projet' });
+        }
         res.json(project);
     } catch (err) {
         res.status(500).json({ error: 'Erreur serveur' });

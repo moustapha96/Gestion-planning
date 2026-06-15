@@ -2,7 +2,7 @@ import { useState, useEffect, useCallback } from 'react';
 import {
     Card, Table, Button, Input, Popconfirm, Tag, Space,
     Typography, App, Drawer, Descriptions, List, Statistic, Row, Col, Tooltip, Badge, Upload,
-    Grid, Dropdown,
+    Grid, Dropdown, Alert,
 } from 'antd';
 import {
     ProjectOutlined, PlusOutlined, EditOutlined, DeleteOutlined,
@@ -14,7 +14,8 @@ import api, { API_BASE } from '../api/client';
 import { useAuth } from '../context/AuthContext';
 import { PDF_ACCEPT, isAcceptedPdfFile } from '../utils/pdfAttachment';
 import { resolveImageSrc } from '../utils/mediaUrl';
-import { canManageProjects } from '../utils/roles';
+import { canManageProjects, isResponsable } from '../utils/roles';
+import { isUserProjectResponsible } from '../utils/projectScope';
 
 const { Title, Text } = Typography;
 const { useBreakpoint } = Grid;
@@ -42,6 +43,10 @@ export default function Projects({ adminContext = false }) {
     const [search,        setSearch]        = useState('');
 
     const canManage = adminContext || canManageProjects(user?.role);
+    const isResponsibleUser = isResponsable(user?.role) && !canManage;
+    const myProjects = isResponsibleUser
+        ? projects.filter((p) => isUserProjectResponsible(user, p))
+        : projects;
 
     // ── Fetch ─────────────────────────────────────────────────────
     const load = useCallback(async () => {
@@ -131,13 +136,13 @@ export default function Projects({ adminContext = false }) {
     };
 
     // ── Stats ─────────────────────────────────────────────────────
-    const total    = projects.length;
-    const actifs   = projects.filter((p) => p.isActive).length;
-    const missions = projects.reduce((s, p) => s + (p._count?.missions || 0), 0);
-    const meetings = projects.reduce((s, p) => s + (p._count?.meetings || 0), 0);
+    const total    = myProjects.length;
+    const actifs   = myProjects.filter((p) => p.isActive).length;
+    const missions = myProjects.reduce((s, p) => s + (p._count?.missions || 0), 0);
+    const meetings = myProjects.reduce((s, p) => s + (p._count?.meetings || 0), 0);
 
     // ── Filtrage local ────────────────────────────────────────────
-    const filtered = projects.filter((p) => {
+    const filtered = myProjects.filter((p) => {
         const q = search.trim().toLowerCase();
         if (!q) return true;
         return (
@@ -219,11 +224,35 @@ export default function Projects({ adminContext = false }) {
     };
 
     const renderRowActions = (row, block = false) => {
+        const isMine = isUserProjectResponsible(user, row);
+        const canCreateOnRow = isMine && row.status === 'ACTIVE';
+
         if (!canManage) {
             return (
-                <Button size="small" icon={<EyeOutlined />} block={block} onClick={() => openDetail(row)}>
-                    Voir
-                </Button>
+                <Space wrap style={{ width: block ? '100%' : undefined }}>
+                    <Button size="small" icon={<EyeOutlined />} block={block} onClick={() => openDetail(row)}>
+                        Voir
+                    </Button>
+                    {canCreateOnRow && (
+                        <>
+                            <Button
+                                size="small"
+                                type="primary"
+                                icon={<TeamOutlined />}
+                                onClick={() => navigate(`/meetings/new?projectId=${row.id}`)}
+                            >
+                                Réunion
+                            </Button>
+                            <Button
+                                size="small"
+                                icon={<FlagOutlined />}
+                                onClick={() => navigate(`/missions/new?projectId=${row.id}`)}
+                            >
+                                Mission
+                            </Button>
+                        </>
+                    )}
+                </Space>
             );
         }
         if (isMobile) {
@@ -525,7 +554,8 @@ export default function Projects({ adminContext = false }) {
             }}>
                 {!adminContext && (
                     <Title level={3} style={{ margin: 0 }}>
-                        <ProjectOutlined style={{ marginRight: 8 }} />Projets
+                        <ProjectOutlined style={{ marginRight: 8 }} />
+                        {isResponsibleUser ? 'Mes projets' : 'Projets'}
                     </Title>
                 )}
                 {canManage && (
@@ -541,10 +571,30 @@ export default function Projects({ adminContext = false }) {
                 )}
             </div>
 
+            {isResponsibleUser && myProjects.length > 1 && (
+                <Alert
+                    type="info"
+                    showIcon
+                    style={{ marginBottom: 16 }}
+                    message={`Vous êtes responsable de ${myProjects.length} projets actifs`}
+                    description="Lors de la création d'une réunion, mission ou événement, choisissez le projet concerné. Vous pouvez aussi lancer une création directement depuis la fiche d'un projet."
+                />
+            )}
+
+            {isResponsibleUser && myProjects.length === 0 && !loading && (
+                <Alert
+                    type="warning"
+                    showIcon
+                    style={{ marginBottom: 16 }}
+                    message="Aucun projet sous votre responsabilité"
+                    description="Contactez l'administration pour être désigné responsable d'un projet."
+                />
+            )}
+
             {/* ── Stats ── */}
             <Row gutter={[16, 16]} style={{ marginBottom: 16 }}>
                 {[
-                    { title: 'Total projets',   value: total,    color: '#1565C0', icon: <ProjectOutlined /> },
+                    { title: isResponsibleUser ? 'Mes projets' : 'Total projets', value: total, color: '#1565C0', icon: <ProjectOutlined /> },
                     { title: 'Projets actifs',  value: actifs,   color: '#52c41a', icon: <CheckCircleOutlined /> },
                     { title: 'Missions liées',  value: missions, color: '#722ed1', icon: <FlagOutlined /> },
                     { title: 'Réunions liées',  value: meetings, color: '#1565C0', icon: <TeamOutlined /> },

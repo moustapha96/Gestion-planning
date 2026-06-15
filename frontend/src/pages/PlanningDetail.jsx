@@ -533,7 +533,13 @@ export default function PlanningDetail() {
 
     const isAdmin = isPrivilegedAdmin(user?.role);
     const isOwner = planning.userId === user?.id;
-    const project = planning.project || planning.user?.project;
+    const responsibleProjects = (planning.projects?.length
+        ? planning.projects
+        : [planning.project || planning.user?.project].filter(Boolean));
+    const project = responsibleProjects[0] || null;
+    const projectsLabel = responsibleProjects.length > 1
+        ? responsibleProjects.map((p) => (p.code ? `${p.name} (${p.code})` : p.name)).join(' · ')
+        : null;
     const isSuperAdmin = canSuperAdminForceDelete(user?.role);
 
     const canEditEvents = planning.status !== 'CANCELLED' && (isAdmin || isOwner);
@@ -662,15 +668,15 @@ export default function PlanningDetail() {
                     </Tag>
                 </div>
 
-                {project && (
+                {(project || projectsLabel) && (
                     <Descriptions
                         size="small"
                         bordered
                         column={{ xs: 1, sm: 2, md: 4 }}
                         style={{ marginBottom: 20 }}
                     >
-                        <Descriptions.Item label="Projet">
-                            {project.code ? `${project.name} (${project.code})` : project.name}
+                        <Descriptions.Item label={responsibleProjects.length > 1 ? 'Projets' : 'Projet'}>
+                            {projectsLabel || (project.code ? `${project.name} (${project.code})` : project.name)}
                         </Descriptions.Item>
                         <Descriptions.Item label="Responsable">
                             {project.responsible?.name || planning.user?.name || <Text type="secondary">Non défini</Text>}

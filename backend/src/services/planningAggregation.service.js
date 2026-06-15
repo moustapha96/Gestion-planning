@@ -1,5 +1,5 @@
 const { publishedMeetingStatusFilter } = require('../config/meetingVisibility');
-const { getProjectForResponsible } = require('./projectResponsible.service');
+const { getOwnedResponsibleProjects } = require('./projectResponsible.service');
 
 function weekBounds(weekStart) {
     const start = new Date(weekStart);
@@ -88,15 +88,17 @@ const MISSION_INCLUDE = {
     assignments: { include: { user: { select: { id: true, name: true } } } },
 };
 
-async function resolvePlanningProject(prisma, planning) {
-    const fromUser = planning.user?.project || null;
-    if (fromUser?.id) return fromUser;
-    return getProjectForResponsible(prisma, planning.userId);
+async function resolvePlanningProjects(prisma, planning) {
+    const fromResponsible = await getOwnedResponsibleProjects(prisma, planning.userId);
+    if (fromResponsible.length) return fromResponsible;
+    const fromUser = planning.user?.project;
+    return fromUser?.id ? [fromUser] : [];
 }
 
-async function fetchWeekMeetings(prisma, planning, project, weekStart, weekEnd) {
+async function fetchWeekMeetings(prisma, planning, responsibleProjects, weekStart, weekEnd) {
+    const projectIds = (responsibleProjects || []).map((p) => p.id).filter(Boolean);
     const or = [{ organizerId: planning.userId }];
-    if (project?.id) or.push({ projectId: project.id });
+    if (projectIds.length) or.push({ projectId: { in: projectIds } });
 
     return prisma.meeting.findMany({
         where: {
@@ -110,12 +112,13 @@ async function fetchWeekMeetings(prisma, planning, project, weekStart, weekEnd) 
     });
 }
 
-async function fetchWeekMissions(prisma, planning, project, weekStart, weekEnd) {
+async function fetchWeekMissions(prisma, planning, responsibleProjects, weekStart, weekEnd) {
+    const projectIds = (responsibleProjects || []).map((p) => p.id).filter(Boolean);
     const or = [
         { createdById: planning.userId },
         { assignments: { some: { userId: planning.userId } } },
     ];
-    if (project?.id) or.push({ projectId: project.id });
+    if (projectIds.length) or.push({ projectId: { in: projectIds } });
 
     return prisma.mission.findMany({
         where: {
@@ -134,11 +137,12 @@ async function fetchWeekMissions(prisma, planning, project, weekStart, weekEnd) 
  */
 async function buildPlanningAggregation(prisma, planning, manualEvents = []) {
     const { start: weekStart, end: weekEnd } = weekBounds(planning.weekStart);
-    const project = await resolvePlanningProject(prisma, planning);
+    const responsibleProjects = await resolvePlanningProjects(prisma, planning);
+    const project = responsibleProjects[0] || planning.user?.project || null;
 
     const [weekMeetings, weekMissions] = await Promise.all([
-        fetchWeekMeetings(prisma, planning, project, weekStart, weekEnd),
-        fetchWeekMissions(prisma, planning, project, weekStart, weekEnd),
+        fetchWeekMeetings(prisma, planning, responsibleProjects, weekStart, weekEnd),
+        fetchWeekMissions(prisma, planning, responsibleProjects, weekStart, weekEnd),
     ]);
 
     const manualAggregated = (manualEvents || []).map(mapPlanningEventToAggregatedEvent);
@@ -150,6 +154,7 @@ async function buildPlanningAggregation(prisma, planning, manualEvents = []) {
 
     return {
         project,
+        projects: responsibleProjects,
         weekMeetings,
         weekMissions,
         aggregatedEvents,

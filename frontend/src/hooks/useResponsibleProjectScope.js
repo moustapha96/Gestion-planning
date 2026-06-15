@@ -66,6 +66,7 @@ export function useResponsibleProjectScope(user, { projectIdFromUrl, enabled = t
 
     const primaryProject = assignableProjects[0] || null;
     const lockedSingle = needsResponsibleProject && assignableProjects.length === 1;
+    const hasMultipleProjects = assignableProjects.length > 1;
     const canSubmit = canSubmitWithResponsibleProject(user, assignableProjects);
 
     return {
@@ -74,6 +75,7 @@ export function useResponsibleProjectScope(user, { projectIdFromUrl, enabled = t
         defaultProjectId,
         primaryProject,
         lockedSingle,
+        hasMultipleProjects,
         needsResponsibleProject,
         hasResponsibleProject: !needsResponsibleProject || assignableProjects.length > 0,
         canSubmit,

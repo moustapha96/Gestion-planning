@@ -316,7 +316,7 @@ export default function ProjectFormPage({ adminContext = false }) {
                                 message="Rôles du projet"
                                 description={(
                                     <ul style={{ margin: '8px 0 0', paddingLeft: 18 }}>
-                                        <li>Le <strong>responsable</strong> porte le planning hebdomadaire consolidé.</li>
+                                        <li>Le <strong>responsable</strong> porte le planning hebdomadaire consolidé (un même responsable peut gérer plusieurs projets).</li>
                                         <li>Le <strong>consolidateur</strong> valide les réunions en brouillon.</li>
                                         <li>Le <strong>coordinateur</strong> valide définitivement réunions et missions.</li>
                                     </ul>
@@ -328,7 +328,7 @@ export default function ProjectFormPage({ adminContext = false }) {
                                         name="responsibleId"
                                         label="Responsable du projet"
                                         rules={[{ required: true, message: 'Choisissez un responsable' }]}
-                                        extra="Utilisateur au rôle Responsable."
+                                        extra="Utilisateur au rôle Responsable. Peut être désigné sur plusieurs projets."
                                     >
                                         <Select
                                             allowClear

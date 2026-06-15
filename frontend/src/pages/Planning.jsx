@@ -57,7 +57,9 @@ function buildPlanningText(plannings, weekLabel) {
         );
         const counts = p.counts || {};
         lines.push('─'.repeat(50));
-        lines.push(`👤 ${p.user?.name || '—'} (${p.project?.name || p.user?.project?.name || '—'})`);
+        lines.push(`👤 ${p.user?.name || '—'} (${p.projects?.length > 1
+            ? p.projects.map((pr) => pr.name).join(', ')
+            : (p.project?.name || p.user?.project?.name || '—')})`);
         lines.push(
             `   ${counts.meetings ?? 0} réunion(s) · ${counts.missions ?? 0} mission(s) · ${counts.manualEvents ?? 0} événement(s) manuel(s)`,
         );

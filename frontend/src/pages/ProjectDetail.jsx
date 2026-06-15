@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
-import { Card, Typography, Tag, Button, Space, Descriptions, List, Upload, Popconfirm, App, Spin } from 'antd';
+import { Card, Typography, Tag, Button, Space, Descriptions, List, Upload, Popconfirm, App, Spin, Alert } from 'antd';
 import {
     ArrowLeftOutlined,
     ProjectOutlined,
@@ -22,8 +22,9 @@ import api, { API_BASE } from '../api/client';
 import { useAuth } from '../context/AuthContext';
 import { PDF_ACCEPT, isAcceptedPdfFile } from '../utils/pdfAttachment';
 import { resolveImageSrc } from '../utils/mediaUrl';
-import { canManageProjects } from '../utils/roles';
+import { canManageProjects, isResponsable } from '../utils/roles';
 import { isUserProjectResponsible } from '../utils/projectScope';
+import { useResponsibleProjectScope } from '../hooks/useResponsibleProjectScope';
 
 const { Title, Text } = Typography;
 const STATUS_COLORS = { ACTIVE: 'success', PAUSED: 'warning', COMPLETED: 'default' };
@@ -41,6 +42,7 @@ export default function ProjectDetail() {
     const canManage = canManageProjects(user?.role);
     const isResponsible = isUserProjectResponsible(user, project);
     const canCreateOnProject = isResponsible && project?.status === 'ACTIVE';
+    const { hasMultipleProjects } = useResponsibleProjectScope(user, { enabled: isResponsable(user?.role) });
 
     const load = async () => {
         setLoading(true);
@@ -199,6 +201,16 @@ export default function ProjectDetail() {
                     </Popconfirm>
                 )}
             </Space>
+
+            {isResponsible && hasMultipleProjects && (
+                <Alert
+                    type="info"
+                    showIcon
+                    style={{ marginBottom: 16 }}
+                    message="Vous gérez plusieurs projets"
+                    description="Les réunions et missions créées depuis cette fiche seront rattachées à ce projet. Pour un autre projet, utilisez la liste Mes projets."
+                />
+            )}
 
             <div style={{ display: 'flex', alignItems: 'center', gap: 16, marginBottom: 16, flexWrap: 'wrap' }}>
                 {resolveImageSrc(project.logoUrl) ? (

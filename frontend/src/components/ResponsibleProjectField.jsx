@@ -2,9 +2,11 @@ import { Alert, Form, Select } from 'antd';
 import {
     NO_RESPONSIBLE_PROJECT_DESCRIPTION,
     NO_RESPONSIBLE_PROJECT_TITLE,
+    hasMultipleAssignableProjects,
     projectFieldLabel,
     projectLabel,
     projectSelectRules,
+    projectsSummaryLabel,
 } from '../utils/projectScope';
 
 export function ResponsibleProjectBanner({
@@ -20,7 +22,7 @@ export function ResponsibleProjectBanner({
             <Alert
                 type="info"
                 showIcon
-                message="Chargement de votre projet…"
+                message="Chargement de vos projets…"
                 style={{ marginBottom: 16 }}
             />
         );
@@ -38,20 +40,28 @@ export function ResponsibleProjectBanner({
         );
     }
 
-    const display = primaryProject || assignableProjects[0];
-    // if (assignableProjects.length === 1 && display) {
-    //     return (
-    //         <Alert
-    //             type="info"
-    //             showIcon
-    //             message={`Projet : ${projectLabel(display)}`}
-    //             description="Cette création sera automatiquement rattachée à votre projet."
-    //             style={{ marginBottom: 16 }}
-    //         />
-    //     );
-    // }
+    if (assignableProjects.length === 1) {
+        const display = primaryProject || assignableProjects[0];
+        return (
+            <Alert
+                type="info"
+                showIcon
+                message={`Projet : ${projectLabel(display)}`}
+                description="Cette création sera rattachée à votre projet."
+                style={{ marginBottom: 16 }}
+            />
+        );
+    }
 
-    return null;
+    return (
+        <Alert
+            type="info"
+            showIcon
+            message={`Vous êtes responsable de ${assignableProjects.length} projets`}
+            description={`Choisissez le projet concerné : ${projectsSummaryLabel(assignableProjects)}.`}
+            style={{ marginBottom: 16 }}
+        />
+    );
 }
 
 export default function ResponsibleProjectField({
@@ -60,21 +70,29 @@ export default function ResponsibleProjectField({
     lockedSingle,
     size = 'middle',
 }) {
-    const rules = projectSelectRules(user);
+    const list = assignableProjects || [];
+    const rules = projectSelectRules(user, list);
     const required = rules.length > 0;
+    const multiple = hasMultipleAssignableProjects(list);
 
     return (
         <Form.Item
             name="projectId"
-            label={projectFieldLabel(user)}
+            label={projectFieldLabel(user, list)}
             rules={rules}
         >
             <Select
                 allowClear={!required}
                 disabled={required && lockedSingle}
-                placeholder={required ? 'Votre projet' : 'Choisir un projet'}
+                showSearch={multiple}
+                optionFilterProp="label"
+                placeholder={
+                    multiple
+                        ? 'Sélectionner un de vos projets'
+                        : (required ? 'Votre projet' : 'Choisir un projet')
+                }
                 size={size}
-                options={(assignableProjects || []).map((p) => ({
+                options={list.map((p) => ({
                     value: p.id,
                     label: projectLabel(p),
                 }))}

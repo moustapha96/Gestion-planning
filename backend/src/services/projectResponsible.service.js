@@ -47,10 +47,16 @@ async function assignUserAsProjectResponsible(prisma, projectId, userId) {
         data: { responsibleId: userId },
     });
 
-    await prisma.user.update({
+    const existing = await prisma.user.findUnique({
         where: { id: userId },
-        data: { projectId },
+        select: { projectId: true },
     });
+    if (!existing?.projectId) {
+        await prisma.user.update({
+            where: { id: userId },
+            data: { projectId },
+        });
+    }
 }
 
 /** Retire le responsable du projet si c'était cet utilisateur. */
@@ -62,26 +68,26 @@ async function clearProjectResponsibleIfUser(prisma, projectId, userId) {
     });
 }
 
-/** Synchronise projectId utilisateur quand le responsable est défini sur le projet. */
+/**
+ * Synchronise la messagerie projet quand un responsable est désigné.
+ * Un même responsable peut porter plusieurs projets : on ne force pas user.projectId
+ * s'il est déjà renseigné (rétrocompatibilité).
+ */
 async function syncResponsibleProjectMembership(prisma, projectId, responsibleId) {
-    if (!projectId) return;
-    if (!responsibleId) return;
+    if (!projectId || !responsibleId) return;
 
-    const previous = await prisma.user.findFirst({
-        where: { projectId, role: ROLES.RESPONSABLE, id: { not: responsibleId } },
-        select: { id: true },
+    const user = await prisma.user.findUnique({
+        where: { id: responsibleId },
+        select: { id: true, role: true, projectId: true },
     });
-    if (previous) {
+    if (!user || user.role !== ROLES.RESPONSABLE) return;
+
+    if (!user.projectId) {
         await prisma.user.update({
-            where: { id: previous.id },
-            data: { projectId: null },
+            where: { id: responsibleId },
+            data: { projectId },
         });
     }
-
-    await prisma.user.update({
-        where: { id: responsibleId },
-        data: { projectId },
-    });
 
     try {
         const { syncProjectDiscussionMembers } = require('./projectDiscussion.service');
@@ -110,12 +116,19 @@ async function getProjectForResponsible(prisma, userId) {
     });
 }
 
-async function getOwnedResponsibleProject(prisma, userId) {
-    if (!userId) return null;
-    return prisma.project.findFirst({
+async function getOwnedResponsibleProjects(prisma, userId) {
+    if (!userId) return [];
+    return prisma.project.findMany({
         where: { responsibleId: userId, isActive: true, status: 'ACTIVE' },
         select: { id: true, name: true, code: true, responsibleId: true },
+        orderBy: { name: 'asc' },
     });
+}
+
+/** @deprecated Préférer getOwnedResponsibleProjects — renvoie le premier projet actif. */
+async function getOwnedResponsibleProject(prisma, userId) {
+    const list = await getOwnedResponsibleProjects(prisma, userId);
+    return list[0] || null;
 }
 
 function isUserResponsibleOfProject(user, project) {
@@ -149,22 +162,29 @@ async function validateProjectForUserAction(prisma, user, projectId, options = {
 
     if (isResponsable(user?.role)) {
         let pid = projectId;
+        const owned = await getOwnedResponsibleProjects(prisma, user.id);
         if (!pid) {
             if (!requiredForResponsable) {
                 return { ok: true, value: null };
             }
-            const owned = await getOwnedResponsibleProject(prisma, user.id);
-            if (!owned?.id) {
+            if (!owned.length) {
                 return { ok: false, error: 'Aucun projet actif ne vous est assigné comme responsable.' };
             }
-            pid = owned.id;
+            if (owned.length === 1) {
+                pid = owned[0].id;
+            } else {
+                return {
+                    ok: false,
+                    error: 'Sélectionnez le projet concerné parmi vos projets.',
+                };
+            }
         }
         const check = await validateActiveProjectId(prisma, pid);
         if (!check.ok) return check;
         if (check.project.responsibleId !== user.id) {
             return {
                 ok: false,
-                error: 'Vous ne pouvez agir que sur le projet dont vous êtes responsable.',
+                error: 'Vous ne pouvez agir que sur un projet dont vous êtes responsable.',
             };
         }
         return { ok: true, value: pid };
@@ -197,6 +217,7 @@ module.exports = {
     clearProjectResponsibleIfUser,
     syncResponsibleProjectMembership,
     getProjectForResponsible,
+    getOwnedResponsibleProjects,
     getOwnedResponsibleProject,
     isUserResponsibleOfProject,
     validateActiveProjectId,
