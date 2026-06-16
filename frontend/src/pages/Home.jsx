@@ -971,12 +971,13 @@ export default function Home() {
                                     gap: 10,
                                 }}
                             >
-                                <img
+                                {/* <img
                                     src={DEFAULT_APP_LOGO_PATH}
                                     alt="Logo ADM GP"
                                     style={{ width: 58, height: 58, objectFit: 'contain' }}
-                                />
-                                {/* <span>ADM GP</span> */}
+                                /> */}
+                                <CalendarOutlined  />
+                                <span>GP ADM</span>
                             </Title>
                             {activeTab !== 'repertoire' && (
                                 <Space style={{ marginTop: 8 }} wrap>
