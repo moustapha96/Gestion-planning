@@ -1059,6 +1059,7 @@ export default function Home() {
                                 border: '1px solid rgba(255,255,255,0.25)',
                                 color: '#fff',
                                 borderRadius: 10,
+                                '--ant-color-text-placeholder': '#fff',
                             }}
                             styles={{
                                 input: {
