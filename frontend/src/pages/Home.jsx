@@ -17,6 +17,7 @@ import {
 import { minutesFromTimeStr, isSlotActiveNow } from '../utils/roomSlots';
 import { segmentEventForDay } from '../utils/calendarEvents';
 import { exportRepertoirePdf, downloadRepertoireDocx } from '../utils/repertoireExport';
+import { DEFAULT_APP_LOGO_PATH_OLD , DEFAULT_APP_LOGO_PATH } from '../utils/appBranding';
 
 const { Content } = Layout;
 const { Title, Text } = Typography;
@@ -959,8 +960,23 @@ export default function Home() {
                         marginBottom: 16, gap: 16, flexWrap: 'wrap',
                     }}>
                         <div>
-                            <Title level={2} style={{ color: '#fff', margin: 0, fontWeight: 700 }}>
-                                📅 ADM GP
+                            <Title
+                                level={2}
+                                style={{
+                                    color: '#fff',
+                                    margin: 0,
+                                    fontWeight: 700,
+                                    display: 'flex',
+                                    alignItems: 'center',
+                                    gap: 10,
+                                }}
+                            >
+                                <img
+                                    src={DEFAULT_APP_LOGO_PATH}
+                                    alt="Logo ADM GP"
+                                    style={{ width: 58, height: 58, objectFit: 'contain' }}
+                                />
+                                {/* <span>ADM GP</span> */}
                             </Title>
                             {activeTab !== 'repertoire' && (
                                 <Space style={{ marginTop: 8 }} wrap>
