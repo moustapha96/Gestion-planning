@@ -7,10 +7,14 @@ const {
     canConsolidateDraftMeeting,
     canApproveDraftMeeting,
     canFinalizePendingMeeting,
+    canConsolidateDraftMission,
+    canApproveDraftMission,
+    canFinalizePendingMission,
     canConsolidateSubmittedPlanning,
     canValidatePlanningAsCoordinator,
     isGlobalConsolidatorRole,
     meetingValidationAction,
+    missionValidationAction,
     planningValidationActionLabel,
 } = require('./validationPolicy.service');
 
@@ -19,6 +23,12 @@ const MEETING_INCLUDE = {
     project: { select: { id: true, name: true, code: true, consolidatorId: true, coordinatorId: true } },
     room: { select: { id: true, name: true, location: true } },
     eventType: { select: { id: true, name: true, code: true, color: true } },
+};
+
+const MISSION_INCLUDE = {
+    createdBy: { select: { id: true, name: true, email: true, role: true } },
+    project: { select: { id: true, name: true, code: true, consolidatorId: true, coordinatorId: true } },
+    direction: { select: { id: true, name: true, code: true } },
 };
 
 const PLANNING_INCLUDE = {
@@ -64,6 +74,32 @@ function buildMeetingFinalizeWhere(user) {
         status: { in: require('../config/planningWorkflow').PENDING_COORDINATOR_STATUSES },
         organizer: { role: ROLES.RESPONSABLE },
     };
+    if (isPrivilegedAdmin(user.role)) return base;
+    const or = [{ project: { coordinatorId: user.id } }];
+    if (isGlobalConsolidatorRole(user)) {
+        or.push({ project: { coordinatorId: null } });
+        or.push({ projectId: null });
+    }
+    return { ...base, OR: or };
+}
+
+function buildMissionDraftWhere(user) {
+    const base = { status: 'DRAFT', createdBy: { role: ROLES.RESPONSABLE } };
+    if (isPrivilegedAdmin(user.role)) return base;
+    return {
+        ...base,
+        OR: [
+            { project: { consolidatorId: user.id } },
+            { project: { consolidatorId: null, coordinatorId: user.id } },
+            ...(isGlobalConsolidatorRole(user)
+                ? [{ project: { consolidatorId: null, coordinatorId: null } }, { projectId: null }]
+                : []),
+        ],
+    };
+}
+
+function buildMissionFinalizeWhere(user) {
+    const base = { status: { in: require('../config/planningWorkflow').PENDING_COORDINATOR_STATUSES }, createdBy: { role: ROLES.RESPONSABLE } };
     if (isPrivilegedAdmin(user.role)) return base;
     const or = [{ project: { coordinatorId: user.id } }];
     if (isGlobalConsolidatorRole(user)) {
@@ -239,6 +275,29 @@ function mapPlanningItem(planning, action, missionsCount = 0, user = null) {
     };
 }
 
+function mapMissionItem(mission) {
+    const action = missionValidationAction(mission) || 'approve';
+    return {
+        id: mission.id,
+        kind: 'mission',
+        title: mission.title,
+        location: mission.location,
+        startTime: mission.startTime,
+        endTime: mission.endTime,
+        status: mission.status,
+        createdBy: mission.createdBy,
+        project: mission.project,
+        direction: mission.direction,
+        link: `/missions/${mission.id}`,
+        action,
+        validationPath: action === 'consolidate'
+            ? 'consolidator'
+            : action === 'coordinate'
+                ? 'coordinator'
+                : 'globalConsolidator',
+    };
+}
+
 async function countWeekMissionsForPlanning(prisma, planning) {
     const weekStart = new Date(planning.weekStart);
     const weekEnd = new Date(weekStart.getTime() + 7 * 24 * 60 * 60 * 1000);
@@ -319,7 +378,7 @@ async function getPendingValidations(prisma, user) {
         };
     }
 
-    const [meetingDraftRaw, meetingFinalizeRaw] = await Promise.all([
+    const [meetingDraftRaw, meetingFinalizeRaw, missionDraftRaw, missionFinalizeRaw] = await Promise.all([
         prisma.meeting.findMany({
             where: buildMeetingDraftWhere(user),
             include: MEETING_INCLUDE,
@@ -329,6 +388,18 @@ async function getPendingValidations(prisma, user) {
         prisma.meeting.findMany({
             where: buildMeetingFinalizeWhere(user),
             include: MEETING_INCLUDE,
+            orderBy: { startTime: 'asc' },
+            take: 100,
+        }),
+        prisma.mission.findMany({
+            where: buildMissionDraftWhere(user),
+            include: MISSION_INCLUDE,
+            orderBy: { startTime: 'asc' },
+            take: 100,
+        }),
+        prisma.mission.findMany({
+            where: buildMissionFinalizeWhere(user),
+            include: MISSION_INCLUDE,
             orderBy: { startTime: 'asc' },
             take: 100,
         }),
@@ -348,18 +419,31 @@ async function getPendingValidations(prisma, user) {
             .map(mapMeetingItem),
     ];
 
+    const missionDraftIds = new Set();
+    const missions = [
+        ...missionDraftRaw
+            .filter((m) => {
+                const ok = canConsolidateDraftMission(m, user) || canApproveDraftMission(m, user);
+                if (ok) missionDraftIds.add(m.id);
+                return ok;
+            })
+            .map(mapMissionItem),
+        ...missionFinalizeRaw
+            .filter((m) => canFinalizePendingMission(m, user) && !missionDraftIds.has(m.id))
+            .map(mapMissionItem),
+    ];
+
     const planningsConsolidate = [];
     const planningsCoordinate = [];
-    const missions = [];
     const planningEvents = [];
 
     const counts = {
         meetings: meetings.length,
         planningsConsolidate: 0,
         planningsCoordinate: 0,
-        missions: 0,
+        missions: missions.length,
         events: 0,
-        total: meetings.length,
+        total: meetings.length + missions.length,
     };
 
     return {

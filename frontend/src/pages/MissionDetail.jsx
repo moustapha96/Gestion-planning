@@ -17,6 +17,7 @@ import {
     Modal,
     Form,
     Select,
+    Alert,
 } from 'antd';
 import {
     ArrowLeftOutlined,
@@ -30,11 +31,19 @@ import {
     FileTextOutlined,
     PaperClipOutlined,
     RollbackOutlined,
+    CheckCircleOutlined,
 } from '@ant-design/icons';
 import dayjs from 'dayjs';
 import api, { API_BASE } from '../api/client';
 import { useAuth } from '../context/AuthContext';
 import { isPrivilegedAdmin, canManageMission, canEditMission, canPrivilegedForceDelete } from '../utils/roles';
+import {
+    canConsolidateMission,
+    canFinalizeMission,
+    canApproveMission,
+    isPendingCoordinatorStatus,
+    missionNeedsConsolidatorApproval,
+} from '../utils/roles';
 import { forceDeleteDescription, forceDeleteTitle } from '../utils/deleteConfirm';
 import ForceDeletePopconfirm from '../components/ForceDeletePopconfirm';
 import { PDF_ACCEPT, isAcceptedPdfFile } from '../utils/pdfAttachment';
@@ -57,6 +66,7 @@ export default function MissionDetail() {
     const [allUsers, setAllUsers] = useState([]);
     const [addForm] = Form.useForm();
     const [addParticipantsLoading, setAddParticipantsLoading] = useState(false);
+    const [approveLoading, setApproveLoading] = useState(false);
 
     const fetchMission = async () => {
         try {
@@ -74,10 +84,16 @@ export default function MissionDetail() {
         fetchMission();
     }, [id]);
 
-    const isAdmin = isPrivilegedAdmin(user?.role);
+    const isCreator = mission?.createdById === user?.id;
+    const needsConsolidator = missionNeedsConsolidatorApproval(mission);
+    const needsFinalApproval = isPendingCoordinatorStatus(mission?.status);
     const canManage = canManageMission(mission, user);
     const canEdit = canEditMission(mission, user);
     const canForceDelete = canPrivilegedForceDelete(user?.role);
+    const canConsolidate = canConsolidateMission(mission, user);
+    const canFinalize = canFinalizeMission(mission, user);
+    const canApproveDirect = canApproveMission(mission, user) && needsConsolidator && !canConsolidate;
+    const isAdmin = isPrivilegedAdmin(user?.role);
     const canUpload = mission?.status !== 'CANCELLED' && (
         mission?.createdById === user?.id ||
         isAdmin ||
@@ -197,6 +213,27 @@ export default function MissionDetail() {
         }
     };
 
+    const handleApprove = async (mode = 'approve') => {
+        setApproveLoading(true);
+        try {
+            if (mode === 'finalize') {
+                await api.put(`/missions/${id}/approve-coordinator`);
+                message.success('Mission validée et confirmée');
+            } else if (mode === 'consolidate') {
+                await api.put(`/missions/${id}/approve`);
+                message.success('Mission consolidée — en attente de validation finale');
+            } else {
+                await api.put(`/missions/${id}/approve`);
+                message.success('Mission validée et confirmée');
+            }
+            await fetchMission();
+        } catch (err) {
+            message.error(err.response?.data?.error || 'Erreur lors de la validation');
+        } finally {
+            setApproveLoading(false);
+        }
+    };
+
     if (loading || !mission) {
         return (
             <div style={{ textAlign: 'center', padding: 48 }}>
@@ -210,11 +247,90 @@ export default function MissionDetail() {
 
     return (
         <div>
-            <div style={{ marginBottom: 24 }}>
+            <Space style={{ marginBottom: 24 }} wrap>
                 <Button icon={<ArrowLeftOutlined />} onClick={() => navigate('/missions')}>
                     Retour aux missions
                 </Button>
-            </div>
+                {canEdit && (
+                    <Button icon={<EditOutlined />} onClick={() => navigate(`/missions/${id}/edit`)}>
+                        Modifier la mission
+                    </Button>
+                )}
+                {canConsolidate && (
+                    <Button type="primary" icon={<CheckCircleOutlined />} onClick={() => handleApprove('consolidate')} loading={approveLoading}>
+                        Consolider
+                    </Button>
+                )}
+                {canFinalize && (
+                    <Button type="primary" icon={<CheckCircleOutlined />} onClick={() => handleApprove('finalize')} loading={approveLoading}>
+                        Valider et confirmer
+                    </Button>
+                )}
+                {canApproveDirect && (
+                    <Button type="primary" icon={<CheckCircleOutlined />} onClick={() => handleApprove('approve')} loading={approveLoading}>
+                        Valider et confirmer
+                    </Button>
+                )}
+                {canManage && mission.status === 'CANCELLED' && isAdmin && (
+                    <Button
+                        icon={<RollbackOutlined />}
+                        loading={reactivateLoading}
+                        onClick={handleReactivateMission}
+                    >
+                        Réactiver la mission
+                    </Button>
+                )}
+                {canManage && mission.status !== 'CANCELLED' && (
+                    <Popconfirm
+                        title="Annuler cette mission ?"
+                        onConfirm={handleCancelMission}
+                        okText="Oui, annuler"
+                        cancelText="Non"
+                        okButtonProps={{ danger: true, loading: cancelLoading }}
+                    >
+                        <Button danger icon={<DeleteOutlined />}>
+                            Annuler la mission
+                        </Button>
+                    </Popconfirm>
+                )}
+                {canForceDelete && (
+                    <ForceDeletePopconfirm
+                        title={forceDeleteTitle('cette mission')}
+                        description={forceDeleteDescription({ entityLabel: 'cette mission' })}
+                        loading={permanentDeleteLoading}
+                        onConfirm={handlePermanentDelete}
+                    >
+                        <Button danger type="primary" icon={<DeleteOutlined />} loading={permanentDeleteLoading}>
+                            Supprimer la mission
+                        </Button>
+                    </ForceDeletePopconfirm>
+                )}
+            </Space>
+
+            {needsConsolidator && (
+                <Alert
+                    type="warning"
+                    showIcon
+                    style={{ marginBottom: 16 }}
+                    message={
+                        isCreator
+                            ? 'Cette mission est en attente de consolidation par le consolidateur du projet. Elle ne sera confirmée qu\'après validation finale.'
+                            : 'Mission en attente de consolidation (1er palier). La confirmation interviendra après validation du coordinateur ou du rôle dédié.'
+                    }
+                />
+            )}
+            {needsFinalApproval && (
+                <Alert
+                    type="info"
+                    showIcon
+                    style={{ marginBottom: 16 }}
+                    message={
+                        isCreator
+                            ? 'Cette mission a été consolidée et attend la validation finale (coordinateur du projet ou rôle dédié) avant confirmation sur le calendrier.'
+                            : 'Validation finale requise avant confirmation sur le calendrier et notification des intervenants.'
+                    }
+                />
+            )}
 
             <Card
                 title={
@@ -222,51 +338,6 @@ export default function MissionDetail() {
                         <FlagOutlined style={{ color: '#722ed1' }} />
                         {mission.title}
                     </Space>
-                }
-                extra={
-                    canManage && (
-                        <Space>
-                            {canEdit && (
-                                <Button icon={<EditOutlined />} onClick={() => navigate(`/missions/${id}/edit`)}>
-                                    Modifier la mission
-                                </Button>
-                            )}
-                            {mission.status === 'CANCELLED' && isAdmin && (
-                                <Button
-                                    icon={<RollbackOutlined />}
-                                    loading={reactivateLoading}
-                                    onClick={handleReactivateMission}
-                                >
-                                    Réactiver la mission
-                                </Button>
-                            )}
-                            {mission.status !== 'CANCELLED' && (
-                                <Popconfirm
-                                    title="Annuler cette mission ?"
-                                    onConfirm={handleCancelMission}
-                                    okText="Oui, annuler"
-                                    cancelText="Non"
-                                    okButtonProps={{ danger: true, loading: cancelLoading }}
-                                >
-                                    <Button danger icon={<DeleteOutlined />}>
-                                        Annuler la mission
-                                    </Button>
-                                </Popconfirm>
-                            )}
-                            {canForceDelete && (
-                                <ForceDeletePopconfirm
-                                    title={forceDeleteTitle('cette mission')}
-                                    description={forceDeleteDescription({ entityLabel: 'cette mission' })}
-                                    loading={permanentDeleteLoading}
-                                    onConfirm={handlePermanentDelete}
-                                >
-                                    <Button danger type="primary" icon={<DeleteOutlined />} loading={permanentDeleteLoading}>
-                                        Supprimer la mission
-                                    </Button>
-                                </ForceDeletePopconfirm>
-                            )}
-                        </Space>
-                    )
                 }
             >
                 {mission.status === 'CANCELLED' && (

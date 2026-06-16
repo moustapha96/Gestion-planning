@@ -19,15 +19,26 @@ import dayjs from 'dayjs';
 import api from '../api/client';
 import { useAuth } from '../context/AuthContext';
 import {
-    canManageMission, canEditMission, canPrivilegedForceDelete, canViewAllMissions, canCreateMission,
+    canManageMission, canEditMission, canPrivilegedForceDelete, canCreateMission,
+    canConsolidateMission, canFinalizeMission, canApproveMission,
 } from '../utils/roles';
 import { forceDeleteDescription, forceDeleteTitle } from '../utils/deleteConfirm';
 import ForceDeletePopconfirm from '../components/ForceDeletePopconfirm';
 
 const { Title } = Typography;
 
-const STATUS_LABELS = { CONFIRMED: 'Confirmée', CANCELLED: 'Annulée' };
-const STATUS_COLORS = { CONFIRMED: 'green', CANCELLED: 'default' };
+const STATUS_LABELS = {
+    DRAFT: 'Brouillon',
+    COORDINATOR_PENDING: 'Att. validation finale',
+    CONFIRMED: 'Confirmée',
+    CANCELLED: 'Annulée',
+};
+const STATUS_COLORS = {
+    DRAFT: 'default',
+    COORDINATOR_PENDING: 'orange',
+    CONFIRMED: 'green',
+    CANCELLED: 'default',
+};
 
 export default function Missions() {
     const navigate = useNavigate();
@@ -85,7 +96,6 @@ export default function Missions() {
     }, [searchText, directionFilter, projectFilter, page, pageSize]);
 
     const canForceDelete = canPrivilegedForceDelete(user?.role);
-    const viewAllMissions = canViewAllMissions(user?.role);
 
     const handleCancelMission = async (missionId) => {
         setActionLoadingId(missionId);
@@ -170,14 +180,12 @@ export default function Missions() {
         //             ? r.assignments.map((a) => a.user?.name).filter(Boolean).join(', ') || '—'
         //             : '—',
         // },
-        ...(viewAllMissions
-            ? [{
-                title: 'Statut',
-                dataIndex: 'status',
-                key: 'status',
-                render: (s) => <Tag color={STATUS_COLORS[s]}>{STATUS_LABELS[s] || s}</Tag>,
-            }]
-            : []),
+        {
+            title: 'Statut',
+            dataIndex: 'status',
+            key: 'status',
+            render: (s) => <Tag color={STATUS_COLORS[s]}>{STATUS_LABELS[s] || s}</Tag>,
+        },
         {
             title: 'Actions',
             key: 'actions',
@@ -194,6 +202,69 @@ export default function Missions() {
                     </Button>
                     {canManageMission(record, user) && (
                         <>
+                            {canConsolidateMission(record, user) && (
+                                <Button
+                                    type="link"
+                                    size="small"
+                                    onClick={async () => {
+                                        setActionLoadingId(record.id);
+                                        try {
+                                            await api.put(`/missions/${record.id}/approve`);
+                                            message.success('Mission consolidée');
+                                            fetchMissions();
+                                        } catch (err) {
+                                            message.error(err.response?.data?.error || 'Erreur');
+                                        } finally {
+                                            setActionLoadingId(null);
+                                        }
+                                    }}
+                                    loading={actionLoadingId === record.id}
+                                >
+                                    Consolider
+                                </Button>
+                            )}
+                            {canFinalizeMission(record, user) && (
+                                <Button
+                                    type="link"
+                                    size="small"
+                                    onClick={async () => {
+                                        setActionLoadingId(record.id);
+                                        try {
+                                            await api.put(`/missions/${record.id}/approve-coordinator`);
+                                            message.success('Mission validée définitivement');
+                                            fetchMissions();
+                                        } catch (err) {
+                                            message.error(err.response?.data?.error || 'Erreur');
+                                        } finally {
+                                            setActionLoadingId(null);
+                                        }
+                                    }}
+                                    loading={actionLoadingId === record.id}
+                                >
+                                    Valider
+                                </Button>
+                            )}
+                            {canApproveMission(record, user) && record.status === 'DRAFT' && !canConsolidateMission(record, user) && (
+                                <Button
+                                    type="link"
+                                    size="small"
+                                    onClick={async () => {
+                                        setActionLoadingId(record.id);
+                                        try {
+                                            await api.put(`/missions/${record.id}/approve`);
+                                            message.success('Mission validée');
+                                            fetchMissions();
+                                        } catch (err) {
+                                            message.error(err.response?.data?.error || 'Erreur');
+                                        } finally {
+                                            setActionLoadingId(null);
+                                        }
+                                    }}
+                                    loading={actionLoadingId === record.id}
+                                >
+                                    Valider
+                                </Button>
+                            )}
                             {canEditMission(record, user) && (
                                 <Button
                                     type="link"

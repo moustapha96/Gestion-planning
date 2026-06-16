@@ -27,6 +27,11 @@ const MEETING_STATUS_LABELS = {
     COORDINATOR_PENDING: 'Att. validation finale',
 };
 
+const MISSION_STATUS_LABELS = {
+    DRAFT: 'Brouillon',
+    COORDINATOR_PENDING: 'Att. validation finale',
+};
+
 function formatDateTime(value) {
     if (!value) return '—';
     return dayjs(value).format('ddd D MMM YYYY · HH:mm');
@@ -153,6 +158,55 @@ function PlanningCard({ item, loading, onAction }) {
     );
 }
 
+function MissionCard({ item, loading, onAction }) {
+    const navigate = useNavigate();
+    const isConsolidate = item.action === 'consolidate';
+    const actionLabel = isConsolidate
+        ? 'Consolider'
+        : item.action === 'fallback'
+          ? 'Valider et confirmer (rôle dédié)'
+          : item.validationPath === 'coordinator' && item.status === 'DRAFT'
+            ? 'Valider et confirmer (coordinateur)'
+            : 'Valider et confirmer';
+    const actionColor = isConsolidate ? '#722ed1' : item.action === 'fallback' ? '#fa541c' : '#52c41a';
+
+    return (
+        <Card size="small" style={{ marginBottom: 12 }}>
+            <Space orientation="vertical" size={8} style={{ width: '100%' }}>
+                <Space wrap>
+                    <FlagOutlined style={{ color: '#722ed1' }} />
+                    <Text strong>{item.title}</Text>
+                    <Tag color={isConsolidate ? 'purple' : 'orange'}>
+                        {MISSION_STATUS_LABELS[item.status] || 'À valider'}
+                    </Tag>
+                </Space>
+                <Text type="secondary" style={{ fontSize: 13 }}>
+                    {formatDateTime(item.startTime)} → {dayjs(item.endTime).format('HH:mm')}
+                    {item.location ? ` · ${item.location}` : ''}
+                </Text>
+                <Text style={{ fontSize: 13 }}>
+                    Créée par : <Text strong>{item.createdBy?.name}</Text>
+                    {item.project?.name ? ` · Projet : ${item.project.name}` : ''}
+                </Text>
+                <Space wrap>
+                    <Button
+                        type="primary"
+                        icon={<CheckCircleOutlined />}
+                        loading={loading}
+                        style={{ background: actionColor, borderColor: actionColor }}
+                        onClick={() => onAction(item)}
+                    >
+                        {actionLabel}
+                    </Button>
+                    <Button icon={<EyeOutlined />} onClick={() => navigate(item.link)}>
+                        Voir la fiche
+                    </Button>
+                </Space>
+            </Space>
+        </Card>
+    );
+}
+
 export default function PendingValidations() {
     const { message } = App.useApp();
     const {
@@ -181,6 +235,17 @@ export default function PendingValidations() {
                 } else {
                     await api.put(`/meetings/${id}/approve`);
                     message.success('Réunion validée et publiée');
+                }
+            } else if (entityKind === 'mission') {
+                if (action === 'consolidate') {
+                    await api.put(`/missions/${id}/approve`);
+                    message.success('Mission consolidée — transmise pour validation finale');
+                } else if (action === 'coordinate' || action === 'fallback') {
+                    await api.put(`/missions/${id}/approve-coordinator`);
+                    message.success('Mission validée définitivement');
+                } else {
+                    await api.put(`/missions/${id}/approve`);
+                    message.success('Mission validée');
                 }
             } else if (entityKind === 'planning') {
                 if (action === 'consolidate' || action === 'consolidate_and_validate') {
@@ -282,6 +347,19 @@ export default function PendingValidations() {
                                     ))}
                                 </>
                             )}
+                            {missions.length > 0 && (
+                                <>
+                                    <Title level={5}>Missions à valider</Title>
+                                    {missions.map((m) => (
+                                        <MissionCard
+                                            key={m.id}
+                                            item={m}
+                                            loading={actionId === m.id}
+                                            onAction={runAction}
+                                        />
+                                    ))}
+                                </>
+                            )}
                         </>
                     )}
                 </div>
@@ -342,38 +420,14 @@ export default function PendingValidations() {
                     Missions
                 </Badge>
             ),
-            children: missions.length ? (
-                <List
-                    dataSource={missions}
-                    renderItem={(m) => (
-                        <List.Item
-                            actions={[
-                                <Button key="planning" type="link" onClick={() => navigate(m.planningLink)}>
-                                    Planning
-                                </Button>,
-                                <Button key="mission" type="link" onClick={() => navigate(m.link)}>
-                                    Mission
-                                </Button>,
-                            ]}
-                        >
-                            <List.Item.Meta
-                                avatar={<FlagOutlined style={{ color: '#722ed1', fontSize: 18 }} />}
-                                title={m.title}
-                                description={(
-                                    <Space orientation="vertical" size={2}>
-                                        <Text type="secondary" style={{ fontSize: 12 }}>
-                                            {formatDateTime(m.startTime)} · {m.location}
-                                        </Text>
-                                        <Text style={{ fontSize: 12 }}>
-                                            Semaine {m.weekLabel} — {m.ownerName}
-                                        </Text>
-                                    </Space>
-                                )}
-                            />
-                        </List.Item>
-                    )}
+            children: missions.length ? missions.map((m) => (
+                <MissionCard
+                    key={m.id}
+                    item={m}
+                    loading={actionId === m.id}
+                    onAction={runAction}
                 />
-            ) : (
+            )) : (
                 <Empty description="Aucune mission liée aux plannings en attente" />
             ),
         },

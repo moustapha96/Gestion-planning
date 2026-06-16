@@ -174,6 +174,27 @@ async function notifySecondStepValidators(prisma, {
     }
 }
 
+/** Coordinateur / repli : mission consolidée, en attente de validation finale. */
+async function notifyMissionPendingFinalApproval(prisma, mission, creator) {
+    const ownerName = creator?.name || 'Un responsable';
+    const link = `/missions/${mission.id}`;
+    return notifySecondStepValidators(prisma, {
+        projectId: mission.projectId,
+        type: 'MISSION_PENDING_COORDINATOR',
+        emailType: 'MISSION_PENDING_COORDINATOR',
+        title: `Mission à valider : ${mission.title}`,
+        message: `${ownerName} : la mission « ${mission.title} » a été consolidée et attend votre validation finale avant confirmation.`,
+        link,
+        emailArgsBuilder: (recipient, context) => [
+            recipient,
+            mission,
+            creator,
+            mission.project?.name,
+            context,
+        ],
+    });
+}
+
 /** Coordinateur / repli : réunion consolidée, en attente de validation finale. */
 async function notifyMeetingPendingFinalApproval(prisma, meeting, organizer) {
     const ownerName = organizer?.name || 'Un responsable';
@@ -251,6 +272,7 @@ module.exports = {
     PROJECT_COORDINATOR_INCLUDE,
     getProjectCoordinator,
     notifyMeetingPendingFinalApproval,
+    notifyMissionPendingFinalApproval,
     notifyPlanningSecondStepValidators,
     notifyCoordinatorPlanningPending,
     isUserProjectCoordinator,

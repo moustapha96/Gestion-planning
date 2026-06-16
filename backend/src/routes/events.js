@@ -205,7 +205,7 @@ router.get('/unified', async (req, res) => {
                 where: {
                     ...missionScopeWhere(req.user),
                     ...(from || to ? { startTime: { ...(from ? { gte: from } : {}), ...(to ? { lte: to } : {}) } } : {}),
-                    status: { not: 'CANCELLED' },
+                    status: 'CONFIRMED',
                     ...(directionId ? { directionId } : {}),
                     ...(projectId ? { projectId } : {}),
                 },

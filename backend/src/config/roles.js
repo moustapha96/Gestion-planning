@@ -118,13 +118,8 @@ function planningScopeWhere(user) {
 }
 
 function canViewMission(mission, user) {
-    if (!mission || !user?.id) return false;
-    if (canViewAllMissions(user.role)) return true;
-    if (isResponsable(user.role)) return mission.createdById === user.id;
-    return (
-        mission.createdById === user.id
-        || (mission.assignments || []).some((a) => a.userId === user.id)
-    );
+    const { canViewMissionForUser } = require('./missionVisibility');
+    return canViewMissionForUser(mission, user);
 }
 
 module.exports = {

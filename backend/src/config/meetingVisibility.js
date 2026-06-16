@@ -44,23 +44,12 @@ function responsableMeetingScope(user) {
 
 /** Filtre Prisma : réunions affichées sur le calendrier connecté. */
 function meetingCalendarWhereForUser(user) {
-    const ownOnly = responsableMeetingScope(user);
-    if (ownOnly) {
-        return { ...ownOnly, status: { not: 'CANCELLED' } };
-    }
-    const draftAsConsolidator = projectConsolidatorDraftFilter(user);
-    const pendingFinalize = meetingPendingFinalizeFilter(user);
+    // Règle métier: le calendrier ne doit afficher que les réunions totalement validées/publiées.
+    // Les brouillons et réunions en attente de validation restent visibles dans la page "Réunions".
     if (isPrivilegedAdmin(user?.role)) {
-        return { status: { not: 'CANCELLED' } };
+        return publishedMeetingStatusFilter();
     }
-    return {
-        OR: [
-            publishedMeetingStatusFilter(),
-            { organizerId: user.id, status: { in: ['DRAFT', 'COORDINATOR_PENDING'] } },
-            ...(draftAsConsolidator ? [draftAsConsolidator] : []),
-            ...(pendingFinalize ? [pendingFinalize] : []),
-        ],
-    };
+    return publishedMeetingStatusFilter();
 }
 
 /** Liste des réunions (page Réunions) — le consolidateur voit les brouillons à valider. */

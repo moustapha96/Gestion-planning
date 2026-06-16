@@ -523,6 +523,95 @@ const emailTemplates = {
     /** Alias historique */
     MEETING_APPROVED: buildMeetingPublishedEmail,
 
+    /** Consolidateur : mission en brouillon — étape 1 (consolidation). */
+    MISSION_PENDING_APPROVAL: (consolidator, mission, creator) => {
+        const startStr = formatFrDateTime(mission.startTime, { dateStyle: 'full', timeStyle: 'short' });
+        const endStr = new Date(mission.endTime).toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' });
+        const url = appUrl(`/missions/${mission.id}`);
+        return {
+            subject: `📋 Mission à consolider (étape 1/2) : ${mission.title}`,
+            html: emailFrame(`
+          <p>Bonjour ${userDisplayName(consolidator)},</p>
+          <p><strong>${userDisplayName(creator)}</strong> a soumis une mission en brouillon.</p>
+          ${emailInfoBox(`
+            <h3 style="margin: 0 0 10px 0;">${mission.title}</h3>
+            <p style="margin: 4px 0;"><strong>📅 Début :</strong> ${startStr}</p>
+            <p style="margin: 4px 0;"><strong>🕐 Fin :</strong> ${endStr}</p>
+            <p style="margin: 4px 0;"><strong>📍 Lieu :</strong> ${mission.location || '—'}</p>
+            <p style="margin: 8px 0 0;"><strong>Étape 1 :</strong> consolidez la mission. Elle sera ensuite transmise pour validation finale avant confirmation.</p>
+          `)}
+          ${emailCta(appUrl('/a-valider'), 'Consolider depuis « À valider »')}
+          ${emailCta(url, 'Voir la mission')}
+        `),
+        };
+    },
+
+    /** Validation finale mission — étape 2 (coordinateur ou rôle dédié). */
+    MISSION_PENDING_COORDINATOR: (recipient, mission, creator, projectName, context = {}) => {
+        const startStr = formatFrDateTime(mission.startTime, { dateStyle: 'full', timeStyle: 'short' });
+        const endStr = new Date(mission.endTime).toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' });
+        const url = appUrl(`/missions/${mission.id}`);
+        const projectLine = projectName ? ` (projet « ${projectName} »)` : '';
+        const roleLabel = finalValidatorLabel(context);
+        return {
+            subject: `✅ Mission à confirmer (étape 2/2) : ${mission.title}`,
+            html: emailFrame(`
+          <p>Bonjour ${userDisplayName(recipient)},</p>
+          <p>La mission <strong>« ${mission.title} »</strong>${projectLine} de <strong>${userDisplayName(creator)}</strong> a été <strong>consolidée</strong>.</p>
+          ${emailInfoBox(`
+            <p style="margin: 4px 0;"><strong>📅 Début :</strong> ${startStr}</p>
+            <p style="margin: 4px 0;"><strong>🕐 Fin :</strong> ${endStr}</p>
+            <p style="margin: 4px 0;"><strong>📍 Lieu :</strong> ${mission.location || '—'}</p>
+            <p style="margin: 8px 0 0;"><strong>Étape 2 :</strong> en tant que <strong>${roleLabel}</strong>, validez pour confirmer la mission et notifier les intervenants.</p>
+          `, '#e3f2fd', '#2196f3')}
+          ${emailCta(appUrl('/a-valider'), 'Valider et confirmer')}
+          ${emailCta(url, 'Voir la mission')}
+        `),
+        };
+    },
+
+    /** Créateur : mission consolidée, pas encore confirmée. */
+    MISSION_CONSOLIDATED: (creator, mission, consolidator) => {
+        const startStr = formatFrDateTime(mission.startTime, { dateStyle: 'full', timeStyle: 'short' });
+        const endStr = new Date(mission.endTime).toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' });
+        const url = appUrl(`/missions/${mission.id}`);
+        return {
+            subject: `📋 Mission consolidée : ${mission.title}`,
+            html: emailFrame(`
+          <p>Bonjour ${userDisplayName(creator)},</p>
+          <p>Votre mission <strong>« ${mission.title} »</strong> a été <strong>consolidée</strong> par <strong>${userDisplayName(consolidator)}</strong>.</p>
+          ${emailInfoBox(`
+            <p style="margin: 4px 0;"><strong>📅 Début :</strong> ${startStr}</p>
+            <p style="margin: 4px 0;"><strong>🕐 Fin :</strong> ${endStr}</p>
+            <p style="margin: 4px 0;"><strong>📍 Lieu :</strong> ${mission.location || '—'}</p>
+            <p style="margin: 8px 0 0;"><strong>Prochaine étape :</strong> validation finale par le coordinateur ou le rôle dédié. Les intervenants seront notifiés après cette validation.</p>
+          `)}
+          ${emailCta(url, 'Suivre la mission')}
+        `),
+        };
+    },
+
+    /** Créateur : mission confirmée (validation finale). */
+    MISSION_CONFIRMED: (creator, mission, validator) => {
+        const startStr = formatFrDateTime(mission.startTime, { dateStyle: 'full', timeStyle: 'short' });
+        const endStr = new Date(mission.endTime).toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' });
+        const url = appUrl(`/missions/${mission.id}`);
+        return {
+            subject: `✅ Mission confirmée : ${mission.title}`,
+            html: emailFrame(`
+          <p>Bonjour ${userDisplayName(creator)},</p>
+          <p>Votre mission <strong>« ${mission.title} »</strong> a été <strong>validée</strong> par <strong>${userDisplayName(validator)}</strong> et confirmée sur le calendrier.</p>
+          ${emailInfoBox(`
+            <p style="margin: 4px 0;"><strong>📅 Début :</strong> ${startStr}</p>
+            <p style="margin: 4px 0;"><strong>🕐 Fin :</strong> ${endStr}</p>
+            <p style="margin: 4px 0;"><strong>📍 Lieu :</strong> ${mission.location || '—'}</p>
+            <p style="margin: 8px 0 0;">Les intervenants assignés ont été notifiés.</p>
+          `, '#e8f5e9', '#4caf50')}
+          ${emailCta(url, 'Voir la mission')}
+        `),
+        };
+    },
+
   PASSWORD_RESET: (user, resetUrl) => ({
     subject: '🔑 Réinitialisation de votre mot de passe',
     html: `
@@ -746,10 +835,13 @@ const emailTemplates = {
   },
 
   /** Confirmation envoyée au créateur après création d’une mission. */
-  MISSION_CREATED_CONFIRMATION: (creator, mission, assigneeCount = 0) => {
+  MISSION_CREATED_CONFIRMATION: (creator, mission, assigneeCount = 0, statusHint) => {
     const startStr = formatFrDateTime(mission.startTime, { dateStyle: 'full', timeStyle: 'short' });
     const endStr = new Date(mission.endTime).toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' });
     const url = `${process.env.FRONTEND_URL || 'http://localhost:9000'}/missions/${mission.id}`;
+    const assigneeLine = assigneeCount > 0
+        ? `<p style="margin: 12px 0 0 0;"><strong>👥 Intervenants prévus :</strong> ${assigneeCount} (notifiés après validation)</p>`
+        : '';
     return {
       subject: `✅ Mission créée : ${mission.title}`,
       html: `
@@ -766,7 +858,8 @@ const emailTemplates = {
             <p style="margin: 0 0 8px 0;"><strong>🕐 Début :</strong> ${startStr}</p>
             <p style="margin: 0 0 8px 0;"><strong>🕐 Fin :</strong> ${endStr}</p>
             ${mission.description ? `<p style="margin: 8px 0 0 0;"><strong>Description :</strong><br/>${mission.description}</p>` : ''}
-            <p style="margin: 12px 0 0 0;"><strong>👥 Intervenants notifiés :</strong> ${assigneeCount}</p>
+            ${assigneeLine}
+            <p style="margin: 12px 0 0 0; font-size: 13px; color: #555;">${statusHint || 'Statut : brouillon — la mission sera confirmée après validation.'}</p>
           </div>
           <p>
             <a href="${url}" style="display: inline-block; background: #1F5C8B; color: white; padding: 12px 24px; text-decoration: none; border-radius: 5px; font-weight: bold;">

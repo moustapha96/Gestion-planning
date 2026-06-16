@@ -109,7 +109,7 @@ function buildInvitationActionUrl(req, invitationId, status) {
     return buildPublicApiUrl('/public/meeting-invitations/respond', { token });
 }
 
-/** Publie une réunion (réservation salle + convocations + statut SENT). */
+/** Publie une réunion (réservation salle + convocations + statut CONFIRMED). */
 async function publishMeeting(req, meeting) {
     if (meeting.roomId) {
         const active = await isRoomActive(req.prisma, meeting.roomId);
@@ -184,20 +184,20 @@ async function publishMeeting(req, meeting) {
     const updated = await req.prisma.meeting.update({
         where: { id: meeting.id },
         data: {
-            status: 'SENT',
+            status: 'CONFIRMED',
             invitations: {
                 updateMany: { where: {}, data: { sentAt: new Date() } },
             },
         },
     });
 
-    logger.info('MEETING_SENT', `Réunion publiée « ${meeting.title} »`, {
+    logger.info('MEETING_CONFIRMED', `Réunion publiée « ${meeting.title} »`, {
         meetingId: meeting.id,
         publishedBy: req.user.id,
         participantCount: meeting.invitations.length,
     });
 
-    await createAuditLog(req, 'MEETING_SENT', 'Meeting', meeting.id, `Réunion « ${meeting.title} » publiée`);
+    await createAuditLog(req, 'MEETING_CONFIRMED', 'Meeting', meeting.id, `Réunion « ${meeting.title} » publiée`);
 
     return updated;
 }
@@ -786,7 +786,7 @@ router.put('/:id', async (req, res) => {
             where: { meetingId: meeting.id },
         });
 
-        if (meeting.status === 'SENT' && (existingBooking || newRoomId)) {
+        if (['SENT', 'CONFIRMED'].includes(meeting.status) && (existingBooking || newRoomId)) {
             const dateForBooking = appDayBoundsFromYmd(toAppYmd(updated.startTime)).start;
             const startStr = formatAppTimeHm(updated.startTime);
             const endStr = formatAppTimeHm(updated.endTime);
@@ -815,7 +815,7 @@ router.put('/:id', async (req, res) => {
             }
         }
 
-        if ((timeOrRoomChanged || meetingLinkChanged) && meeting.status === 'SENT' && meeting.invitations?.length > 0) {
+        if ((timeOrRoomChanged || meetingLinkChanged) && ['SENT', 'CONFIRMED'].includes(meeting.status) && meeting.invitations?.length > 0) {
             const channelText = updated.meetingLink
                 ? `Salle: ${updated.room?.name || '—'} · Visio: disponible`
                 : `Salle: ${updated.room?.name || '—'}`;
@@ -1409,7 +1409,7 @@ router.put('/:id/reopen', async (req, res) => {
         const now = new Date();
         const endTime = new Date(meeting.endTime);
         const adjustedEnd = endTime < now ? new Date(now.getTime() + 30 * 60 * 1000) : endTime;
-        const nextStatus = (meeting.invitations?.length || 0) > 0 ? 'SENT' : 'DRAFT';
+        const nextStatus = (meeting.invitations?.length || 0) > 0 ? 'CONFIRMED' : 'DRAFT';
 
         const updated = await req.prisma.meeting.update({
             where: { id: meeting.id },
@@ -1580,8 +1580,8 @@ router.post('/:id/participants', async (req, res) => {
             })),
         });
 
-        // Si la réunion est déjà envoyée, notifier immédiatement les nouveaux participants
-        if (meeting.status === 'SENT') {
+        // Si la réunion est déjà validée/publiée, notifier immédiatement les nouveaux participants
+        if (['SENT', 'CONFIRMED'].includes(meeting.status)) {
             const newUsers = await req.prisma.user.findMany({
                 where: { id: { in: toAdd } },
             });

@@ -53,6 +53,11 @@ function meetingOrganizerNeedsApproval(meeting) {
     return role === ROLES.RESPONSABLE;
 }
 
+function missionCreatorNeedsApproval(mission) {
+    const role = mission.createdBy?.role;
+    return role === ROLES.RESPONSABLE;
+}
+
 /**
  * 1er palier réunion (DRAFT) : consolidation par le consolidateur du projet.
  * Ne publie pas — passe en attente de validation finale.
@@ -99,6 +104,54 @@ function canFinalizePendingMeeting(meeting, user) {
         return isUserProjectCoordinator(user, project);
     }
     return isGlobalConsolidatorRole(user);
+}
+
+function canConsolidateDraftMission(mission, user) {
+    if (!mission || mission.status !== 'DRAFT' || !user) return false;
+    if (!missionCreatorNeedsApproval(mission)) return false;
+    if (isPrivilegedAdmin(user.role)) return true;
+    const project = mission.project || null;
+    if (!projectHasConsolidator(project)) return false;
+    return isUserProjectConsolidator(user, project);
+}
+
+function canApproveDraftMission(mission, user) {
+    if (!mission || mission.status !== 'DRAFT' || !user) return false;
+    if (isPrivilegedAdmin(user.role)) return true;
+    if (!missionCreatorNeedsApproval(mission)) {
+        return mission.createdById === user.id;
+    }
+    const project = mission.project || null;
+    if (projectHasConsolidator(project)) return false;
+    if (projectHasCoordinator(project)) {
+        return isUserProjectCoordinator(user, project);
+    }
+    return isGlobalConsolidatorRole(user);
+}
+
+function canFinalizePendingMission(mission, user) {
+    if (!mission || !isPendingCoordinatorValidation(mission.status) || !user) return false;
+    if (isPrivilegedAdmin(user.role)) return true;
+    if (!missionCreatorNeedsApproval(mission)) return false;
+    const project = mission.project || null;
+    if (projectHasCoordinator(project)) {
+        return isUserProjectCoordinator(user, project);
+    }
+    return isGlobalConsolidatorRole(user);
+}
+
+function missionValidationAction(mission) {
+    const project = mission.project || null;
+    if (mission.status === 'DRAFT') {
+        if (projectHasConsolidator(project)) return 'consolidate';
+        if (projectHasCoordinator(project)) return 'coordinate';
+        return 'fallback';
+    }
+    if (isPendingCoordinatorValidation(mission.status)) {
+        if (projectHasCoordinator(project)) return 'coordinate';
+        return 'fallback';
+    }
+    return null;
 }
 
 /** Action UI / file d'attente pour une réunion. */
@@ -195,6 +248,11 @@ module.exports = {
     canApproveDraftMeeting,
     canFinalizePendingMeeting,
     meetingValidationAction,
+    missionCreatorNeedsApproval,
+    canConsolidateDraftMission,
+    canApproveDraftMission,
+    canFinalizePendingMission,
+    missionValidationAction,
     canConsolidateSubmittedPlanning,
     canValidatePlanningAsCoordinator,
     canUserViewPlanning,

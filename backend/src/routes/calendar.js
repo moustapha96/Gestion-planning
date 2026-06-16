@@ -71,7 +71,7 @@ async function monthHandler(req, res) {
     const missions = await req.prisma.mission.findMany({
       where: {
         ...timedEventOverlapsRange(startDate, endDate),
-        status: { not: 'CANCELLED' },
+        status: 'CONFIRMED',
         ...missionScopeWhere(req.user),
       },
       include: {
@@ -177,7 +177,7 @@ router.get('/week', async (req, res) => {
     const missions = await req.prisma.mission.findMany({
       where: {
         ...timedEventOverlapsRange(weekStart, weekEnd),
-        status: { not: 'CANCELLED' },
+        status: 'CONFIRMED',
         ...missionScopeWhere(req.user),
       },
       include: { createdBy: { select: { name: true } } },
@@ -256,7 +256,7 @@ router.get('/day', async (req, res) => {
     const missions = await req.prisma.mission.findMany({
       where: {
         ...timedEventOverlapsRange(dayStart, dayEnd),
-        status: { not: 'CANCELLED' },
+        status: 'CONFIRMED',
         ...missionScopeWhere(req.user),
       },
       include: { createdBy: { select: { name: true } } },

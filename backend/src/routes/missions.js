@@ -6,9 +6,24 @@ const { logger } = require('../utils/logger');
 const { notificationService } = require('../services/notification.service');
 const { createAuditLog } = require('../utils/audit');
 const {
-    ROLES, isPrivilegedAdmin, isSuperAdmin, canViewMission, missionScopeWhere, isResponsable,
+    ROLES, isPrivilegedAdmin, isSuperAdmin, isResponsable,
 } = require('../config/roles');
+const { MEETING_PENDING_FINAL } = require('../config/meetingWorkflow');
+const {
+    missionListWhereForUser,
+    canViewMissionForUser,
+    canEditMission,
+    requiresConsolidatorApproval,
+} = require('../config/missionVisibility');
 const { validateProjectForUserAction, PROJECT_WITH_RESPONSIBLE_SELECT } = require('../services/projectResponsible.service');
+const { isPendingCoordinatorValidation } = require('../config/planningWorkflow');
+const {
+    canConsolidateDraftMission,
+    canApproveDraftMission,
+    canFinalizePendingMission,
+} = require('../services/validationPolicy.service');
+const { notifyConsolidatorsPendingMission } = require('../services/projectConsolidator.service');
+const { notifyMissionPendingFinalApproval } = require('../services/projectCoordinator.service');
 const { pdfOnlyMulterFileFilter, wrapMulterUpload } = require('../utils/pdfUpload');
 
 const router = express.Router();
@@ -28,8 +43,83 @@ const uploadMissionFile = multer({
     fileFilter: pdfOnlyMulterFileFilter,
 });
 
-const canEditMission = (mission, user) =>
-    mission.createdById === user?.id || isPrivilegedAdmin(user?.role);
+/** Confirme une mission (statut CONFIRMED + notification des intervenants). */
+async function confirmMission(req, mission) {
+    let fullMission = mission;
+    if (!mission.assignments?.length || !mission.assignments[0]?.user) {
+        fullMission = await req.prisma.mission.findUnique({
+            where: { id: mission.id },
+            include: {
+                createdBy: { select: { id: true, name: true, email: true, role: true } },
+                assignments: { include: { user: { select: { id: true, name: true, email: true } } } },
+            },
+        });
+    }
+    const createdByName = fullMission.createdBy?.name || req.user?.name || 'Un utilisateur';
+    const link = `/missions/${fullMission.id}`;
+    for (const a of fullMission.assignments || []) {
+        const u = a.user;
+        if (!u?.email) continue;
+        try {
+            await notificationService.sendFullNotification(
+                req.prisma,
+                u.id,
+                u.email,
+                'MISSION_CREATED',
+                'MISSION_CREATED',
+                [u, { ...fullMission, startTime: fullMission.startTime, endTime: fullMission.endTime }, createdByName],
+                'Nouvelle mission assignée',
+                `Mission « ${fullMission.title} » le ${new Date(fullMission.startTime).toLocaleDateString('fr-FR')} à ${fullMission.location}.`,
+                link,
+            );
+        } catch (err) {
+            logger.warn('MISSION_NOTIFY_FAILED', err.message, { userId: u.id, missionId: fullMission.id });
+        }
+    }
+
+    const updated = await req.prisma.mission.update({
+        where: { id: fullMission.id },
+        data: { status: 'CONFIRMED' },
+    });
+
+    logger.info('MISSION_CONFIRMED', `Mission confirmée « ${fullMission.title} »`, {
+        missionId: fullMission.id,
+        confirmedBy: req.user.id,
+        assigneeCount: (fullMission.assignments || []).length,
+    });
+
+    await createAuditLog(req, 'MISSION_CONFIRMED', 'Mission', fullMission.id, `Mission « ${fullMission.title} » confirmée`);
+    return updated;
+}
+
+async function notifyCreatorMissionProgress(req, mission, stage) {
+    const creator = mission.createdBy;
+    if (!creator?.email) return;
+    const isConsolidated = stage === 'consolidated';
+    const notifType = isConsolidated ? 'MISSION_CONSOLIDATED' : 'MISSION_CONFIRMED';
+    const emailTemplate = isConsolidated ? 'MISSION_CONSOLIDATED' : 'MISSION_CONFIRMED';
+    const inAppTitle = isConsolidated
+        ? `Mission consolidée : ${mission.title}`
+        : `Mission confirmée : ${mission.title}`;
+    const inAppBody = isConsolidated
+        ? `Votre mission a été consolidée par ${req.user.name}. Elle attend la validation finale avant confirmation.`
+        : `Votre mission a été validée par ${req.user.name} et confirmée. Les intervenants ont été notifiés.`;
+    try {
+        await notificationService.sendFullNotification(
+            req.prisma,
+            creator.id,
+            creator.email,
+            notifType,
+            emailTemplate,
+            [creator, mission, req.user],
+            inAppTitle,
+            inAppBody,
+            `/missions/${mission.id}`,
+        );
+    } catch (notifyErr) {
+        logger.warn('MISSION_CREATOR_NOTIFY_FAILED', notifyErr.message, { missionId: mission.id, stage });
+    }
+}
 
 /**
  * GET /api/missions - Liste des missions (créées par l'utilisateur ou où il est assigné)
@@ -48,38 +138,39 @@ router.get('/', async (req, res) => {
         const skip = (page - 1) * limit;
         const contains = q ? { contains: q, mode: 'insensitive' } : null;
 
-        const where = {
-            ...missionScopeWhere(req.user),
-            ...(status
-                ? { status }
-                : { status: { not: 'CANCELLED' } }),
-            ...(from || to ? { startTime: { ...(from ? { gte: from } : {}), ...(to ? { lte: to } : {}) } } : {}),
-            ...(directionId ? { directionId } : {}),
-            ...(projectId ? { projectId } : {}),
-            ...(contains
-                ? {
-                    AND: [{
-                        OR: [
-                            { title: contains },
-                            { description: contains },
-                            { location: contains },
-                            { direction: { is: { name: contains } } },
-                            { direction: { is: { code: contains } } },
-                            { project: { is: { name: contains } } },
-                            { project: { is: { code: contains } } },
-                        ],
-                    }],
-                }
-                : {}),
-        };
+        const whereParts = [missionListWhereForUser(req.user)];
+        if (status) {
+            whereParts.push({ status });
+        } else {
+            whereParts.push({ status: { not: 'CANCELLED' } });
+        }
+        if (from || to) {
+            whereParts.push({ startTime: { ...(from ? { gte: from } : {}), ...(to ? { lte: to } : {}) } });
+        }
+        if (directionId) whereParts.push({ directionId });
+        if (projectId) whereParts.push({ projectId });
+        if (contains) {
+            whereParts.push({
+                OR: [
+                    { title: contains },
+                    { description: contains },
+                    { location: contains },
+                    { direction: { is: { name: contains } } },
+                    { direction: { is: { code: contains } } },
+                    { project: { is: { name: contains } } },
+                    { project: { is: { code: contains } } },
+                ],
+            });
+        }
+        const where = whereParts.length === 1 ? whereParts[0] : { AND: whereParts };
 
         const [missions, total] = await Promise.all([
             req.prisma.mission.findMany({
                 where,
                 include: {
-                    createdBy: { select: { id: true, name: true, email: true } },
+                    createdBy: { select: { id: true, name: true, email: true, role: true } },
                     direction: { select: { id: true, name: true, code: true } },
-                    project: { select: PROJECT_WITH_RESPONSIBLE_SELECT },
+                    project: { select: { ...PROJECT_WITH_RESPONSIBLE_SELECT, consolidatorId: true, coordinatorId: true } },
                     assignments: { include: { user: { select: { id: true, name: true, email: true } } } },
                 },
                 orderBy: { startTime: 'desc' },
@@ -112,9 +203,9 @@ router.get('/:id', async (req, res) => {
         const mission = await req.prisma.mission.findUnique({
             where: { id: req.params.id },
             include: {
-                createdBy: { select: { id: true, name: true, email: true } },
+                createdBy: { select: { id: true, name: true, email: true, role: true } },
                 direction: { select: { id: true, name: true, code: true } },
-                project: { select: PROJECT_WITH_RESPONSIBLE_SELECT },
+                project: { select: { ...PROJECT_WITH_RESPONSIBLE_SELECT, consolidatorId: true, coordinatorId: true } },
                 assignments: { include: { user: { select: { id: true, name: true, email: true } } } },
                 files: {
                     include: { uploadedBy: { select: { id: true, name: true, email: true } } },
@@ -123,7 +214,7 @@ router.get('/:id', async (req, res) => {
             },
         });
         if (!mission) return res.status(404).json({ error: 'Mission introuvable' });
-        if (!canViewMission(mission, req.user)) return res.status(403).json({ error: 'Accès non autorisé' });
+        if (!canViewMissionForUser(mission, req.user)) return res.status(403).json({ error: 'Accès non autorisé' });
         res.json(mission);
     } catch (error) {
         logger.error('GET_MISSION', error.message, { missionId: req.params.id });
@@ -174,7 +265,7 @@ router.post('/', async (req, res) => {
                 directionId: directionId || null,
                 projectId: resolvedProjectId || null,
                 createdById: req.user.id,
-                status: 'CONFIRMED',
+                status: 'DRAFT',
             },
         });
         const assigneeIds = Array.isArray(userIds) ? [...new Set(userIds.filter((id) => id && id !== req.user.id))] : [];
@@ -187,42 +278,29 @@ router.post('/', async (req, res) => {
         const missionWithRelations = await req.prisma.mission.findUnique({
             where: { id: mission.id },
             include: {
-                createdBy: { select: { name: true, email: true } },
+                createdBy: { select: { id: true, name: true, email: true, role: true } },
                 direction: { select: { id: true, name: true, code: true } },
                 project: { select: PROJECT_WITH_RESPONSIBLE_SELECT },
                 assignments: { include: { user: { select: { id: true, name: true, email: true } } } },
             },
         });
-        const createdByName = missionWithRelations.createdBy?.name || req.user?.name || 'Un utilisateur';
         const link = `/missions/${mission.id}`;
-        for (const a of missionWithRelations.assignments) {
-            const u = a.user;
-            try {
-                await notificationService.sendFullNotification(
-                    req.prisma,
-                    u.id,
-                    u.email,
-                    'MISSION_CREATED',
-                    'MISSION_CREATED',
-                    [u, { ...mission, startTime: mission.startTime, endTime: mission.endTime }, createdByName],
-                    'Nouvelle mission assignée',
-                    `Mission « ${mission.title} » le ${new Date(mission.startTime).toLocaleDateString('fr-FR')} à ${mission.location}.`,
-                    link
-                );
-            } catch (err) {
-                logger.warn('MISSION_NOTIFY_FAILED', err.message, { userId: u.id, missionId: mission.id });
-            }
-        }
-        const creator = missionWithRelations.createdBy;
         try {
+            const creator = missionWithRelations.createdBy;
+            if (requiresConsolidatorApproval(creator?.role)) {
+                await notifyConsolidatorsPendingMission(req.prisma, missionWithRelations, creator);
+            }
             if (creator?.email) {
+                const pendingMsg = requiresConsolidatorApproval(creator.role)
+                    ? 'Statut : brouillon — en attente de validation par le consolidateur.'
+                    : 'Statut : brouillon — la mission sera confirmée après validation.';
                 await notificationService.sendFullNotification(
                     req.prisma,
                     req.user.id,
                     creator.email,
                     'MISSION_CREATED_CONFIRMATION',
                     'MISSION_CREATED_CONFIRMATION',
-                    [creator, missionWithRelations, missionWithRelations.assignments.length],
+                    [creator, missionWithRelations, missionWithRelations.assignments.length, pendingMsg],
                     'Mission créée',
                     `Votre mission « ${mission.title} » a été enregistrée.`,
                     link,
@@ -282,6 +360,14 @@ router.put('/:id', async (req, res) => {
             const projectCheck = await validateProjectForUserAction(req.prisma, req.user, mission.projectId);
             if (!projectCheck.ok) return res.status(403).json({ error: projectCheck.error });
         }
+        const timeChanged = (startTime != null && new Date(startTime).getTime() !== new Date(mission.startTime).getTime())
+            || (endTime != null && new Date(endTime).getTime() !== new Date(mission.endTime).getTime());
+        const contentChanged = title !== undefined
+            || description !== undefined
+            || location !== undefined
+            || timeChanged
+            || projectId !== undefined
+            || Array.isArray(userIds);
         if (Object.keys(data).length) {
             await req.prisma.mission.update({ where: { id: req.params.id }, data });
         }
@@ -298,7 +384,7 @@ router.put('/:id', async (req, res) => {
         const updated = await req.prisma.mission.findUnique({
             where: { id: req.params.id },
             include: {
-                createdBy: { select: { id: true, name: true, email: true } },
+                createdBy: { select: { id: true, name: true, email: true, role: true } },
                 direction: { select: { id: true, name: true, code: true } },
                 project: { select: PROJECT_WITH_RESPONSIBLE_SELECT },
                 assignments: { include: { user: { select: { id: true, name: true, email: true } } } },
@@ -306,25 +392,36 @@ router.put('/:id', async (req, res) => {
         });
         const createdByName = updated?.createdBy?.name || 'Un utilisateur';
         const link = `/missions/${updated.id}`;
-        for (const a of updated?.assignments || []) {
-            const u = a.user;
-            try {
-                await notificationService.sendFullNotification(
-                    req.prisma,
-                    u.id,
-                    u.email,
-                    'MISSION_UPDATED',
-                    'MISSION_UPDATED',
-                    [u, { ...updated, startTime: updated.startTime, endTime: updated.endTime }, createdByName],
-                    'Mission modifiée',
-                    `La mission « ${updated.title} » a été modifiée. Lieu : ${updated.location}.`,
-                    link
-                );
-            } catch (err) {
-                logger.warn('MISSION_UPDATE_NOTIFY_FAILED', err.message, { userId: u.id, missionId: updated.id });
+        if (updated.status === 'CONFIRMED') {
+            for (const a of updated?.assignments || []) {
+                const u = a.user;
+                try {
+                    await notificationService.sendFullNotification(
+                        req.prisma,
+                        u.id,
+                        u.email,
+                        'MISSION_UPDATED',
+                        'MISSION_UPDATED',
+                        [u, { ...updated, startTime: updated.startTime, endTime: updated.endTime }, createdByName],
+                        'Mission modifiée',
+                        `La mission « ${updated.title} » a été modifiée. Lieu : ${updated.location}.`,
+                        link,
+                    );
+                } catch (err) {
+                    logger.warn('MISSION_UPDATE_NOTIFY_FAILED', err.message, { userId: u.id, missionId: updated.id });
+                }
             }
         }
         await createAuditLog(req, 'MISSION_UPDATED', 'Mission', req.params.id, `Mission ${updated.title} modifiée`);
+
+        try {
+            if (updated.status === 'DRAFT' && contentChanged && requiresConsolidatorApproval(updated.createdBy?.role)) {
+                await notifyConsolidatorsPendingMission(req.prisma, updated, updated.createdBy);
+            }
+        } catch (notifyErr) {
+            logger.warn('MISSION_CONSOLIDATOR_NOTIFY_FAILED', notifyErr.message, { missionId: updated.id });
+        }
+
         res.json(updated);
     } catch (error) {
         logger.error('UPDATE_MISSION', error.message, { missionId: req.params.id });
@@ -429,21 +526,23 @@ router.post('/:id/participants', async (req, res) => {
         });
         const createdByName = mission.createdBy?.name || req.user?.name || 'Un utilisateur';
         const link = `/missions/${mission.id}`;
-        for (const u of newUsers) {
-            try {
-                await notificationService.sendFullNotification(
-                    req.prisma,
-                    u.id,
-                    u.email,
-                    'MISSION_CREATED',
-                    'MISSION_CREATED',
-                    [u, { ...mission, startTime: mission.startTime, endTime: mission.endTime }, createdByName],
-                    'Nouvelle mission assignée',
-                    `Mission « ${mission.title} » le ${new Date(mission.startTime).toLocaleDateString('fr-FR')} à ${mission.location}.`,
-                    link
-                );
-            } catch (err) {
-                logger.warn('MISSION_PARTICIPANT_NOTIFY_FAILED', err.message, { userId: u.id, missionId: mission.id });
+        if (mission.status === 'CONFIRMED') {
+            for (const u of newUsers) {
+                try {
+                    await notificationService.sendFullNotification(
+                        req.prisma,
+                        u.id,
+                        u.email,
+                        'MISSION_CREATED',
+                        'MISSION_CREATED',
+                        [u, { ...mission, startTime: mission.startTime, endTime: mission.endTime }, createdByName],
+                        'Nouvelle mission assignée',
+                        `Mission « ${mission.title} » le ${new Date(mission.startTime).toLocaleDateString('fr-FR')} à ${mission.location}.`,
+                        link,
+                    );
+                } catch (err) {
+                    logger.warn('MISSION_PARTICIPANT_NOTIFY_FAILED', err.message, { userId: u.id, missionId: mission.id });
+                }
             }
         }
 
@@ -469,7 +568,7 @@ router.post('/:id/files', wrapMulterUpload(uploadMissionFile.single('file')), as
         });
         if (!mission) return res.status(404).json({ error: 'Mission introuvable' });
 
-        if (!canViewMission(mission, req.user)) return res.status(403).json({ error: 'Accès non autorisé' });
+        if (!canViewMissionForUser(mission, req.user)) return res.status(403).json({ error: 'Accès non autorisé' });
 
         const kind = 'DOCUMENT';
         const fileUrl = `/uploads/missions/${req.file.filename}`;
@@ -522,6 +621,87 @@ router.delete('/:id/files/:fileId', async (req, res) => {
     } catch (error) {
         logger.error('MISSION_FILE_DELETE', error.message, { missionId: req.params.id, fileId: req.params.fileId });
         res.status(400).json({ error: error.message });
+    }
+});
+
+/** 1er palier: consolidation mission (DRAFT -> COORDINATOR_PENDING) ou validation directe. */
+router.put('/:id/approve', async (req, res) => {
+    try {
+        const mission = await req.prisma.mission.findUnique({
+            where: { id: req.params.id },
+            include: {
+                createdBy: { select: { id: true, name: true, email: true, role: true } },
+                project: { select: { id: true, name: true, consolidatorId: true, coordinatorId: true } },
+                assignments: { include: { user: { select: { id: true, name: true, email: true } } } },
+            },
+        });
+        if (!mission) return res.status(404).json({ error: 'Mission introuvable' });
+        if (mission.status !== 'DRAFT') {
+            return res.status(400).json({ error: 'Seules les missions en brouillon peuvent être traitées à cette étape.' });
+        }
+
+        if (isPrivilegedAdmin(req.user?.role)) {
+            const updated = await confirmMission(req, mission);
+            await notifyCreatorMissionProgress(req, mission, 'published');
+            await createAuditLog(req, 'MISSION_APPROVED', 'Mission', mission.id, `Mission « ${mission.title} » confirmée (admin)`);
+            return res.json(updated);
+        }
+
+        if (canConsolidateDraftMission(mission, req.user)) {
+            const updated = await req.prisma.mission.update({
+                where: { id: mission.id },
+                data: { status: MEETING_PENDING_FINAL },
+            });
+            await notifyMissionPendingFinalApproval(req.prisma, mission, mission.createdBy);
+            await notifyCreatorMissionProgress(req, mission, 'consolidated');
+            await createAuditLog(
+                req,
+                'MISSION_CONSOLIDATED',
+                'Mission',
+                mission.id,
+                `Mission « ${mission.title} » consolidée — attente validation finale`,
+            );
+            return res.json(updated);
+        }
+
+        if (!canApproveDraftMission(mission, req.user)) {
+            return res.status(403).json({ error: 'Vous n\'êtes pas autorisé à valider cette mission.' });
+        }
+        const updated = await confirmMission(req, mission);
+        await notifyCreatorMissionProgress(req, mission, 'published');
+        await createAuditLog(req, 'MISSION_APPROVED', 'Mission', mission.id, `Mission « ${mission.title} » validée et confirmée`);
+        return res.json(updated);
+    } catch (error) {
+        logger.error('APPROVE_MISSION', error.message, { missionId: req.params.id });
+        return res.status(error.statusCode || 500).json({ error: error.message });
+    }
+});
+
+/** 2e palier: validation finale mission en attente coordinator -> CONFIRMED. */
+router.put('/:id/approve-coordinator', async (req, res) => {
+    try {
+        const mission = await req.prisma.mission.findUnique({
+            where: { id: req.params.id },
+            include: {
+                createdBy: { select: { id: true, name: true, email: true, role: true } },
+                project: { select: { id: true, name: true, consolidatorId: true, coordinatorId: true } },
+                assignments: { include: { user: { select: { id: true, name: true, email: true } } } },
+            },
+        });
+        if (!mission) return res.status(404).json({ error: 'Mission introuvable' });
+        if (!isPendingCoordinatorValidation(mission.status)) {
+            return res.status(400).json({ error: 'Cette mission n\'est pas en attente de validation finale.' });
+        }
+        if (!canFinalizePendingMission(mission, req.user) && !isPrivilegedAdmin(req.user?.role)) {
+            return res.status(403).json({ error: 'Vous n\'êtes pas autorisé à valider définitivement cette mission.' });
+        }
+        const updated = await confirmMission(req, mission);
+        await notifyCreatorMissionProgress(req, mission, 'published');
+        await createAuditLog(req, 'MISSION_APPROVED', 'Mission', mission.id, `Mission « ${mission.title} » validée définitivement`);
+        return res.json(updated);
+    } catch (error) {
+        logger.error('APPROVE_MISSION_COORDINATOR', error.message, { missionId: req.params.id });
+        return res.status(error.statusCode || 500).json({ error: error.message });
     }
 });
 

@@ -16,6 +16,7 @@ import { ArrowLeftOutlined, FlagOutlined } from '@ant-design/icons';
 import dayjs from 'dayjs';
 import api from '../api/client';
 import { useAuth } from '../context/AuthContext';
+import { isResponsable } from '../utils/roles';
 import ResponsibleProjectField, { ResponsibleProjectBanner } from '../components/ResponsibleProjectField';
 import { applyDefaultProjectToForm, useResponsibleProjectScope } from '../hooks/useResponsibleProjectScope';
 
@@ -92,7 +93,11 @@ export default function MissionCreate() {
                 endTime: end,
                 userIds: values.userIds || [],
             });
-            message.success('Mission créée. Les intervenants ont été notifiés.');
+            message.success(
+                isResponsable(user?.role)
+                    ? 'Mission créée en brouillon — en attente de validation.'
+                    : 'Mission créée en brouillon.',
+            );
             navigate(`/missions/${res.data?.id}`);
         } catch (err) {
             message.error(err.response?.data?.error || 'Erreur lors de la création');
@@ -194,7 +199,7 @@ export default function MissionCreate() {
                     <Form.Item
                         name="userIds"
                         label="Intervenants (optionnel)"
-                        extra="Les personnes peuvent être assignées même si elles ont déjà une mission, une réunion ou un autre événement sur ce créneau."
+                        extra="Les intervenants seront notifiés après validation de la mission."
                     >
                         <Select
                             mode="multiple"
@@ -212,7 +217,7 @@ export default function MissionCreate() {
                     <Form.Item>
                         <Space>
                             <Button type="primary" htmlType="submit" loading={submitting} size="large" disabled={!canSubmit}>
-                                Créer et notifier les intervenants
+                                Créer la mission
                             </Button>
                             <Button size="large" onClick={() => navigate('/missions')}>
                                 Annuler

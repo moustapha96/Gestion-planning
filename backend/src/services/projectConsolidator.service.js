@@ -263,6 +263,25 @@ async function prepareMeetingForConsolidatorNotify(prisma, meeting, organizer) {
     };
 }
 
+/** Consolidateur : mission en brouillon créée/modifiée par un responsable. */
+async function notifyConsolidatorsPendingMission(prisma, mission, creator) {
+    const projectId = await resolveProjectIdForConsolidation(
+        prisma,
+        mission.projectId,
+        creator?.id || mission.createdById,
+    );
+    const ownerName = creator?.name || 'Un responsable';
+    return notifyConsolidatorsForProject(prisma, null, projectId, {
+        ownerUserId: creator?.id || mission.createdById,
+        type: 'MISSION_PENDING_APPROVAL',
+        emailType: 'MISSION_PENDING_APPROVAL',
+        emailArgs: (c) => [c, mission, creator],
+        title: `Mission à valider : ${mission.title}`,
+        message: `${ownerName} a soumis une mission en attente de validation.`,
+        link: `/missions/${mission.id}`,
+    });
+}
+
 /** Consolidateur : réunion en brouillon créée/modifiée par un responsable. */
 async function notifyConsolidatorsPendingMeeting(prisma, meeting, organizer) {
     const { projectId, meeting: enriched, organizer: org } = await prepareMeetingForConsolidatorNotify(
@@ -415,6 +434,7 @@ module.exports = {
     resolveConsolidatorRecipients,
     notifyConsolidatorsForProject,
     notifyConsolidatorsPendingMeeting,
+    notifyConsolidatorsPendingMission,
     notifyPlanningPendingConsolidation,
     formatPlanningWeekLabel,
     isUserProjectConsolidator,
