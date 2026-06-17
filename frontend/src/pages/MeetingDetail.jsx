@@ -49,11 +49,13 @@ import {
     canSuperAdminForceDelete,
     canApproveMeeting,
     canConsolidateMeeting,
+    canCoordinateMeeting,
     canFinalizeMeeting,
     canManageMeeting,
     canEditMeeting,
     meetingNeedsConsolidatorApproval,
     isPendingCoordinatorStatus,
+    isPendingConsolidatorStatus,
 } from '../utils/roles';
 import { forceDeleteDescription, forceDeleteTitle } from '../utils/deleteConfirm';
 import ForceDeletePopconfirm from '../components/ForceDeletePopconfirm';
@@ -63,6 +65,7 @@ const { Title, Text } = Typography;
 
 const STATUS_COLORS = {
     DRAFT: 'default',
+    CONSOLIDATOR_PENDING: 'orange',
     COORDINATOR_PENDING: 'geekblue',
     SENT: 'blue',
     CONFIRMED: 'green',
@@ -71,6 +74,7 @@ const STATUS_COLORS = {
 };
 const STATUS_LABELS = {
     DRAFT: 'Brouillon',
+    CONSOLIDATOR_PENDING: 'Att. consolidation',
     COORDINATOR_PENDING: 'Att. validation finale',
     SENT: 'Envoyée',
     CONFIRMED: 'Confirmée',
@@ -79,11 +83,14 @@ const STATUS_LABELS = {
 };
 
 function meetingStatusLabel(meeting) {
+    if (isPendingConsolidatorStatus(meeting.status)) {
+        return STATUS_LABELS.CONSOLIDATOR_PENDING;
+    }
     if (isPendingCoordinatorStatus(meeting.status)) {
         return STATUS_LABELS.COORDINATOR_PENDING;
     }
     if (meetingNeedsConsolidatorApproval(meeting) && meeting.status === 'DRAFT') {
-        return 'En attente consolidation';
+        return 'En attente coordinateur';
     }
     return STATUS_LABELS[meeting.status] || meeting.status;
 }
@@ -340,12 +347,16 @@ export default function MeetingDetail() {
     const handleApprove = async (mode = 'approve') => {
         setApproveLoading(true);
         try {
-            if (mode === 'finalize') {
+            if (mode === 'coordinate' || mode === 'finalize') {
                 await api.put(`/meetings/${id}/approve-coordinator`);
-                message.success('Réunion validée définitivement et publiée sur le calendrier');
+                message.success(
+                    mode === 'finalize'
+                        ? 'Réunion validée définitivement et publiée sur le calendrier'
+                        : 'Réunion validée par le coordinateur — transmise au rôle Consolidateur',
+                );
             } else if (mode === 'consolidate') {
                 await api.put(`/meetings/${id}/approve`);
-                message.success('Réunion consolidée — en attente de validation finale');
+                message.success('Réunion consolidée et publiée sur le calendrier');
             } else {
                 await api.put(`/meetings/${id}/approve`);
                 message.success('Réunion validée et publiée sur le calendrier');
@@ -679,13 +690,15 @@ export default function MeetingDetail() {
     }
 
     const isOrganizer = meeting.organizerId === user?.id;
-    const needsConsolidator = meetingNeedsConsolidatorApproval(meeting) && meeting.status === 'DRAFT';
+    const needsCoordinator = meetingNeedsConsolidatorApproval(meeting) && meeting.status === 'DRAFT';
+    const needsConsolidator = isPendingConsolidatorStatus(meeting.status);
     const needsFinalApproval = isPendingCoordinatorStatus(meeting.status);
     const canManage = canManageMeeting(meeting, user);
+    const canCoordinate = canCoordinateMeeting(meeting, user);
     const canConsolidate = canConsolidateMeeting(meeting, user);
     const canFinalize = canFinalizeMeeting(meeting, user);
-    const canApproveDirect = canApproveMeeting(meeting, user) && needsConsolidator && !canConsolidate;
-    const canSend = canApproveMeeting(meeting, user) && !needsConsolidator && !needsFinalApproval
+    const canApproveDirect = canApproveMeeting(meeting, user) && needsCoordinator && !canCoordinate;
+    const canSend = canApproveMeeting(meeting, user) && !needsCoordinator && !needsConsolidator && !needsFinalApproval
         && (isOrganizer || isPrivilegedAdmin(user?.role));
     const canComplete = canManage && meeting.status !== 'CANCELLED' && meeting.status !== 'COMPLETED';
     const canCancel = canManage && meeting.status !== 'CANCELLED' && meeting.status !== 'COMPLETED';
@@ -707,9 +720,14 @@ export default function MeetingDetail() {
                         Modifier la réunion
                     </Button>
                 )}
+                {canCoordinate && (
+                    <Button type="primary" icon={<CheckCircleOutlined />} onClick={() => handleApprove('coordinate')} loading={approveLoading}>
+                        Valider (coordinateur)
+                    </Button>
+                )}
                 {canConsolidate && (
                     <Button type="primary" icon={<CheckCircleOutlined />} onClick={() => handleApprove('consolidate')} loading={approveLoading}>
-                        Consolider
+                        Consolider et publier
                     </Button>
                 )}
                 {canFinalize && (
@@ -770,6 +788,18 @@ export default function MeetingDetail() {
                 )}
             </Space>
 
+            {needsCoordinator && (
+                <Alert
+                    type="warning"
+                    showIcon
+                    style={{ marginBottom: 16 }}
+                    message={
+                        isOrganizer
+                            ? 'Cette réunion est en attente de validation par le coordinateur du projet (1er palier). Elle sera ensuite transmise au rôle Consolidateur.'
+                            : 'Réunion en attente de validation coordinateur (1er palier). La publication interviendra après consolidation par le rôle Consolidateur.'
+                    }
+                />
+            )}
             {needsConsolidator && (
                 <Alert
                     type="warning"
@@ -777,8 +807,8 @@ export default function MeetingDetail() {
                     style={{ marginBottom: 16 }}
                     message={
                         isOrganizer
-                            ? 'Cette réunion est en attente de consolidation par le consolidateur du projet. Elle ne sera publiée qu\'après validation finale.'
-                            : 'Réunion en attente de consolidation (1er palier). La publication interviendra après validation du coordinateur ou du rôle dédié.'
+                            ? 'Cette réunion a été validée par le coordinateur et attend la consolidation par le rôle Consolidateur (2e palier).'
+                            : 'Réunion en attente de consolidation par le rôle Consolidateur (2e palier) avant publication sur le calendrier.'
                     }
                 />
             )}
@@ -787,11 +817,7 @@ export default function MeetingDetail() {
                     type="info"
                     showIcon
                     style={{ marginBottom: 16 }}
-                    message={
-                        isOrganizer
-                            ? 'Cette réunion a été consolidée et attend la validation finale (coordinateur du projet ou rôle dédié) avant publication sur le calendrier.'
-                            : 'Validation finale requise avant publication sur le calendrier et envoi des convocations.'
-                    }
+                    message="Validation finale requise par le coordinateur du projet (élément en attente legacy)."
                 />
             )}
 
@@ -916,7 +942,7 @@ export default function MeetingDetail() {
                             {meeting.project?.name && <Tag color="blue">Projet: {meeting.project.name}</Tag>}
                         </Space>
                     </div>
-                    <Tag color={needsConsolidator ? 'orange' : STATUS_COLORS[meeting.status]}>
+                    <Tag color={needsCoordinator || needsConsolidator ? 'orange' : STATUS_COLORS[meeting.status]}>
                         {meetingStatusLabel(meeting)}
                     </Tag>
                 </Space>

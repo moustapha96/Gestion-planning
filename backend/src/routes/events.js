@@ -4,7 +4,7 @@ const path = require('path');
 const multer = require('multer');
 const roleMiddleware = require('../middlewares/role.middleware');
 const { ROLES, ADMIN_ROUTE_ROLES, isPrivilegedAdmin, isSuperAdmin, canManageProjects, missionScopeWhere, planningScopeWhere } = require('../config/roles');
-const { meetingListWhereForUser } = require('../config/meetingVisibility');
+const { meetingListWhereForUser, publishedMeetingStatusFilter } = require('../config/meetingVisibility');
 const { detachProjectReferences, detachDirectionReferences } = require('../utils/forceDelete');
 const { syncDirectionDiscussionMembers } = require('../services/directionDiscussion.service');
 const {
@@ -185,7 +185,7 @@ router.get('/unified', async (req, res) => {
         const [meetings, missions, planningEvents] = await Promise.all([
             req.prisma.meeting.findMany({
                 where: {
-                    ...meetingListWhereForUser(req.user),
+                    ...publishedMeetingStatusFilter(),
                     ...(from || to ? { startTime: { ...(from ? { gte: from } : {}), ...(to ? { lte: to } : {}) } } : {}),
                     ...(directionId ? { directionId } : {}),
                     ...(projectId ? { projectId } : {}),
@@ -221,7 +221,7 @@ router.get('/unified', async (req, res) => {
             req.prisma.planningEvent.findMany({
                 where: {
                     ...(from || to ? { startTime: { ...(from ? { gte: from } : {}), ...(to ? { lte: to } : {}) } } : {}),
-                    ...(Object.keys(planningFilter).length ? { planning: planningFilter } : {}),
+                    planning: { status: 'VALIDATED' },
                     ...(directionId ? { directionId } : {}),
                     ...(projectId ? { projectId } : {}),
                 },

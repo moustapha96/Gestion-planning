@@ -15,6 +15,7 @@ const { Title, Text } = Typography;
 
 const PLANNING_STATUS_LABELS = {
     SUBMITTED: 'Soumis',
+    CONSOLIDATOR_PENDING: 'Att. consolidation',
     IN_CONSOLIDATION: 'En consolidation',
     COORDINATOR_PENDING: 'Att. validation finale',
     CP_PENDING: 'Att. validation finale',
@@ -24,11 +25,13 @@ const PLANNING_STATUS_LABELS = {
 
 const MEETING_STATUS_LABELS = {
     DRAFT: 'Brouillon',
+    CONSOLIDATOR_PENDING: 'Att. consolidation',
     COORDINATOR_PENDING: 'Att. validation finale',
 };
 
 const MISSION_STATUS_LABELS = {
     DRAFT: 'Brouillon',
+    CONSOLIDATOR_PENDING: 'Att. consolidation',
     COORDINATOR_PENDING: 'Att. validation finale',
 };
 
@@ -51,11 +54,11 @@ function MeetingCard({ item, loading, onAction }) {
     const navigate = useNavigate();
     const isConsolidate = item.action === 'consolidate';
     const actionLabel = isConsolidate
-        ? 'Consolider'
+        ? 'Consolider et publier'
         : item.action === 'fallback'
           ? 'Valider et publier (rôle dédié)'
-          : item.validationPath === 'coordinator' && item.status === 'DRAFT'
-            ? 'Valider et publier (coordinateur)'
+          : item.action === 'coordinate' && item.status === 'DRAFT'
+            ? 'Valider (coordinateur)'
             : 'Valider et publier';
     const actionColor = isConsolidate ? '#722ed1' : item.action === 'fallback' ? '#fa541c' : '#52c41a';
 
@@ -101,13 +104,13 @@ function PlanningCard({ item, loading, onAction }) {
     const navigate = useNavigate();
     const isConsolidate = item.action === 'consolidate' || item.action === 'consolidate_and_validate';
     const actionLabel = item.action === 'consolidate_and_validate'
-        ? 'Consolider et valider'
+        ? 'Consolider et publier'
         : isConsolidate
-            ? 'Consolider'
+            ? 'Consolider et publier'
             : item.action === 'fallback'
                 ? 'Valider (consolidateur rôle)'
-                : item.validationPath === 'coordinator' && item.status === 'SUBMITTED'
-                    ? 'Valider (coordinateur — sans consolidateur)'
+                : item.action === 'coordinate' && item.status === 'SUBMITTED'
+                    ? 'Valider (coordinateur)'
                     : 'Valider (coordinateur)';
     const actionColor = item.action === 'consolidate_and_validate'
         ? '#52c41a'
@@ -162,11 +165,11 @@ function MissionCard({ item, loading, onAction }) {
     const navigate = useNavigate();
     const isConsolidate = item.action === 'consolidate';
     const actionLabel = isConsolidate
-        ? 'Consolider'
+        ? 'Consolider et confirmer'
         : item.action === 'fallback'
           ? 'Valider et confirmer (rôle dédié)'
-          : item.validationPath === 'coordinator' && item.status === 'DRAFT'
-            ? 'Valider et confirmer (coordinateur)'
+          : item.action === 'coordinate' && item.status === 'DRAFT'
+            ? 'Valider (coordinateur)'
             : 'Valider et confirmer';
     const actionColor = isConsolidate ? '#722ed1' : item.action === 'fallback' ? '#fa541c' : '#52c41a';
 
@@ -224,13 +227,13 @@ export default function PendingValidations() {
             if (entityKind === 'meeting') {
                 if (action === 'consolidate') {
                     await api.put(`/meetings/${id}/approve`);
-                    message.success('Réunion consolidée — transmise pour validation finale');
+                    message.success('Réunion consolidée et publiée sur le calendrier');
                 } else if (action === 'coordinate' || action === 'fallback') {
                     await api.put(`/meetings/${id}/approve-coordinator`);
                     message.success(
                         action === 'fallback'
                             ? 'Réunion validée et publiée (rôle dédié)'
-                            : 'Réunion validée et publiée par le coordinateur',
+                            : 'Réunion validée par le coordinateur — transmise au Consolidateur',
                     );
                 } else {
                     await api.put(`/meetings/${id}/approve`);
@@ -239,28 +242,28 @@ export default function PendingValidations() {
             } else if (entityKind === 'mission') {
                 if (action === 'consolidate') {
                     await api.put(`/missions/${id}/approve`);
-                    message.success('Mission consolidée — transmise pour validation finale');
+                    message.success('Mission consolidée et confirmée');
                 } else if (action === 'coordinate' || action === 'fallback') {
                     await api.put(`/missions/${id}/approve-coordinator`);
-                    message.success('Mission validée définitivement');
+                    message.success(
+                        action === 'fallback'
+                            ? 'Mission validée et confirmée (rôle dédié)'
+                            : 'Mission validée par le coordinateur — transmise au Consolidateur',
+                    );
                 } else {
                     await api.put(`/missions/${id}/approve`);
                     message.success('Mission validée');
                 }
             } else if (entityKind === 'planning') {
                 if (action === 'consolidate' || action === 'consolidate_and_validate') {
-                    const res = await api.put(`/plannings/${id}/consolidate`);
-                    if (res.data?.autoFinalized || res.data?.status === 'VALIDATED') {
-                        message.success('Planning consolidé et validé — publié ✓');
-                    } else {
-                        message.success('Planning consolidé — transmis pour validation finale');
-                    }
+                    await api.put(`/plannings/${id}/consolidate`);
+                    message.success('Planning consolidé et publié sur le calendrier');
                 } else {
                     await api.put(`/plannings/${id}/approve-coordinator`);
                     message.success(
                         action === 'fallback'
                             ? 'Planning validé (consolidateur rôle)'
-                            : 'Planning validé par le coordinateur',
+                            : 'Planning validé par le coordinateur — transmis au Consolidateur',
                     );
                 }
             }
@@ -291,8 +294,12 @@ export default function PendingValidations() {
     }
 
     const roleHints = [];
-    if (planningsConsolidate.length > 0 || meetings.length > 0) roleHints.push('consolidateur de projet');
-    if (planningsCoordinate.length > 0) roleHints.push('coordinateur de projet');
+    if (planningsConsolidate.length > 0 || meetings.some((m) => m.action === 'consolidate')) {
+        roleHints.push('rôle Consolidateur');
+    }
+    if (planningsCoordinate.length > 0 || meetings.some((m) => m.action === 'coordinate')) {
+        roleHints.push('coordinateur de projet');
+    }
 
     const tabItems = [
         {
@@ -508,7 +515,7 @@ export default function PendingValidations() {
                 showIcon
                 icon={<CalendarOutlined />}
                 title="Circuit de validation"
-                description="Consolidateur du projet → sinon coordinateur du projet (étape consolidateur sautée) → sinon rôle Consolidateur global si aucun des deux n'est défini sur le projet."
+                description="1er palier : coordinateur du projet (réunions, missions, plannings soumis). 2e palier : rôle Consolidateur global — publication sur le calendrier uniquement après cette étape."
                 style={{ marginBottom: 16 }}
             />
 

@@ -38,11 +38,8 @@ async function monthHandler(req, res) {
         gte: startDate,
         lte: endDate,
       },
+      status: 'VALIDATED',
     };
-
-    if (req.user && req.user.role === 'RESPONSABLE') {
-      planningsQuery.userId = req.user.id;
-    }
 
     const plannings = await req.prisma.planning.findMany({
       where: planningsQuery,
@@ -151,7 +148,7 @@ router.get('/week', async (req, res) => {
           gte: weekStart,
           lte: weekEnd,
         },
-        ...(req.user.role === 'RESPONSABLE' && { userId: req.user.id }),
+        status: 'VALIDATED',
       },
       include: {
         user: { select: { name: true, email: true } },

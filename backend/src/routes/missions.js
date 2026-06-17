@@ -16,14 +16,15 @@ const {
     requiresConsolidatorApproval,
 } = require('../config/missionVisibility');
 const { validateProjectForUserAction, PROJECT_WITH_RESPONSIBLE_SELECT } = require('../services/projectResponsible.service');
-const { isPendingCoordinatorValidation } = require('../config/planningWorkflow');
+const { isPendingCoordinatorValidation, isPendingConsolidatorValidation } = require('../config/planningWorkflow');
 const {
-    canConsolidateDraftMission,
+    canCoordinateDraftMission,
+    canConsolidatePendingMission,
     canApproveDraftMission,
     canFinalizePendingMission,
 } = require('../services/validationPolicy.service');
 const { notifyConsolidatorsPendingMission } = require('../services/projectConsolidator.service');
-const { notifyMissionPendingFinalApproval } = require('../services/projectCoordinator.service');
+const { notifyMissionPendingCoordinatorReview } = require('../services/projectCoordinator.service');
 const { pdfOnlyMulterFileFilter, wrapMulterUpload } = require('../utils/pdfUpload');
 
 const router = express.Router();
@@ -95,15 +96,18 @@ async function confirmMission(req, mission) {
 async function notifyCreatorMissionProgress(req, mission, stage) {
     const creator = mission.createdBy;
     if (!creator?.email) return;
+    const isCoordinated = stage === 'coordinated';
     const isConsolidated = stage === 'consolidated';
-    const notifType = isConsolidated ? 'MISSION_CONSOLIDATED' : 'MISSION_CONFIRMED';
-    const emailTemplate = isConsolidated ? 'MISSION_CONSOLIDATED' : 'MISSION_CONFIRMED';
-    const inAppTitle = isConsolidated
-        ? `Mission consolidée : ${mission.title}`
+    const notifType = isCoordinated || isConsolidated ? 'MISSION_CONSOLIDATED' : 'MISSION_CONFIRMED';
+    const emailTemplate = isCoordinated || isConsolidated ? 'MISSION_CONSOLIDATED' : 'MISSION_CONFIRMED';
+    const inAppTitle = isCoordinated || isConsolidated
+        ? `Mission en cours de validation : ${mission.title}`
         : `Mission confirmée : ${mission.title}`;
-    const inAppBody = isConsolidated
-        ? `Votre mission a été consolidée par ${req.user.name}. Elle attend la validation finale avant confirmation.`
-        : `Votre mission a été validée par ${req.user.name} et confirmée. Les intervenants ont été notifiés.`;
+    const inAppBody = isCoordinated
+        ? `Votre mission a été validée par ${req.user.name} (coordinateur). Elle attend la consolidation par le rôle Consolidateur.`
+        : isConsolidated
+            ? `Votre mission a été consolidée par ${req.user.name}. Elle attend la validation finale avant confirmation.`
+            : `Votre mission a été validée par ${req.user.name} et confirmée. Les intervenants ont été notifiés.`;
     try {
         await notificationService.sendFullNotification(
             req.prisma,
@@ -288,11 +292,11 @@ router.post('/', async (req, res) => {
         try {
             const creator = missionWithRelations.createdBy;
             if (requiresConsolidatorApproval(creator?.role)) {
-                await notifyConsolidatorsPendingMission(req.prisma, missionWithRelations, creator);
+                await notifyMissionPendingCoordinatorReview(req.prisma, missionWithRelations, creator);
             }
             if (creator?.email) {
                 const pendingMsg = requiresConsolidatorApproval(creator.role)
-                    ? 'Statut : brouillon — en attente de validation par le consolidateur.'
+                    ? 'Statut : brouillon — en attente de validation par le coordinateur du projet (1er palier).'
                     : 'Statut : brouillon — la mission sera confirmée après validation.';
                 await notificationService.sendFullNotification(
                     req.prisma,
@@ -416,7 +420,7 @@ router.put('/:id', async (req, res) => {
 
         try {
             if (updated.status === 'DRAFT' && contentChanged && requiresConsolidatorApproval(updated.createdBy?.role)) {
-                await notifyConsolidatorsPendingMission(req.prisma, updated, updated.createdBy);
+                await notifyMissionPendingCoordinatorReview(req.prisma, updated, updated.createdBy);
             }
         } catch (notifyErr) {
             logger.warn('MISSION_CONSOLIDATOR_NOTIFY_FAILED', notifyErr.message, { missionId: updated.id });
@@ -624,7 +628,7 @@ router.delete('/:id/files/:fileId', async (req, res) => {
     }
 });
 
-/** 1er palier: consolidation mission (DRAFT -> COORDINATOR_PENDING) ou validation directe. */
+/** 2e palier : consolidation (rôle Consolidateur) ou validation directe admin. */
 router.put('/:id/approve', async (req, res) => {
     try {
         const mission = await req.prisma.mission.findUnique({
@@ -636,48 +640,45 @@ router.put('/:id/approve', async (req, res) => {
             },
         });
         if (!mission) return res.status(404).json({ error: 'Mission introuvable' });
-        if (mission.status !== 'DRAFT') {
-            return res.status(400).json({ error: 'Seules les missions en brouillon peuvent être traitées à cette étape.' });
-        }
 
         if (isPrivilegedAdmin(req.user?.role)) {
+            if (mission.status === 'DRAFT' || isPendingConsolidatorValidation(mission.status) || isPendingCoordinatorValidation(mission.status)) {
+                const updated = await confirmMission(req, mission);
+                await notifyCreatorMissionProgress(req, mission, 'published');
+                await createAuditLog(req, 'MISSION_APPROVED', 'Mission', mission.id, `Mission « ${mission.title} » confirmée (admin)`);
+                return res.json(updated);
+            }
+            return res.status(400).json({ error: 'Cette mission ne peut pas être validée à cette étape.' });
+        }
+
+        if (isPendingConsolidatorValidation(mission.status)) {
+            if (!canConsolidatePendingMission(mission, req.user)) {
+                return res.status(403).json({ error: 'Vous n\'êtes pas autorisé à consolider cette mission.' });
+            }
             const updated = await confirmMission(req, mission);
             await notifyCreatorMissionProgress(req, mission, 'published');
-            await createAuditLog(req, 'MISSION_APPROVED', 'Mission', mission.id, `Mission « ${mission.title} » confirmée (admin)`);
+            await createAuditLog(req, 'MISSION_APPROVED', 'Mission', mission.id, `Mission « ${mission.title} » consolidée et confirmée`);
             return res.json(updated);
         }
 
-        if (canConsolidateDraftMission(mission, req.user)) {
-            const updated = await req.prisma.mission.update({
-                where: { id: mission.id },
-                data: { status: MEETING_PENDING_FINAL },
-            });
-            await notifyMissionPendingFinalApproval(req.prisma, mission, mission.createdBy);
-            await notifyCreatorMissionProgress(req, mission, 'consolidated');
-            await createAuditLog(
-                req,
-                'MISSION_CONSOLIDATED',
-                'Mission',
-                mission.id,
-                `Mission « ${mission.title} » consolidée — attente validation finale`,
-            );
+        if (mission.status === 'DRAFT') {
+            if (!canApproveDraftMission(mission, req.user)) {
+                return res.status(403).json({ error: 'Vous n\'êtes pas autorisé à valider cette mission.' });
+            }
+            const updated = await confirmMission(req, mission);
+            await notifyCreatorMissionProgress(req, mission, 'published');
+            await createAuditLog(req, 'MISSION_APPROVED', 'Mission', mission.id, `Mission « ${mission.title} » validée et confirmée`);
             return res.json(updated);
         }
 
-        if (!canApproveDraftMission(mission, req.user)) {
-            return res.status(403).json({ error: 'Vous n\'êtes pas autorisé à valider cette mission.' });
-        }
-        const updated = await confirmMission(req, mission);
-        await notifyCreatorMissionProgress(req, mission, 'published');
-        await createAuditLog(req, 'MISSION_APPROVED', 'Mission', mission.id, `Mission « ${mission.title} » validée et confirmée`);
-        return res.json(updated);
+        return res.status(400).json({ error: 'Cette mission n\'est pas en attente de consolidation.' });
     } catch (error) {
         logger.error('APPROVE_MISSION', error.message, { missionId: req.params.id });
         return res.status(error.statusCode || 500).json({ error: error.message });
     }
 });
 
-/** 2e palier: validation finale mission en attente coordinator -> CONFIRMED. */
+/** 1er palier : validation coordinateur (DRAFT -> CONSOLIDATOR_PENDING) ou legacy finalize. */
 router.put('/:id/approve-coordinator', async (req, res) => {
     try {
         const mission = await req.prisma.mission.findUnique({
@@ -689,16 +690,44 @@ router.put('/:id/approve-coordinator', async (req, res) => {
             },
         });
         if (!mission) return res.status(404).json({ error: 'Mission introuvable' });
-        if (!isPendingCoordinatorValidation(mission.status)) {
-            return res.status(400).json({ error: 'Cette mission n\'est pas en attente de validation finale.' });
+
+        if (mission.status === 'DRAFT') {
+            if (isPrivilegedAdmin(req.user?.role)) {
+                const updated = await confirmMission(req, mission);
+                await notifyCreatorMissionProgress(req, mission, 'published');
+                await createAuditLog(req, 'MISSION_APPROVED', 'Mission', mission.id, `Mission « ${mission.title} » confirmée (admin)`);
+                return res.json(updated);
+            }
+            if (!canCoordinateDraftMission(mission, req.user)) {
+                return res.status(403).json({ error: 'Vous n\'êtes pas autorisé à valider cette mission à ce palier.' });
+            }
+            const updated = await req.prisma.mission.update({
+                where: { id: mission.id },
+                data: { status: MEETING_PENDING_FINAL },
+            });
+            await notifyConsolidatorsPendingMission(req.prisma, mission, mission.createdBy);
+            await notifyCreatorMissionProgress(req, mission, 'coordinated');
+            await createAuditLog(
+                req,
+                'MISSION_COORDINATED',
+                'Mission',
+                mission.id,
+                `Mission « ${mission.title} » validée par le coordinateur — attente consolidation`,
+            );
+            return res.json(updated);
         }
-        if (!canFinalizePendingMission(mission, req.user) && !isPrivilegedAdmin(req.user?.role)) {
-            return res.status(403).json({ error: 'Vous n\'êtes pas autorisé à valider définitivement cette mission.' });
+
+        if (isPendingCoordinatorValidation(mission.status)) {
+            if (!canFinalizePendingMission(mission, req.user) && !isPrivilegedAdmin(req.user?.role)) {
+                return res.status(403).json({ error: 'Vous n\'êtes pas autorisé à valider définitivement cette mission.' });
+            }
+            const updated = await confirmMission(req, mission);
+            await notifyCreatorMissionProgress(req, mission, 'published');
+            await createAuditLog(req, 'MISSION_APPROVED', 'Mission', mission.id, `Mission « ${mission.title} » validée définitivement (legacy)`);
+            return res.json(updated);
         }
-        const updated = await confirmMission(req, mission);
-        await notifyCreatorMissionProgress(req, mission, 'published');
-        await createAuditLog(req, 'MISSION_APPROVED', 'Mission', mission.id, `Mission « ${mission.title} » validée définitivement`);
-        return res.json(updated);
+
+        return res.status(400).json({ error: 'Cette mission n\'est pas en attente de validation coordinateur.' });
     } catch (error) {
         logger.error('APPROVE_MISSION_COORDINATOR', error.message, { missionId: req.params.id });
         return res.status(error.statusCode || 500).json({ error: error.message });

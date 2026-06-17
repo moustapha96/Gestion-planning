@@ -2,7 +2,7 @@ const { ROLES, isPrivilegedAdmin } = require('../config/roles');
 const {
     projectHasConsolidator,
     projectNeedsGlobalConsolidatorFallback,
-    canConsolidateSubmittedPlanning,
+    canConsolidatePendingPlanning,
 } = require('./validationPolicy.service');
 const { notificationService } = require('./notification.service');
 const { logger } = require('../utils/logger');
@@ -162,35 +162,9 @@ async function getGlobalConsolidatorRoleUsers(prisma) {
     });
 }
 
-async function resolveConsolidatorRecipients(prisma, projectId) {
-    const project = projectId
-        ? await prisma.project.findUnique({
-            where: { id: projectId },
-            select: { id: true, consolidatorId: true, coordinatorId: true },
-        })
-        : null;
-
-    if (project && projectHasConsolidator(project)) {
-        const designated = await getProjectConsolidator(prisma, projectId);
-        if (designated?.email) return [designated];
-        logger.warn('CONSOLIDATOR_NOTIFY', 'Consolidateur désigné inactif ou introuvable', { projectId });
-        return [];
-    }
-
-    if (project?.coordinatorId) {
-        const coordinator = await prisma.user.findFirst({
-            where: { id: project.coordinatorId, isActive: true, isDeleted: false },
-            select: CONSOLIDATOR_USER_SELECT,
-        });
-        if (coordinator?.email) return [coordinator];
-    }
-
-    if (!projectId || projectNeedsGlobalConsolidatorFallback(project)) {
-        const globalConsolidators = await getGlobalConsolidatorRoleUsers(prisma);
-        return globalConsolidators.filter((u) => u.email);
-    }
-
-    return [];
+async function resolveConsolidatorRecipients(prisma, _projectId) {
+    const globalConsolidators = await getGlobalConsolidatorRoleUsers(prisma);
+    return globalConsolidators.filter((u) => u.email);
 }
 
 async function notifyConsolidatorsForProject(prisma, _req, projectId, {
@@ -277,7 +251,7 @@ async function notifyConsolidatorsPendingMission(prisma, mission, creator) {
         emailType: 'MISSION_PENDING_APPROVAL',
         emailArgs: (c) => [c, mission, creator],
         title: `Mission à valider : ${mission.title}`,
-        message: `${ownerName} a soumis une mission en attente de validation.`,
+        message: `${ownerName} a soumis une mission — validée par le coordinateur, en attente de votre validation (2e palier).`,
         link: `/missions/${mission.id}`,
     });
 }
@@ -296,7 +270,7 @@ async function notifyConsolidatorsPendingMeeting(prisma, meeting, organizer) {
         emailType: 'MEETING_PENDING_APPROVAL',
         emailArgs: (c) => [c, enriched, org, enriched.room],
         title: `Réunion à valider : ${enriched.title}`,
-        message: `${ownerName} a soumis une réunion en attente de validation.`,
+        message: `${ownerName} a soumis une réunion — validée par le coordinateur, en attente de votre validation (2e palier).`,
         link: `/meetings/${enriched.id}`,
     });
 }
@@ -317,7 +291,7 @@ async function notifyPlanningPendingConsolidation(prisma, {
         emailType: 'PLANNING_PENDING_CONSOLIDATION',
         emailArgs: (c) => [c, ownerName, planningId, weekLabel, projectName],
         title: 'Planning à consolider',
-        message: `${ownerName || 'Un responsable'} a soumis un planning${weekLabel ? ` (semaine du ${weekLabel})` : ''} en attente de consolidation.`,
+        message: `${ownerName || 'Un responsable'} a soumis un planning${weekLabel ? ` (semaine du ${weekLabel})` : ''} — validé par le coordinateur, en attente de consolidation (2e palier).`,
         link: `/plannings/${planningId}`,
     });
 }
@@ -345,7 +319,7 @@ async function canUserConsolidatePlanning(prisma, user, planning) {
         });
     }
     await attachPlanningValidationProject(prisma, planning);
-    return canConsolidateSubmittedPlanning(planning, user);
+    return canConsolidatePendingPlanning(planning, user);
 }
 
 /** Email + notification in-app : nouvel consolidateur désigné pour un projet. */

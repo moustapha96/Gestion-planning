@@ -57,35 +57,37 @@ export function canEditMission(mission, user) {
     return mission.status !== 'CANCELLED';
 }
 
+export function isGlobalConsolidatorRole(user) {
+    if (!user) return false;
+    return normalizeRole(user.storedRole || user.role) === ROLES.CONSOLIDATEUR;
+}
+
 export function canConsolidateMission(mission, user) {
+    if (!mission || !user) return false;
+    if (!isPendingConsolidatorStatus(mission.status)) return false;
+    if (isPrivilegedAdmin(user.role)) return true;
+    const creatorRole = normalizeRole(mission.createdBy?.role);
+    if (creatorRole !== ROLES.RESPONSABLE) return false;
+    return isGlobalConsolidatorRole(user);
+}
+
+export function canCoordinateMission(mission, user) {
     if (!mission || mission.status !== 'DRAFT' || !user) return false;
     if (isPrivilegedAdmin(user.role)) return true;
-    const organizerRole = normalizeRole(mission.createdBy?.role);
-    if (organizerRole !== ROLES.RESPONSABLE) return false;
-    const project = mission.project;
-    if (!project?.consolidatorId) return false;
-    return isProjectConsolidator(mission, user);
+    const creatorRole = normalizeRole(mission.createdBy?.role);
+    if (creatorRole !== ROLES.RESPONSABLE) return false;
+    return isProjectCoordinator(mission, user);
 }
 
 export function canApproveMission(mission, user) {
     if (!mission || !user) return false;
     if (isPrivilegedAdmin(user.role)) {
-        return mission.status === 'DRAFT' || isPendingCoordinatorStatus(mission.status);
+        return mission.status === 'DRAFT'
+            || isPendingConsolidatorStatus(mission.status)
+            || isPendingCoordinatorStatus(mission.status);
     }
     const creatorRole = normalizeRole(mission.createdBy?.role);
-    if (creatorRole === ROLES.RESPONSABLE) {
-        const project = mission.project;
-        if (mission.status === 'DRAFT') {
-            if (project?.consolidatorId) return false;
-            if (project?.coordinatorId) return isProjectCoordinator(mission, user);
-            return normalizeRole(user.role) === ROLES.CONSOLIDATEUR;
-        }
-        if (isPendingCoordinatorStatus(mission.status)) {
-            if (project?.coordinatorId) return isProjectCoordinator(mission, user);
-            return normalizeRole(user.role) === ROLES.CONSOLIDATEUR;
-        }
-        return false;
-    }
+    if (creatorRole === ROLES.RESPONSABLE) return false;
     return mission.status === 'DRAFT' && mission.createdById === user.id;
 }
 
@@ -95,9 +97,7 @@ export function canFinalizeMission(mission, user) {
     if (isPrivilegedAdmin(user.role)) return true;
     const creatorRole = normalizeRole(mission.createdBy?.role);
     if (creatorRole !== ROLES.RESPONSABLE) return false;
-    const project = mission.project;
-    if (project?.coordinatorId) return isProjectCoordinator(mission, user);
-    return normalizeRole(user.role) === ROLES.CONSOLIDATEUR;
+    return isProjectCoordinator(mission, user);
 }
 
 export function canAccessRepertoire(role) {
@@ -175,14 +175,18 @@ function planningValidationFlags(planning) {
 export function canConsolidatePlanning(planning, user) {
     const fromApi = planningValidationFlags(planning);
     if (fromApi && typeof fromApi.canConsolidate === 'boolean') return fromApi.canConsolidate;
-    if (!planning || planning.status !== 'SUBMITTED' || !user) return false;
+    if (!planning || !user) return false;
     if (isPrivilegedAdmin(user.role)) return true;
-    const project = planning.user?.project || planning.project || fromApi?.project;
-    if (!project?.consolidatorId) return false;
-    return isProjectConsolidator({ ...planning, user: { ...planning.user, project } }, user);
+    if (!isPendingConsolidatorStatus(planning.status)) return false;
+    return isGlobalConsolidatorRole(user);
 }
 
+const PENDING_CONSOLIDATOR = ['CONSOLIDATOR_PENDING'];
 const PENDING_COORDINATOR = ['COORDINATOR_PENDING', 'CP_PENDING', 'SG_PENDING', 'DG_PENDING', 'IN_CONSOLIDATION'];
+
+export function isPendingConsolidatorStatus(status) {
+    return PENDING_CONSOLIDATOR.includes(status);
+}
 
 export function isPendingCoordinatorStatus(status) {
     return PENDING_COORDINATOR.includes(status);
@@ -194,21 +198,12 @@ export function canCoordinatePlanning(planning, user) {
     if (!planning || !user) return false;
     if (isPrivilegedAdmin(user.role)) return true;
     const project = planning.user?.project || planning.project || fromApi?.project;
-    const status = planning.status;
-    const pending = isPendingCoordinatorStatus(status);
     const entity = project ? { ...planning, user: { ...planning.user, project } } : planning;
-
-    if (project?.consolidatorId) {
-        if (!pending) return false;
-        if (project.coordinatorId) return isProjectCoordinator(entity, user);
-        return normalizeRole(user.role) === ROLES.CONSOLIDATEUR;
-    }
-    if (project?.coordinatorId) {
-        if (status !== 'SUBMITTED' && !pending) return false;
+    if (planning.status === 'SUBMITTED') {
         return isProjectCoordinator(entity, user);
     }
-    if (status !== 'SUBMITTED' && !pending) return false;
-    return normalizeRole(user.role) === ROLES.CONSOLIDATEUR;
+    if (!isPendingCoordinatorStatus(planning.status)) return false;
+    return isProjectCoordinator(entity, user);
 }
 
 export function planningValidationHint(planning) {
@@ -230,42 +225,39 @@ export function canViewPlanningDetail(planning, user) {
     if (!planning || !user?.id) return false;
     if (planning.userId === user.id) return true;
     if (isPrivilegedAdmin(user.role)) return true;
-    if (normalizeRole(user.role) === ROLES.CONSOLIDATEUR) return true;
+    if (isGlobalConsolidatorRole(user)) return true;
     const project = planning.user?.project || planning.project;
-    if (project?.consolidatorId === user.id || project?.coordinatorId === user.id) return true;
+    if (project?.coordinatorId === user.id) return true;
     if (canConsolidatePlanning(planning, user) || canCoordinatePlanning(planning, user)) return true;
     return false;
 }
 
 export function canConsolidateMeeting(meeting, user) {
+    if (!meeting || !user) return false;
+    if (!isPendingConsolidatorStatus(meeting.status)) return false;
+    if (isPrivilegedAdmin(user.role)) return true;
+    const organizerRole = normalizeRole(meeting.organizer?.role);
+    if (organizerRole !== ROLES.RESPONSABLE) return false;
+    return isGlobalConsolidatorRole(user);
+}
+
+export function canCoordinateMeeting(meeting, user) {
     if (!meeting || meeting.status !== 'DRAFT' || !user) return false;
     if (isPrivilegedAdmin(user.role)) return true;
     const organizerRole = normalizeRole(meeting.organizer?.role);
     if (organizerRole !== ROLES.RESPONSABLE) return false;
-    const project = meeting.project;
-    if (!project?.consolidatorId) return false;
-    return isProjectConsolidator(meeting, user);
+    return isProjectCoordinator(meeting, user);
 }
 
 export function canApproveMeeting(meeting, user) {
     if (!meeting || !user) return false;
     if (isPrivilegedAdmin(user.role)) {
-        return meeting.status === 'DRAFT' || isPendingCoordinatorStatus(meeting.status);
+        return meeting.status === 'DRAFT'
+            || isPendingConsolidatorStatus(meeting.status)
+            || isPendingCoordinatorStatus(meeting.status);
     }
     const organizerRole = normalizeRole(meeting.organizer?.role);
-    if (organizerRole === ROLES.RESPONSABLE) {
-        const project = meeting.project;
-        if (meeting.status === 'DRAFT') {
-            if (project?.consolidatorId) return false;
-            if (project?.coordinatorId) return isProjectCoordinator(meeting, user);
-            return normalizeRole(user.role) === ROLES.CONSOLIDATEUR;
-        }
-        if (isPendingCoordinatorStatus(meeting.status)) {
-            if (project?.coordinatorId) return isProjectCoordinator(meeting, user);
-            return normalizeRole(user.role) === ROLES.CONSOLIDATEUR;
-        }
-        return false;
-    }
+    if (organizerRole === ROLES.RESPONSABLE) return false;
     return meeting.status === 'DRAFT' && meeting.organizerId === user.id;
 }
 
@@ -275,9 +267,7 @@ export function canFinalizeMeeting(meeting, user) {
     if (isPrivilegedAdmin(user.role)) return true;
     const organizerRole = normalizeRole(meeting.organizer?.role);
     if (organizerRole !== ROLES.RESPONSABLE) return false;
-    const project = meeting.project;
-    if (project?.coordinatorId) return isProjectCoordinator(meeting, user);
-    return normalizeRole(user.role) === ROLES.CONSOLIDATEUR;
+    return isProjectCoordinator(meeting, user);
 }
 
 export function userConsolidatesAnyProject(projects, userId) {
@@ -289,11 +279,13 @@ export function userCoordinatesAnyProject(projects, userId) {
 }
 
 export function meetingNeedsConsolidatorApproval(meeting) {
-    return meeting?.status === 'DRAFT' && normalizeRole(meeting?.organizer?.role) === ROLES.RESPONSABLE;
+    return (meeting?.status === 'DRAFT' || isPendingConsolidatorStatus(meeting?.status))
+        && normalizeRole(meeting?.organizer?.role) === ROLES.RESPONSABLE;
 }
 
 export function missionNeedsConsolidatorApproval(mission) {
-    return mission?.status === 'DRAFT' && normalizeRole(mission?.createdBy?.role) === ROLES.RESPONSABLE;
+    return (mission?.status === 'DRAFT' || isPendingConsolidatorStatus(mission?.status))
+        && normalizeRole(mission?.createdBy?.role) === ROLES.RESPONSABLE;
 }
 
 /** Désigné consolidateur ou coordinateur sur au moins un projet (fiche projet). */
@@ -301,10 +293,10 @@ export function userAssignedOnAnyProject(projects, userId) {
     return userConsolidatesAnyProject(projects, userId) || userCoordinatesAnyProject(projects, userId);
 }
 
-/** Menu « À valider » : admin, rôle Consolidateur, ou désigné sur un projet. */
+/** Menu « À valider » : admin, rôle Consolidateur, ou coordinateur sur un projet. */
 export function userCanSeeValidationMenu(user, projects = []) {
     if (!user?.id) return false;
     if (isPrivilegedAdmin(user.role)) return true;
-    if (normalizeRole(user.role) === ROLES.CONSOLIDATEUR) return true;
-    return userAssignedOnAnyProject(projects, user.id);
+    if (isGlobalConsolidatorRole(user)) return true;
+    return userCoordinatesAnyProject(projects, user.id);
 }

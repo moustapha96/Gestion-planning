@@ -1,7 +1,13 @@
 const { isPrivilegedAdmin } = require('../config/roles');
-const { canValidatePlanningAsCoordinator, projectHasConsolidator } = require('./validationPolicy.service');
+const {
+    canCoordinateSubmittedPlanning,
+    canValidatePlanningAsCoordinator,
+} = require('./validationPolicy.service');
 const { attachPlanningValidationProject } = require('./projectConsolidator.service');
-const { PENDING_COORDINATOR_STATUSES } = require('../config/planningWorkflow');
+const {
+    isPendingConsolidatorValidation,
+    isPendingCoordinatorValidation,
+} = require('../config/planningWorkflow');
 
 const COORDINATOR_USER_SELECT = {
     id: true,
@@ -55,20 +61,20 @@ async function canUserCoordinatePlanning(prisma, user, planning) {
         });
     }
     await attachPlanningValidationProject(prisma, planning);
+    if (planning.status === 'SUBMITTED') {
+        return canCoordinateSubmittedPlanning(planning, user);
+    }
     return canValidatePlanningAsCoordinator(planning, user);
 }
 
 /** Message d'erreur explicite si le statut ou le palier bloque la validation coordinateur. */
 function coordinatorApproveBlockingReason(planning) {
-    const allowedStatuses = ['SUBMITTED', ...PENDING_COORDINATOR_STATUSES];
-    if (!allowedStatuses.includes(planning?.status)) {
-        return 'Ce planning n\'est pas en attente de validation.';
+    if (planning?.status === 'SUBMITTED') return null;
+    if (isPendingCoordinatorValidation(planning?.status)) return null;
+    if (isPendingConsolidatorValidation(planning?.status)) {
+        return 'Ce planning doit d\'abord être validé par le rôle Consolidateur.';
     }
-    const project = planning.user?.project || planning.project || null;
-    if (projectHasConsolidator(project) && planning.status === 'SUBMITTED') {
-        return 'Ce planning doit d\'abord être consolidé avant validation par le coordinateur.';
-    }
-    return null;
+    return 'Ce planning n\'est pas en attente de validation par le coordinateur.';
 }
 
 async function canUserReturnPlanning(prisma, user, planning) {
@@ -174,29 +180,8 @@ async function notifySecondStepValidators(prisma, {
     }
 }
 
-/** Coordinateur / repli : mission consolidée, en attente de validation finale. */
-async function notifyMissionPendingFinalApproval(prisma, mission, creator) {
-    const ownerName = creator?.name || 'Un responsable';
-    const link = `/missions/${mission.id}`;
-    return notifySecondStepValidators(prisma, {
-        projectId: mission.projectId,
-        type: 'MISSION_PENDING_COORDINATOR',
-        emailType: 'MISSION_PENDING_COORDINATOR',
-        title: `Mission à valider : ${mission.title}`,
-        message: `${ownerName} : la mission « ${mission.title} » a été consolidée et attend votre validation finale avant confirmation.`,
-        link,
-        emailArgsBuilder: (recipient, context) => [
-            recipient,
-            mission,
-            creator,
-            mission.project?.name,
-            context,
-        ],
-    });
-}
-
-/** Coordinateur / repli : réunion consolidée, en attente de validation finale. */
-async function notifyMeetingPendingFinalApproval(prisma, meeting, organizer) {
+/** Coordinateur (étape 1) : réunion en brouillon soumise par un responsable. */
+async function notifyMeetingPendingCoordinatorReview(prisma, meeting, organizer) {
     const ownerName = organizer?.name || 'Un responsable';
     const link = `/meetings/${meeting.id}`;
     return notifySecondStepValidators(prisma, {
@@ -204,7 +189,7 @@ async function notifyMeetingPendingFinalApproval(prisma, meeting, organizer) {
         type: 'MEETING_PENDING_COORDINATOR',
         emailType: 'MEETING_PENDING_COORDINATOR',
         title: `Réunion à valider : ${meeting.title}`,
-        message: `${ownerName} : la réunion « ${meeting.title} » a été consolidée et attend votre validation finale avant publication.`,
+        message: `${ownerName} a soumis la réunion « ${meeting.title} » — validation coordinateur requise (1er palier).`,
         link,
         emailArgsBuilder: (recipient, context) => [
             recipient,
@@ -217,8 +202,39 @@ async function notifyMeetingPendingFinalApproval(prisma, meeting, organizer) {
     });
 }
 
-/** Coordinateur / repli : planning consolidé, en attente de validation finale. */
-async function notifyPlanningSecondStepValidators(prisma, {
+/** @deprecated alias — utiliser notifyMeetingPendingCoordinatorReview */
+async function notifyMeetingPendingFinalApproval(prisma, meeting, organizer) {
+    return notifyMeetingPendingCoordinatorReview(prisma, meeting, organizer);
+}
+
+/** Coordinateur (étape 1) : mission en brouillon soumise par un responsable. */
+async function notifyMissionPendingCoordinatorReview(prisma, mission, creator) {
+    const ownerName = creator?.name || 'Un responsable';
+    const link = `/missions/${mission.id}`;
+    return notifySecondStepValidators(prisma, {
+        projectId: mission.projectId,
+        type: 'MISSION_PENDING_COORDINATOR',
+        emailType: 'MISSION_PENDING_COORDINATOR',
+        title: `Mission à valider : ${mission.title}`,
+        message: `${ownerName} a soumis la mission « ${mission.title} » — validation coordinateur requise (1er palier).`,
+        link,
+        emailArgsBuilder: (recipient, context) => [
+            recipient,
+            mission,
+            creator,
+            mission.project?.name,
+            context,
+        ],
+    });
+}
+
+/** @deprecated alias */
+async function notifyMissionPendingFinalApproval(prisma, mission, creator) {
+    return notifyMissionPendingCoordinatorReview(prisma, mission, creator);
+}
+
+/** Coordinateur (étape 1) : planning soumis par un responsable. */
+async function notifyPlanningPendingCoordinatorReview(prisma, {
     projectId,
     ownerUserId,
     ownerName,
@@ -234,7 +250,7 @@ async function notifyPlanningSecondStepValidators(prisma, {
         type: 'PLANNING_PENDING_COORDINATOR',
         emailType: 'PLANNING_PENDING_COORDINATOR',
         title: 'Planning à valider',
-        message: `Le planning de ${ownerName || 'un responsable'}${weekLabel ? ` (semaine du ${weekLabel})` : ''} a été consolidé et attend votre validation finale.`,
+        message: `${ownerName || 'Un responsable'} a soumis un planning${weekLabel ? ` (semaine du ${weekLabel})` : ''} — validation coordinateur requise (1er palier).`,
         link,
         emailArgsBuilder: (recipient, context) => [
             recipient,
@@ -247,34 +263,17 @@ async function notifyPlanningSecondStepValidators(prisma, {
     });
 }
 
-/** Coordinateur : planning consolidé, en attente de validation. */
-async function notifyCoordinatorPlanningPending(prisma, {
-    projectId,
-    ownerUserId,
-    ownerName,
-    planningId,
-    weekStart,
-    projectName,
-}) {
-    const { formatPlanningWeekLabel } = require('./projectConsolidator.service');
-    await notifyPlanningSecondStepValidators(prisma, {
-        projectId,
-        ownerUserId,
-        ownerName,
-        planningId,
-        weekStart,
-        projectName,
-    });
-}
-
 module.exports = {
     COORDINATOR_USER_SELECT,
     PROJECT_COORDINATOR_INCLUDE,
     getProjectCoordinator,
+    notifyMeetingPendingCoordinatorReview,
     notifyMeetingPendingFinalApproval,
+    notifyMissionPendingCoordinatorReview,
     notifyMissionPendingFinalApproval,
-    notifyPlanningSecondStepValidators,
-    notifyCoordinatorPlanningPending,
+    notifyPlanningPendingCoordinatorReview,
+    notifyPlanningSecondStepValidators: notifyPlanningPendingCoordinatorReview,
+    notifyCoordinatorPlanningPending: notifyPlanningPendingCoordinatorReview,
     isUserProjectCoordinator,
     canActAsCoordinator,
     canUserCoordinatePlanning,

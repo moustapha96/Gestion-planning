@@ -1,4 +1,4 @@
-const { isPendingCoordinatorValidation } = require('../config/planningWorkflow');
+const { isPendingCoordinatorValidation, isPendingConsolidatorValidation } = require('../config/planningWorkflow');
 const {
     attachPlanningValidationProject,
     canUserConsolidatePlanning,
@@ -8,25 +8,15 @@ const {
     coordinatorApproveBlockingReason,
 } = require('./projectCoordinator.service');
 
-/** Même personne consolidateur et coordinateur sur le projet. */
-function isSameActorConsolidatorAndCoordinator(project) {
-    return Boolean(
-        project?.consolidatorId
-        && project.consolidatorId === project.coordinatorId,
-    );
+/** Plus de double rôle consolidateur/coordinateur sur le même palier. */
+function isSameActorConsolidatorAndCoordinator(_project) {
+    return false;
 }
 
-/** L'acteur peut-il enchaîner consolidation + validation en une action ? */
-function canAutoFinalizeAfterConsolidation(project, user) {
-    if (!project || !user?.id) return false;
-    if (!isSameActorConsolidatorAndCoordinator(project)) return false;
-    return project.consolidatorId === user.id;
+function canAutoFinalizeAfterConsolidation(_project, _user) {
+    return false;
 }
 
-/**
- * Contexte de validation pour l'UI (aligné backend / frontend).
- * @param {import('@prisma/client').PrismaClient} prisma
- */
 async function buildPlanningValidationContext(prisma, planning, user) {
     if (!planning) {
         return {
@@ -46,26 +36,29 @@ async function buildPlanningValidationContext(prisma, planning, user) {
     const canConsolidate = await canUserConsolidatePlanning(prisma, user, planning);
     const canCoordinate = await canUserCoordinatePlanning(prisma, user, planning);
     const canReturn = canCoordinate && isPendingCoordinatorValidation(planning.status);
-    const autoFinalizeOnConsolidate = canConsolidate && canAutoFinalizeAfterConsolidation(project, user);
+    const autoFinalizeOnConsolidate = false;
 
     let nextAction = null;
     let hint = null;
 
-    if (canConsolidate) {
-        nextAction = autoFinalizeOnConsolidate ? 'consolidate_and_validate' : 'consolidate';
-        hint = autoFinalizeOnConsolidate
-            ? 'Vous êtes consolidateur et coordinateur : une seule action publiera le planning.'
-            : 'Consolidez le planning avant la validation finale par le coordinateur.';
-    } else if (canCoordinate) {
+    if (canCoordinate && planning.status === 'SUBMITTED') {
         nextAction = 'coordinate';
-        hint = 'Validez définitivement pour publier le planning sur le calendrier.';
+        hint = 'Validez le planning (coordinateur du projet) avant transmission au rôle Consolidateur.';
+    } else if (canConsolidate) {
+        nextAction = 'consolidate';
+        hint = 'Consolidez le planning (rôle Consolidateur) pour publication sur le calendrier.';
+    } else if (canCoordinate && isPendingCoordinatorValidation(planning.status)) {
+        nextAction = 'coordinate';
+        hint = 'Validez définitivement pour publier le planning (élément en attente legacy).';
     } else {
         const block = coordinatorApproveBlockingReason(planning);
         if (block) hint = block;
-        else if (planning.status === 'SUBMITTED' && project?.consolidatorId) {
-            hint = 'En attente de consolidation par le consolidateur du projet.';
-        } else if (isPendingCoordinatorValidation(planning.status)) {
+        else if (planning.status === 'SUBMITTED') {
             hint = 'En attente de validation par le coordinateur du projet.';
+        } else if (isPendingConsolidatorValidation(planning.status)) {
+            hint = 'En attente de consolidation par le rôle Consolidateur.';
+        } else if (isPendingCoordinatorValidation(planning.status)) {
+            hint = 'En attente de validation finale par le coordinateur (legacy).';
         }
     }
 
@@ -75,7 +68,6 @@ async function buildPlanningValidationContext(prisma, planning, user) {
                 id: project.id,
                 name: project.name,
                 code: project.code,
-                consolidatorId: project.consolidatorId,
                 coordinatorId: project.coordinatorId,
             }
             : null,
@@ -85,7 +77,7 @@ async function buildPlanningValidationContext(prisma, planning, user) {
         nextAction,
         hint,
         autoFinalizeOnConsolidate,
-        sameActorConsolidatorAndCoordinator: isSameActorConsolidatorAndCoordinator(project),
+        sameActorConsolidatorAndCoordinator: false,
     };
 }
 

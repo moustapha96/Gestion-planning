@@ -39,9 +39,11 @@ import { useAuth } from '../context/AuthContext';
 import { isPrivilegedAdmin, canManageMission, canEditMission, canPrivilegedForceDelete } from '../utils/roles';
 import {
     canConsolidateMission,
+    canCoordinateMission,
     canFinalizeMission,
     canApproveMission,
     isPendingCoordinatorStatus,
+    isPendingConsolidatorStatus,
     missionNeedsConsolidatorApproval,
 } from '../utils/roles';
 import { forceDeleteDescription, forceDeleteTitle } from '../utils/deleteConfirm';
@@ -85,14 +87,16 @@ export default function MissionDetail() {
     }, [id]);
 
     const isCreator = mission?.createdById === user?.id;
-    const needsConsolidator = missionNeedsConsolidatorApproval(mission);
+    const needsCoordinator = missionNeedsConsolidatorApproval(mission) && mission?.status === 'DRAFT';
+    const needsConsolidator = isPendingConsolidatorStatus(mission?.status);
     const needsFinalApproval = isPendingCoordinatorStatus(mission?.status);
     const canManage = canManageMission(mission, user);
     const canEdit = canEditMission(mission, user);
     const canForceDelete = canPrivilegedForceDelete(user?.role);
+    const canCoordinate = canCoordinateMission(mission, user);
     const canConsolidate = canConsolidateMission(mission, user);
     const canFinalize = canFinalizeMission(mission, user);
-    const canApproveDirect = canApproveMission(mission, user) && needsConsolidator && !canConsolidate;
+    const canApproveDirect = canApproveMission(mission, user) && needsCoordinator && !canCoordinate;
     const isAdmin = isPrivilegedAdmin(user?.role);
     const canUpload = mission?.status !== 'CANCELLED' && (
         mission?.createdById === user?.id ||
@@ -216,12 +220,16 @@ export default function MissionDetail() {
     const handleApprove = async (mode = 'approve') => {
         setApproveLoading(true);
         try {
-            if (mode === 'finalize') {
+            if (mode === 'coordinate' || mode === 'finalize') {
                 await api.put(`/missions/${id}/approve-coordinator`);
-                message.success('Mission validée et confirmée');
+                message.success(
+                    mode === 'finalize'
+                        ? 'Mission validée et confirmée'
+                        : 'Mission validée par le coordinateur — transmise au rôle Consolidateur',
+                );
             } else if (mode === 'consolidate') {
                 await api.put(`/missions/${id}/approve`);
-                message.success('Mission consolidée — en attente de validation finale');
+                message.success('Mission consolidée et confirmée');
             } else {
                 await api.put(`/missions/${id}/approve`);
                 message.success('Mission validée et confirmée');
@@ -256,9 +264,14 @@ export default function MissionDetail() {
                         Modifier la mission
                     </Button>
                 )}
+                {canCoordinate && (
+                    <Button type="primary" icon={<CheckCircleOutlined />} onClick={() => handleApprove('coordinate')} loading={approveLoading}>
+                        Valider (coordinateur)
+                    </Button>
+                )}
                 {canConsolidate && (
                     <Button type="primary" icon={<CheckCircleOutlined />} onClick={() => handleApprove('consolidate')} loading={approveLoading}>
-                        Consolider
+                        Consolider et confirmer
                     </Button>
                 )}
                 {canFinalize && (
@@ -307,6 +320,18 @@ export default function MissionDetail() {
                 )}
             </Space>
 
+            {needsCoordinator && (
+                <Alert
+                    type="warning"
+                    showIcon
+                    style={{ marginBottom: 16 }}
+                    message={
+                        isCreator
+                            ? 'Cette mission est en attente de validation par le coordinateur du projet (1er palier). Elle sera ensuite transmise au rôle Consolidateur.'
+                            : 'Mission en attente de validation coordinateur (1er palier). La confirmation interviendra après consolidation par le rôle Consolidateur.'
+                    }
+                />
+            )}
             {needsConsolidator && (
                 <Alert
                     type="warning"
@@ -314,8 +339,8 @@ export default function MissionDetail() {
                     style={{ marginBottom: 16 }}
                     message={
                         isCreator
-                            ? 'Cette mission est en attente de consolidation par le consolidateur du projet. Elle ne sera confirmée qu\'après validation finale.'
-                            : 'Mission en attente de consolidation (1er palier). La confirmation interviendra après validation du coordinateur ou du rôle dédié.'
+                            ? 'Cette mission a été validée par le coordinateur et attend la consolidation par le rôle Consolidateur (2e palier).'
+                            : 'Mission en attente de consolidation par le rôle Consolidateur (2e palier) avant confirmation sur le calendrier.'
                     }
                 />
             )}
@@ -324,11 +349,7 @@ export default function MissionDetail() {
                     type="info"
                     showIcon
                     style={{ marginBottom: 16 }}
-                    message={
-                        isCreator
-                            ? 'Cette mission a été consolidée et attend la validation finale (coordinateur du projet ou rôle dédié) avant confirmation sur le calendrier.'
-                            : 'Validation finale requise avant confirmation sur le calendrier et notification des intervenants.'
-                    }
+                    message="Validation finale requise par le coordinateur du projet (élément en attente legacy)."
                 />
             )}
 

@@ -1,14 +1,17 @@
 const { ROLES, isPrivilegedAdmin } = require('./roles');
-const { isUserProjectConsolidator } = require('../services/projectConsolidator.service');
-const { isPendingCoordinatorValidation } = require('./planningWorkflow');
+const {
+    isPendingConsolidatorValidation,
+    isPendingCoordinatorValidation,
+} = require('./planningWorkflow');
 const {
     canApproveDraftMission,
-    canConsolidateDraftMission,
+    canCoordinateDraftMission,
+    canConsolidatePendingMission,
     canFinalizePendingMission,
     isGlobalConsolidatorRole,
 } = require('../services/validationPolicy.service');
 
-/** Missions visibles sur le calendrier public / page d'accueil. */
+/** Missions visibles sur le calendrier. */
 const PUBLISHED_MISSION_STATUSES = ['CONFIRMED'];
 
 function isPublishedMissionStatus(status) {
@@ -19,44 +22,52 @@ function publishedMissionStatusFilter() {
     return { status: { in: PUBLISHED_MISSION_STATUSES } };
 }
 
-/** Brouillons à valider pour l'utilisateur désigné consolidateur d'un projet. */
-function projectConsolidatorDraftMissionFilter(user) {
+function coordinatorDraftMissionFilter(user) {
     if (!user?.id) return null;
-    return { status: 'DRAFT', project: { consolidatorId: user.id } };
+    return {
+        status: 'DRAFT',
+        createdBy: { role: ROLES.RESPONSABLE },
+        project: { coordinatorId: user.id },
+    };
 }
 
-/** Missions consolidées, en attente de validation finale (coordinateur ou rôle dédié). */
-function missionPendingFinalizeFilter(user) {
-    if (!user?.id) return null;
-    const or = [{ project: { coordinatorId: user.id } }];
-    if (isGlobalConsolidatorRole(user)) {
-        or.push({ project: { coordinatorId: null } });
-        or.push({ projectId: null });
-    }
-    return { status: 'COORDINATOR_PENDING', OR: or };
+function consolidatorPendingMissionFilter(user) {
+    if (!isGlobalConsolidatorRole(user)) return null;
+    return {
+        status: 'CONSOLIDATOR_PENDING',
+        createdBy: { role: ROLES.RESPONSABLE },
+    };
 }
 
-/** Responsable : uniquement les missions qu'il a créées. */
+function legacyCoordinatorPendingMissionFilter(user) {
+    if (!user?.id) return null;
+    return {
+        status: { in: require('./planningWorkflow').LEGACY_PENDING_COORDINATOR_STATUSES },
+        project: { coordinatorId: user.id },
+    };
+}
+
 function responsableMissionScope(user) {
     if (!user?.id || user.role !== ROLES.RESPONSABLE) return null;
     return { createdById: user.id };
 }
 
-/** Liste des missions (page Missions) — le consolidateur voit les brouillons à valider. */
 function missionListWhereForUser(user) {
     const ownOnly = responsableMissionScope(user);
     if (ownOnly) return ownOnly;
     if (isPrivilegedAdmin(user?.role)) {
         return { status: { not: 'CANCELLED' } };
     }
-    const draftAsConsolidator = projectConsolidatorDraftMissionFilter(user);
-    const pendingFinalize = missionPendingFinalizeFilter(user);
+    const draftAsCoordinator = coordinatorDraftMissionFilter(user);
+    const pendingConsolidator = consolidatorPendingMissionFilter(user);
+    const legacyPending = legacyCoordinatorPendingMissionFilter(user);
     return {
         OR: [
             { createdById: user.id },
             { assignments: { some: { userId: user.id } } },
-            ...(draftAsConsolidator ? [draftAsConsolidator] : []),
-            ...(pendingFinalize ? [pendingFinalize] : []),
+            ...(draftAsCoordinator ? [draftAsCoordinator] : []),
+            ...(pendingConsolidator ? [pendingConsolidator] : []),
+            ...(legacyPending ? [legacyPending] : []),
         ],
     };
 }
@@ -65,11 +76,15 @@ function requiresConsolidatorApproval(creatorRole) {
     return creatorRole === ROLES.RESPONSABLE;
 }
 
-/** Peut confirmer une mission (visible calendrier + notification intervenants). */
 function canConfirmMission(mission, user) {
     if (!mission || !user) return false;
     if (isPrivilegedAdmin(user?.role)) {
-        return mission.status === 'DRAFT' || isPendingCoordinatorValidation(mission.status);
+        return mission.status === 'DRAFT'
+            || isPendingConsolidatorValidation(mission.status)
+            || isPendingCoordinatorValidation(mission.status);
+    }
+    if (isPendingConsolidatorValidation(mission.status)) {
+        return canConsolidatePendingMission(mission, user);
     }
     if (isPendingCoordinatorValidation(mission.status)) {
         return canFinalizePendingMission(mission, user);
@@ -83,7 +98,11 @@ function canConfirmMission(mission, user) {
 }
 
 function canConsolidateMission(mission, user) {
-    return canConsolidateDraftMission(mission, user);
+    return canConsolidatePendingMission(mission, user);
+}
+
+function canCoordinateMission(mission, user) {
+    return canCoordinateDraftMission(mission, user);
 }
 
 function canFinalizeMission(mission, user) {
@@ -100,28 +119,28 @@ function canEditMission(mission, user) {
     return mission.status !== 'CANCELLED';
 }
 
-/** Accès au détail d'une mission (aligné sur les filtres liste / calendrier). */
 function canViewMissionForUser(mission, user) {
     if (!mission || !user?.id) return false;
     const ownOnly = responsableMissionScope(user);
     if (ownOnly) return mission.createdById === user.id;
     if (isPrivilegedAdmin(user.role)) return true;
-    const draftAsConsolidator = projectConsolidatorDraftMissionFilter(user);
     if (
-        draftAsConsolidator
-        && mission.status === 'DRAFT'
-        && mission.project?.consolidatorId === user.id
+        mission.status === 'DRAFT'
+        && mission.createdBy?.role === ROLES.RESPONSABLE
+        && mission.project?.coordinatorId === user.id
     ) {
         return true;
     }
-    const pendingFinalize = missionPendingFinalizeFilter(user);
     if (
-        pendingFinalize
-        && isPendingCoordinatorValidation(mission.status)
-        && (
-            mission.project?.coordinatorId === user.id
-            || (isGlobalConsolidatorRole(user) && !mission.project?.coordinatorId)
-        )
+        isPendingConsolidatorValidation(mission.status)
+        && isGlobalConsolidatorRole(user)
+        && mission.createdBy?.role === ROLES.RESPONSABLE
+    ) {
+        return true;
+    }
+    if (
+        isPendingCoordinatorValidation(mission.status)
+        && mission.project?.coordinatorId === user.id
     ) {
         return true;
     }
@@ -139,6 +158,7 @@ module.exports = {
     requiresConsolidatorApproval,
     canConfirmMission,
     canConsolidateMission,
+    canCoordinateMission,
     canFinalizeMission,
     canManageMission,
     canEditMission,

@@ -59,7 +59,7 @@ const PUBLIC_PLANNING_EVENT_INCLUDE = {
 function publicPlanningEventsWhere(rangeStart, rangeEnd) {
     return {
         ...timedEventOverlapsRange(rangeStart, rangeEnd),
-        planning: { status: { not: 'CANCELLED' } },
+        planning: { status: 'VALIDATED' },
         NOT: {
             OR: [
                 { type: 'REUNION' },
@@ -99,7 +99,7 @@ router.get('/day-planning', async (req, res) => {
 
         const missions = await req.prisma.mission.findMany({
             where: {
-                status: { not: 'CANCELLED' },
+                status: 'CONFIRMED',
                 ...timedEventOverlapsRange(todayStart, todayEnd),
             },
             include: {
@@ -198,7 +198,7 @@ router.get('/week-planning', async (req, res) => {
 
         const missions = await req.prisma.mission.findMany({
             where: {
-                status: { not: 'CANCELLED' },
+                status: 'CONFIRMED',
                 ...timedEventOverlapsRange(monday, rangeEnd),
             },
             include: {

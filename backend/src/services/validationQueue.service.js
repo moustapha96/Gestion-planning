@@ -1,16 +1,22 @@
 const { ROLES, isPrivilegedAdmin } = require('../config/roles');
-const { PENDING_COORDINATOR_STATUSES } = require('../config/planningWorkflow');
+const {
+    LEGACY_PENDING_COORDINATOR_STATUSES,
+    PENDING_CONSOLIDATOR_STATUSES,
+} = require('../config/planningWorkflow');
 const { formatPlanningWeekLabel, attachPlanningValidationProject } = require('./projectConsolidator.service');
 const { canAutoFinalizeAfterConsolidation } = require('./planningValidation.service');
 const {
     userCanSeeValidationMenu,
-    canConsolidateDraftMeeting,
+    canCoordinateDraftMeeting,
     canApproveDraftMeeting,
+    canConsolidatePendingMeeting,
     canFinalizePendingMeeting,
-    canConsolidateDraftMission,
+    canCoordinateDraftMission,
     canApproveDraftMission,
+    canConsolidatePendingMission,
     canFinalizePendingMission,
-    canConsolidateSubmittedPlanning,
+    canCoordinateSubmittedPlanning,
+    canConsolidatePendingPlanning,
     canValidatePlanningAsCoordinator,
     isGlobalConsolidatorRole,
     meetingValidationAction,
@@ -51,152 +57,79 @@ const PLANNING_INCLUDE = {
     _count: { select: { events: true } },
 };
 
-function buildMeetingDraftWhere(user) {
+function buildMeetingCoordinatorDraftWhere(user) {
     const base = {
         status: 'DRAFT',
         organizer: { role: ROLES.RESPONSABLE },
     };
     if (isPrivilegedAdmin(user.role)) return base;
-    return {
-        ...base,
-        OR: [
-            { project: { consolidatorId: user.id } },
-            { project: { consolidatorId: null, coordinatorId: user.id } },
-            ...(isGlobalConsolidatorRole(user)
-                ? [{ project: { consolidatorId: null, coordinatorId: null } }, { projectId: null }]
-                : []),
-        ],
-    };
+    return { ...base, project: { coordinatorId: user.id } };
 }
 
-function buildMeetingFinalizeWhere(user) {
+function buildMeetingConsolidatorPendingWhere(user) {
     const base = {
-        status: { in: require('../config/planningWorkflow').PENDING_COORDINATOR_STATUSES },
+        status: { in: PENDING_CONSOLIDATOR_STATUSES },
+        organizer: { role: ROLES.RESPONSABLE },
+    };
+    if (isPrivilegedAdmin(user.role) || isGlobalConsolidatorRole(user)) return base;
+    return { ...base, id: { in: [] } };
+}
+
+function buildMeetingLegacyCoordinatorWhere(user) {
+    const base = {
+        status: { in: LEGACY_PENDING_COORDINATOR_STATUSES },
         organizer: { role: ROLES.RESPONSABLE },
     };
     if (isPrivilegedAdmin(user.role)) return base;
-    const or = [{ project: { coordinatorId: user.id } }];
-    if (isGlobalConsolidatorRole(user)) {
-        or.push({ project: { coordinatorId: null } });
-        or.push({ projectId: null });
-    }
-    return { ...base, OR: or };
+    return { ...base, project: { coordinatorId: user.id } };
 }
 
-function buildMissionDraftWhere(user) {
+function buildMissionCoordinatorDraftWhere(user) {
     const base = { status: 'DRAFT', createdBy: { role: ROLES.RESPONSABLE } };
+    if (isPrivilegedAdmin(user.role)) return base;
+    return { ...base, project: { coordinatorId: user.id } };
+}
+
+function buildMissionConsolidatorPendingWhere(user) {
+    const base = {
+        status: { in: PENDING_CONSOLIDATOR_STATUSES },
+        createdBy: { role: ROLES.RESPONSABLE },
+    };
+    if (isPrivilegedAdmin(user.role) || isGlobalConsolidatorRole(user)) return base;
+    return { ...base, id: { in: [] } };
+}
+
+function buildMissionLegacyCoordinatorWhere(user) {
+    const base = {
+        status: { in: LEGACY_PENDING_COORDINATOR_STATUSES },
+        createdBy: { role: ROLES.RESPONSABLE },
+    };
+    if (isPrivilegedAdmin(user.role)) return base;
+    return { ...base, project: { coordinatorId: user.id } };
+}
+
+function buildPlanningsToCoordinateWhere(user) {
+    const base = { status: 'SUBMITTED' };
     if (isPrivilegedAdmin(user.role)) return base;
     return {
         ...base,
-        OR: [
-            { project: { consolidatorId: user.id } },
-            { project: { consolidatorId: null, coordinatorId: user.id } },
-            ...(isGlobalConsolidatorRole(user)
-                ? [{ project: { consolidatorId: null, coordinatorId: null } }, { projectId: null }]
-                : []),
-        ],
+        user: { project: { coordinatorId: user.id } },
     };
 }
 
-function buildMissionFinalizeWhere(user) {
-    const base = { status: { in: require('../config/planningWorkflow').PENDING_COORDINATOR_STATUSES }, createdBy: { role: ROLES.RESPONSABLE } };
+function buildPlanningsToConsolidateWhere(user) {
+    const base = { status: { in: PENDING_CONSOLIDATOR_STATUSES } };
+    if (isPrivilegedAdmin(user.role) || isGlobalConsolidatorRole(user)) return base;
+    return { ...base, id: { in: [] } };
+}
+
+function buildPlanningsLegacyCoordinatorWhere(user) {
+    const base = { status: { in: LEGACY_PENDING_COORDINATOR_STATUSES } };
     if (isPrivilegedAdmin(user.role)) return base;
-    const or = [{ project: { coordinatorId: user.id } }];
-    if (isGlobalConsolidatorRole(user)) {
-        or.push({ project: { coordinatorId: null } });
-        or.push({ projectId: null });
-    }
-    return { ...base, OR: or };
-}
-
-function buildPlanningsToConsolidateWhere(user, consolidatorProjectIds = []) {
-    const base = { status: 'SUBMITTED' };
-    if (isPrivilegedAdmin(user.role)) {
-        return {
-            ...base,
-            OR: [
-                { user: { project: { consolidatorId: { not: null } } } },
-                ...(consolidatorProjectIds.length
-                    ? [
-                        { user: { projectId: { in: consolidatorProjectIds } } },
-                        { events: { some: { projectId: { in: consolidatorProjectIds } } } },
-                        { userId: user.id },
-                    ]
-                    : []),
-            ],
-        };
-    }
-
-    const or = [
-        { user: { project: { consolidatorId: user.id } } },
-        { events: { some: { project: { consolidatorId: user.id } } } },
-    ];
-    if (consolidatorProjectIds.length) {
-        or.push(
-            { user: { projectId: { in: consolidatorProjectIds } } },
-            { events: { some: { projectId: { in: consolidatorProjectIds } } } },
-            { userId: user.id },
-        );
-    }
-    return { ...base, OR: or };
-}
-
-function buildPlanningsToCoordinateWhere(user, coordinatorProjectIds = []) {
-    const coordinatorPending = { status: { in: PENDING_COORDINATOR_STATUSES } };
-    const submittedSkipConsolidator = {
-        status: 'SUBMITTED',
-        user: { project: { consolidatorId: null, coordinatorId: { not: null } } },
+    return {
+        ...base,
+        user: { project: { coordinatorId: user.id } },
     };
-
-    if (isPrivilegedAdmin(user.role)) {
-        return {
-            OR: [
-                coordinatorPending,
-                submittedSkipConsolidator,
-                {
-                    status: 'SUBMITTED',
-                    user: { project: { consolidatorId: null, coordinatorId: null } },
-                },
-            ],
-        };
-    }
-
-    const or = [
-        { ...coordinatorPending, user: { project: { coordinatorId: user.id } } },
-        { ...submittedSkipConsolidator, user: { project: { coordinatorId: user.id } } },
-        { ...coordinatorPending, events: { some: { project: { coordinatorId: user.id } } } },
-        {
-            ...submittedSkipConsolidator,
-            events: { some: { project: { consolidatorId: null, coordinatorId: user.id } } },
-        },
-    ];
-    if (coordinatorProjectIds.length) {
-        or.push(
-            { ...coordinatorPending, user: { projectId: { in: coordinatorProjectIds } } },
-            { ...coordinatorPending, events: { some: { projectId: { in: coordinatorProjectIds } } } },
-            {
-                ...submittedSkipConsolidator,
-                user: { projectId: { in: coordinatorProjectIds } },
-            },
-            {
-                ...submittedSkipConsolidator,
-                events: { some: { projectId: { in: coordinatorProjectIds } } },
-            },
-            { ...coordinatorPending, userId: user.id },
-            { ...submittedSkipConsolidator, userId: user.id },
-        );
-    }
-    if (isGlobalConsolidatorRole(user)) {
-        or.push({
-            status: 'SUBMITTED',
-            user: { project: { consolidatorId: null, coordinatorId: null } },
-        });
-        or.push({
-            ...coordinatorPending,
-            user: { project: { consolidatorId: null, coordinatorId: null } },
-        });
-    }
-    return { OR: or };
 }
 
 async function getUserDesignatedProjectIds(prisma, userId) {
@@ -378,72 +311,117 @@ async function getPendingValidations(prisma, user) {
         };
     }
 
-    const [meetingDraftRaw, meetingFinalizeRaw, missionDraftRaw, missionFinalizeRaw] = await Promise.all([
+    const [meetingCoordDraftRaw, meetingConsolidatorRaw, meetingLegacyRaw, missionCoordDraftRaw, missionConsolidatorRaw, missionLegacyRaw, planningCoordinateRaw, planningConsolidateRaw, planningLegacyRaw] = await Promise.all([
         prisma.meeting.findMany({
-            where: buildMeetingDraftWhere(user),
+            where: buildMeetingCoordinatorDraftWhere(user),
             include: MEETING_INCLUDE,
             orderBy: { startTime: 'asc' },
             take: 100,
         }),
         prisma.meeting.findMany({
-            where: buildMeetingFinalizeWhere(user),
+            where: buildMeetingConsolidatorPendingWhere(user),
+            include: MEETING_INCLUDE,
+            orderBy: { startTime: 'asc' },
+            take: 100,
+        }),
+        prisma.meeting.findMany({
+            where: buildMeetingLegacyCoordinatorWhere(user),
             include: MEETING_INCLUDE,
             orderBy: { startTime: 'asc' },
             take: 100,
         }),
         prisma.mission.findMany({
-            where: buildMissionDraftWhere(user),
+            where: buildMissionCoordinatorDraftWhere(user),
             include: MISSION_INCLUDE,
             orderBy: { startTime: 'asc' },
             take: 100,
         }),
         prisma.mission.findMany({
-            where: buildMissionFinalizeWhere(user),
+            where: buildMissionConsolidatorPendingWhere(user),
             include: MISSION_INCLUDE,
             orderBy: { startTime: 'asc' },
             take: 100,
+        }),
+        prisma.mission.findMany({
+            where: buildMissionLegacyCoordinatorWhere(user),
+            include: MISSION_INCLUDE,
+            orderBy: { startTime: 'asc' },
+            take: 100,
+        }),
+        prisma.planning.findMany({
+            where: buildPlanningsToCoordinateWhere(user),
+            include: PLANNING_INCLUDE,
+            orderBy: { weekStart: 'desc' },
+            take: 50,
+        }),
+        prisma.planning.findMany({
+            where: buildPlanningsToConsolidateWhere(user),
+            include: PLANNING_INCLUDE,
+            orderBy: { weekStart: 'desc' },
+            take: 50,
+        }),
+        prisma.planning.findMany({
+            where: buildPlanningsLegacyCoordinatorWhere(user),
+            include: PLANNING_INCLUDE,
+            orderBy: { weekStart: 'desc' },
+            take: 50,
         }),
     ]);
 
-    const meetingDraftIds = new Set();
+    const meetingIds = new Set();
     const meetings = [
-        ...meetingDraftRaw
+        ...meetingCoordDraftRaw
             .filter((m) => {
-                const ok = canConsolidateDraftMeeting(m, user) || canApproveDraftMeeting(m, user);
-                if (ok) meetingDraftIds.add(m.id);
+                const ok = canCoordinateDraftMeeting(m, user) || canApproveDraftMeeting(m, user);
+                if (ok) meetingIds.add(m.id);
                 return ok;
             })
             .map(mapMeetingItem),
-        ...meetingFinalizeRaw
-            .filter((m) => canFinalizePendingMeeting(m, user) && !meetingDraftIds.has(m.id))
+        ...meetingConsolidatorRaw
+            .filter((m) => canConsolidatePendingMeeting(m, user) && !meetingIds.has(m.id))
+            .map((m) => { meetingIds.add(m.id); return mapMeetingItem(m); }),
+        ...meetingLegacyRaw
+            .filter((m) => canFinalizePendingMeeting(m, user) && !meetingIds.has(m.id))
             .map(mapMeetingItem),
     ];
 
-    const missionDraftIds = new Set();
+    const missionIds = new Set();
     const missions = [
-        ...missionDraftRaw
+        ...missionCoordDraftRaw
             .filter((m) => {
-                const ok = canConsolidateDraftMission(m, user) || canApproveDraftMission(m, user);
-                if (ok) missionDraftIds.add(m.id);
+                const ok = canCoordinateDraftMission(m, user) || canApproveDraftMission(m, user);
+                if (ok) missionIds.add(m.id);
                 return ok;
             })
             .map(mapMissionItem),
-        ...missionFinalizeRaw
-            .filter((m) => canFinalizePendingMission(m, user) && !missionDraftIds.has(m.id))
+        ...missionConsolidatorRaw
+            .filter((m) => canConsolidatePendingMission(m, user) && !missionIds.has(m.id))
+            .map((m) => { missionIds.add(m.id); return mapMissionItem(m); }),
+        ...missionLegacyRaw
+            .filter((m) => canFinalizePendingMission(m, user) && !missionIds.has(m.id))
             .map(mapMissionItem),
     ];
 
-    const planningsConsolidate = [];
-    const planningsCoordinate = [];
+    const planningsConsolidate = planningConsolidateRaw
+        .filter((p) => canConsolidatePendingPlanning(p, user))
+        .map((p) => mapPlanningItem(p, 'consolidate', 0, user));
+    const planningsCoordinate = [
+        ...planningCoordinateRaw
+            .filter((p) => canCoordinateSubmittedPlanning(p, user))
+            .map((p) => mapPlanningItem(p, 'coordinate', 0, user)),
+        ...planningLegacyRaw
+            .filter((p) => canValidatePlanningAsCoordinator(p, user))
+            .map((p) => mapPlanningItem(p, 'coordinate', 0, user)),
+    ];
     const planningEvents = [];
 
     const counts = {
         meetings: meetings.length,
-        planningsConsolidate: 0,
-        planningsCoordinate: 0,
+        planningsConsolidate: planningsConsolidate.length,
+        planningsCoordinate: planningsCoordinate.length,
         missions: missions.length,
         events: 0,
-        total: meetings.length + missions.length,
+        total: meetings.length + missions.length + planningsConsolidate.length + planningsCoordinate.length,
     };
 
     return {

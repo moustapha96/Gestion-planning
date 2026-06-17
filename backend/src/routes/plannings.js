@@ -8,9 +8,9 @@ const { createAuditLog } = require('../utils/audit');
 const router = express.Router();
 const { ROLES, ADMIN_ROUTE_ROLES, isPrivilegedAdmin, planningScopeWhere, isResponsable } = require('../config/roles');
 const {
-    COORDINATOR_PENDING,
-    STATUS_AFTER_CONSOLIDATION,
+    STATUS_AFTER_COORDINATOR,
     isPendingCoordinatorValidation,
+    isPendingConsolidatorValidation,
 } = require('../config/planningWorkflow');
 const { resolvePlanningEventTypeFields } = require('../services/eventType.service');
 const {
@@ -24,7 +24,7 @@ const {
     canUserCoordinatePlanning,
     coordinatorApproveBlockingReason,
     canUserReturnPlanning,
-    notifyCoordinatorPlanningPending,
+    notifyPlanningPendingCoordinatorReview,
 } = require('../services/projectCoordinator.service');
 const {
     canAutoFinalizeAfterConsolidation,
@@ -256,17 +256,12 @@ router.put('/:id/admin-submit', roleMiddleware(ADMIN_ROUTE_ROLES), async (req, r
             return res.status(400).json({ error: 'Seul un brouillon ou un planning retourné peut être soumis.' });
         }
         await attachPlanningValidationProject(req.prisma, planning);
-        const project = planning.user?.project;
-        const skipConsolidator = project && !project.consolidatorId;
-        const nextStatus = skipConsolidator && project?.coordinatorId
-            ? STATUS_AFTER_CONSOLIDATION
-            : 'SUBMITTED';
+        const nextStatus = 'SUBMITTED';
         const updated = await req.prisma.planning.update({
             where: { id: req.params.id },
             data: {
                 status: nextStatus,
                 submittedAt: new Date(),
-                ...(nextStatus === STATUS_AFTER_CONSOLIDATION ? { consolidatedAt: new Date() } : {}),
             },
             include: {
                 events: { include: PLANNING_EVENT_INCLUDE },
@@ -568,18 +563,12 @@ router.put('/:id/submit', async (req, res) => {
         }
 
         await attachPlanningValidationProject(req.prisma, planning);
-        const project = planning.user?.project;
-        const skipConsolidator = project && !project.consolidatorId;
-        const nextStatus = skipConsolidator && project?.coordinatorId
-            ? STATUS_AFTER_CONSOLIDATION
-            : 'SUBMITTED';
-
+        const nextStatus = 'SUBMITTED';
         const updated = await req.prisma.planning.update({
             where: { id: req.params.id },
             data: {
                 status: nextStatus,
                 submittedAt: new Date(),
-                ...(nextStatus === STATUS_AFTER_CONSOLIDATION ? { consolidatedAt: new Date() } : {}),
             },
             include: {
                 events: { include: PLANNING_EVENT_INCLUDE },
@@ -603,17 +592,8 @@ router.put('/:id/submit', async (req, res) => {
                 : `Planning ${req.params.id} soumis`
         );
 
-        if (nextStatus === STATUS_AFTER_CONSOLIDATION && planning.user?.projectId) {
-            await notifyCoordinatorPlanningPending(req.prisma, {
-                projectId: planning.user.projectId,
-                ownerUserId: planning.userId,
-                ownerName: planning.user?.name,
-                planningId: req.params.id,
-                weekStart: planning.weekStart,
-                projectName: planning.user?.project?.name,
-            });
-        } else {
-            await notifyPlanningPendingConsolidation(req.prisma, {
+        if (nextStatus === 'SUBMITTED') {
+            await notifyPlanningPendingCoordinatorReview(req.prisma, {
                 projectId: planning.user?.projectId,
                 ownerUserId: planning.userId,
                 ownerName: planning.user?.name,
@@ -623,20 +603,9 @@ router.put('/:id/submit', async (req, res) => {
             });
         }
 
-        let ownerMsg;
-        if (nextStatus === STATUS_AFTER_CONSOLIDATION) {
-            ownerMsg = isAdmin
-                ? 'Votre planning a été soumis par l\'administration et transmis au coordinateur du projet (pas de consolidateur sur ce projet).'
-                : 'Votre planning a été soumis et transmis directement au coordinateur du projet.';
-        } else if (skipConsolidator && !project?.coordinatorId) {
-            ownerMsg = isAdmin
-                ? 'Votre planning a été soumis par l\'administration et est en attente de validation par un consolidateur (rôle).'
-                : 'Votre planning a été soumis et est en attente de validation par un consolidateur (rôle).';
-        } else {
-            ownerMsg = isAdmin
-                ? 'Votre planning a été soumis par l\'administration et est en attente de consolidation.'
-                : 'Votre planning a été soumis avec succès et est en attente de consolidation';
-        }
+        const ownerMsg = isAdmin
+            ? 'Votre planning a été soumis par l\'administration et est en attente de validation par le coordinateur du projet (1er palier).'
+            : 'Votre planning a été soumis et est en attente de validation par le coordinateur du projet (1er palier).';
         const weekLabel = formatPlanningWeekLabel(planning.weekStart);
         if (planning.user?.email) {
             await notificationService.sendFullNotification(
@@ -721,44 +690,39 @@ router.put('/:id/consolidate', async (req, res) => {
         if (!allowed) {
             return res.status(403).json({ error: 'Vous n\'êtes pas autorisé à consolider ce planning.' });
         }
-        if (planning.status !== 'SUBMITTED') {
-            return res.status(400).json({ error: 'Seul un planning au statut « soumis » peut être consolidé.' });
+        if (!isPendingConsolidatorValidation(planning.status)) {
+            return res.status(400).json({ error: 'Seul un planning en attente de consolidation peut être consolidé.' });
         }
 
         const project = planning.user?.project;
-        const autoFinalize = canAutoFinalizeAfterConsolidation(project, req.user);
         const resolvedProjectId = project?.id || planning.user?.projectId;
 
         const updated = await req.prisma.planning.update({
             where: { id: req.params.id },
             data: {
-                status: autoFinalize ? 'VALIDATED' : STATUS_AFTER_CONSOLIDATION,
-                consolidatedAt: new Date(),
-                ...(autoFinalize ? { validatedAt: new Date() } : {}),
+                status: 'VALIDATED',
+                validatedAt: new Date(),
             },
         });
 
         logger.info(
-            autoFinalize ? 'PLANNING_CONSOLIDATED_AND_VALIDATED' : 'PLANNING_CONSOLIDATED',
-            autoFinalize
-                ? `Planning consolidé et validé par ${req.user.id}`
-                : `Planning consolidé par ${req.user.id}`,
-            { planningId: req.params.id, consolidatorId: req.user.id, autoFinalize },
+            'PLANNING_CONSOLIDATED',
+            `Planning consolidé et validé par ${req.user.id}`,
+            { planningId: req.params.id },
         );
 
         await createAuditLog(
             req,
-            autoFinalize ? 'PLANNING_VALIDATED' : 'PLANNING_CONSOLIDATED',
+            'PLANNING_VALIDATED',
             'Planning',
             req.params.id,
-            autoFinalize
-                ? `Planning ${req.params.id} consolidé et validé (même acteur)`
-                : `Planning ${req.params.id} consolidé`,
+            `Planning ${req.params.id} consolidé et publié`,
         );
 
         const weekLabel = formatPlanningWeekLabel(planning.weekStart);
 
-        if (autoFinalize) {
+        if (resolvedProjectId) {
+            const ownerInApp = 'Votre planning a été consolidé par le rôle Consolidateur et est maintenant publié sur le calendrier.';
             await safeNotify('PLANNING_VALIDATED_NOTIFY', () => notificationService.sendFullNotification(
                 req.prisma,
                 planning.userId,
@@ -767,47 +731,12 @@ router.put('/:id/consolidate', async (req, res) => {
                 'PLANNING_VALIDATED',
                 [planning.user, req.params.id, req.user, weekLabel, project?.name],
                 'Planning validé et publié',
-                `Votre planning a été consolidé et validé par ${req.user.name} et est maintenant publié.`,
+                ownerInApp,
                 `/plannings/${req.params.id}`,
             ));
-        } else if (resolvedProjectId) {
-            await safeNotify('PLANNING_COORDINATOR_PENDING_NOTIFY', () => notifyCoordinatorPlanningPending(req.prisma, {
-                projectId: resolvedProjectId,
-                ownerUserId: planning.userId,
-                ownerName: planning.user?.name,
-                planningId: req.params.id,
-                weekStart: planning.weekStart,
-                projectName: project?.name,
-            }));
-
-            const ownerInApp = 'Votre planning a été consolidé et attend la validation finale (coordinateur ou rôle dédié) avant publication.';
-            await safeNotify('PLANNING_CONSOLIDATED_NOTIFY', async () => {
-                if (planning.user?.email) {
-                    await notificationService.sendFullNotification(
-                        req.prisma,
-                        planning.userId,
-                        planning.user.email,
-                        'PLANNING_CONSOLIDATED',
-                        'PLANNING_CONSOLIDATED',
-                        [planning.user, req.params.id, weekLabel, project?.name, req.user],
-                        'Planning consolidé',
-                        ownerInApp,
-                        `/plannings/${req.params.id}`,
-                    );
-                } else {
-                    await notificationService.createNotification(
-                        req.prisma,
-                        planning.userId,
-                        'PLANNING_IN_CONSOLIDATION',
-                        'Planning consolidé',
-                        ownerInApp,
-                        `/plannings/${req.params.id}`,
-                    );
-                }
-            });
         }
 
-        res.json({ ...updated, autoFinalized: autoFinalize });
+        res.json(updated);
     } catch (error) {
         logger.error('CONSOLIDATE_PLANNING', 'Erreur consolidation planning', {
             planningId: req.params.id,
@@ -852,6 +781,67 @@ async function handleCoordinatorApprove(req, res) {
             return res.status(403).json({ error: 'Seul le coordinateur du projet désigné peut valider ce planning.' });
         }
 
+        const weekLabel = formatPlanningWeekLabel(planning.weekStart);
+        const project = planning.user?.project;
+        const resolvedProjectId = project?.id || planning.user?.projectId;
+
+        if (planning.status === 'SUBMITTED') {
+            const updated = await req.prisma.planning.update({
+                where: { id: req.params.id },
+                data: {
+                    status: STATUS_AFTER_COORDINATOR,
+                    consolidatedAt: new Date(),
+                },
+            });
+
+            await createAuditLog(
+                req,
+                'PLANNING_COORDINATED',
+                'Planning',
+                req.params.id,
+                `Planning validé par le coordinateur (${req.user.id}) — attente consolidation`,
+            );
+
+            if (resolvedProjectId) {
+                await safeNotify('PLANNING_CONSOLIDATOR_PENDING_NOTIFY', () => notifyPlanningPendingConsolidation(req.prisma, {
+                    projectId: resolvedProjectId,
+                    ownerUserId: planning.userId,
+                    ownerName: planning.user?.name,
+                    planningId: req.params.id,
+                    weekStart: planning.weekStart,
+                    projectName: project?.name,
+                }));
+
+                const ownerInApp = 'Votre planning a été validé par le coordinateur du projet. Il attend la consolidation par le rôle Consolidateur.';
+                await safeNotify('PLANNING_COORDINATED_NOTIFY', async () => {
+                    if (planning.user?.email) {
+                        await notificationService.sendFullNotification(
+                            req.prisma,
+                            planning.userId,
+                            planning.user.email,
+                            'PLANNING_CONSOLIDATED',
+                            'PLANNING_CONSOLIDATED',
+                            [planning.user, req.params.id, weekLabel, project?.name, req.user],
+                            'Planning validé (coordinateur)',
+                            ownerInApp,
+                            `/plannings/${req.params.id}`,
+                        );
+                    } else {
+                        await notificationService.createNotification(
+                            req.prisma,
+                            planning.userId,
+                            'PLANNING_IN_CONSOLIDATION',
+                            'Planning validé (coordinateur)',
+                            ownerInApp,
+                            `/plannings/${req.params.id}`,
+                        );
+                    }
+                });
+            }
+
+            return res.json(updated);
+        }
+
         const updated = await req.prisma.planning.update({
             where: { id: req.params.id },
             data: { status: 'VALIDATED', validatedAt: new Date() },
@@ -862,10 +852,9 @@ async function handleCoordinatorApprove(req, res) {
             'PLANNING_VALIDATED',
             'Planning',
             req.params.id,
-            `Planning validé par le coordinateur de projet (${req.user.id})`,
+            `Planning validé par le coordinateur de projet (${req.user.id}) — legacy`,
         );
 
-        const weekLabel = formatPlanningWeekLabel(planning.weekStart);
         await safeNotify('PLANNING_VALIDATED_NOTIFY', () => notificationService.sendFullNotification(
             req.prisma,
             planning.userId,
