@@ -30,6 +30,8 @@ const {
 } = require('../services/validationPolicy.service');
 const { canUserConsolidateEntity } = require('../services/consolidatorResolution.service');
 const { attachMeetingValidationWorkflow } = require('../services/validationWorkflow.service');
+const { resolveInitialResponsibleStatus, startMeetingValidation } = require('../services/validationSubmission.service');
+const { attachStatusLabel } = require('../config/statusLabels');
 const { notifyMeetingPendingCoordinatorReview } = require('../services/projectCoordinator.service');
 const { emitToUsers, emitToMeetingRoom } = require('../realtime/socket');
 const { pdfOnlyMulterFileFilter, wrapMulterUpload } = require('../utils/pdfUpload');
@@ -327,7 +329,7 @@ router.get('/', async (req, res) => {
             }),
             req.prisma.meeting.count({ where }),
         ]);
-        const items = (meetings || []).map((m) => ({ ...m, files: m.files || [] }));
+        const items = (meetings || []).map((m) => attachStatusLabel({ ...m, files: m.files || [] }, 'meeting'));
         if (q || directionId || projectId || status || from || to || req.query.page || req.query.limit) {
             return res.json({
                 items,
@@ -864,7 +866,20 @@ router.put('/:id', async (req, res) => {
                     || meetingLinkChanged
                     || projectId !== undefined;
                 if (contentChanged && requiresConsolidatorApproval(organizer?.role)) {
-                    await notifyMeetingPendingCoordinatorReview(req.prisma, updated, organizer);
+                    await startMeetingValidation(req.prisma, updated, organizer);
+                }
+            } else if (isPendingConsolidatorValidation(updated.status)) {
+                const organizer = await req.prisma.user.findUnique({
+                    where: { id: updated.organizerId },
+                    select: { id: true, name: true, email: true, role: true },
+                });
+                const contentChanged = title !== undefined
+                    || agenda !== undefined
+                    || timeOrRoomChanged
+                    || meetingLinkChanged
+                    || projectId !== undefined;
+                if (contentChanged && requiresConsolidatorApproval(organizer?.role)) {
+                    await notifyConsolidatorsPendingMeeting(req.prisma, updated, organizer);
                 }
             }
         } catch (notifyErr) {
@@ -1000,6 +1015,11 @@ router.post('/', async (req, res) => {
                 || await resolveProjectIdForConsolidation(req.prisma, null, req.user.id);
         }
 
+        const needsApproval = requiresConsolidatorApproval(req.user?.role);
+        const initialStatus = needsApproval
+            ? await resolveInitialResponsibleStatus(req.prisma, effectiveProjectId)
+            : 'DRAFT';
+
         const meeting = await req.prisma.meeting.create({
             data: {
                 title,
@@ -1011,7 +1031,7 @@ router.post('/', async (req, res) => {
                 meetingLink: normalizedMeetingLink,
                 startTime: start,
                 endTime: end,
-                status: 'DRAFT',
+                status: initialStatus,
                 ...(resolvedEventTypeId !== undefined && { eventTypeId: resolvedEventTypeId }),
                 invitations: {
                     create: participantList.map((userId) => ({ userId, status: 'PENDING' })),
@@ -1037,11 +1057,17 @@ router.post('/', async (req, res) => {
                 ? await req.prisma.room.findUnique({ where: { id: roomId }, select: { name: true } })
                 : null;
             if (requiresConsolidatorApproval(organizer?.role)) {
-                await notifyMeetingPendingCoordinatorReview(req.prisma, meeting, organizer);
+                if (meeting.status === 'DRAFT') {
+                    await notifyMeetingPendingCoordinatorReview(req.prisma, meeting, organizer);
+                } else {
+                    await notifyConsolidatorsPendingMeeting(req.prisma, meeting, organizer);
+                }
             }
             if (organizer?.email) {
                 const pendingMsg = requiresConsolidatorApproval(organizer.role)
-                    ? 'Statut : brouillon — en attente de validation par le coordinateur du projet (1er palier).'
+                    ? (meeting.status === 'DRAFT'
+                        ? 'Statut : en attente du coordinateur du projet (étape 1/2).'
+                        : 'Statut : en attente de consolidation (étape 2/2) — coordinateur non désigné sur le projet.')
                     : 'Statut : brouillon — pensez à envoyer les convocations depuis la fiche réunion.';
                 await notificationService.sendFullNotification(
                     req.prisma,

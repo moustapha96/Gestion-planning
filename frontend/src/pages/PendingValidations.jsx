@@ -13,17 +13,12 @@ import usePendingValidations, { notifyPendingValidationsRefresh } from '../hooks
 
 const { Title, Text } = Typography;
 
-const MEETING_STATUS_LABELS = {
-    DRAFT: 'Brouillon',
-    CONSOLIDATOR_PENDING: 'Att. consolidation',
-    COORDINATOR_PENDING: 'Att. validation finale',
-};
-
-const MISSION_STATUS_LABELS = {
-    DRAFT: 'Brouillon',
-    CONSOLIDATOR_PENDING: 'Att. consolidation',
-    COORDINATOR_PENDING: 'Att. validation finale',
-};
+import {
+    MEETING_STATUS_LABELS,
+    MISSION_STATUS_LABELS,
+    meetingStatusLabel,
+    missionStatusLabel,
+} from '../utils/statusLabels';
 
 function formatDateTime(value) {
     if (!value) return '—';
@@ -60,7 +55,7 @@ function MeetingCard({ item, loading, onAction }) {
                     <Text strong>{item.title}</Text>
                     <EventTypeTag eventType={item.eventType} fallback="Réunion" />
                     <Tag color={isConsolidate ? 'purple' : 'orange'}>
-                        {MEETING_STATUS_LABELS[item.status] || 'À valider'}
+                        {item.statusLabel || MEETING_STATUS_LABELS[item.status] || meetingStatusLabel(item) || 'À valider'}
                     </Tag>
                 </Space>
                 <Text type="secondary" style={{ fontSize: 13 }}>
@@ -109,7 +104,7 @@ function MissionCard({ item, loading, onAction }) {
                     <FlagOutlined style={{ color: '#722ed1' }} />
                     <Text strong>{item.title}</Text>
                     <Tag color={isConsolidate ? 'purple' : 'orange'}>
-                        {MISSION_STATUS_LABELS[item.status] || 'À valider'}
+                        {item.statusLabel || MISSION_STATUS_LABELS[item.status] || missionStatusLabel(item) || 'À valider'}
                     </Tag>
                 </Space>
                 <Text type="secondary" style={{ fontSize: 13 }}>
@@ -331,7 +326,7 @@ export default function PendingValidations() {
                 showIcon
                 icon={<CalendarOutlined />}
                 title="Circuit de validation"
-                description="1er palier : coordinateur du projet. 2e palier : consolidateur du projet, puis consolidateur de la même direction, sinon rôle Consolidateur global. Publication calendrier uniquement après consolidation."
+                description="Étape 1/2 : coordinateur du projet. Étape 2/2 : consolidateur du projet, sinon consolidateur de la direction du projet, sinon consolidateur (rôle global). Sans coordinateur désigné, passage direct à l'étape 2. Publication calendrier uniquement après consolidation."
                 style={{ marginBottom: 16 }}
             />
 

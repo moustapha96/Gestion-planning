@@ -72,7 +72,7 @@ function coordinatorApproveBlockingReason(planning) {
     if (planning?.status === 'SUBMITTED') return null;
     if (isPendingCoordinatorValidation(planning?.status)) return null;
     if (isPendingConsolidatorValidation(planning?.status)) {
-        return 'Ce planning doit d\'abord être validé par le rôle Consolidateur.';
+        return 'Ce planning doit d\'abord être consolidé (étape 2/2) avant publication.';
     }
     return 'Ce planning n\'est pas en attente de validation par le coordinateur.';
 }
@@ -139,10 +139,8 @@ async function notifyProjectCoordinatorAssigned(prisma, projectId, userId, optio
     }
 }
 
-const { getGlobalConsolidatorRoleUsers } = require('./projectConsolidator.service');
-
-/** Notifie le coordinateur ou, à défaut, les utilisateurs au rôle Consolidateur. */
-async function notifySecondStepValidators(prisma, {
+/** Notifie uniquement le coordinateur du projet (étape 1). */
+async function notifyCoordinatorFirstStep(prisma, {
     projectId,
     type,
     emailType,
@@ -153,30 +151,28 @@ async function notifySecondStepValidators(prisma, {
 }) {
     const { notificationService } = require('./notification.service');
     const coordinator = await getProjectCoordinator(prisma, projectId);
-    const isFallbackRole = !coordinator?.email;
-    const recipients = coordinator?.email
-        ? [coordinator]
-        : (await getGlobalConsolidatorRoleUsers(prisma)).filter((u) => u.email);
+    if (!coordinator?.email) {
+        return { notified: false, reason: 'NO_COORDINATOR' };
+    }
 
-    for (const recipient of recipients) {
-        try {
-            const emailArgs = typeof emailArgsBuilder === 'function'
-                ? emailArgsBuilder(recipient, { isFallbackRole })
-                : [recipient];
-            await notificationService.sendFullNotification(
-                prisma,
-                recipient.id,
-                recipient.email,
-                type,
-                emailType || type,
-                emailArgs,
-                title,
-                message,
-                link,
-            );
-        } catch {
-            // notification optionnelle
-        }
+    try {
+        const emailArgs = typeof emailArgsBuilder === 'function'
+            ? emailArgsBuilder(coordinator, { isFallbackRole: false })
+            : [coordinator];
+        await notificationService.sendFullNotification(
+            prisma,
+            coordinator.id,
+            coordinator.email,
+            type,
+            emailType || type,
+            emailArgs,
+            title,
+            message,
+            link,
+        );
+        return { notified: true };
+    } catch {
+        return { notified: false, reason: 'NOTIFY_FAILED' };
     }
 }
 
@@ -184,7 +180,7 @@ async function notifySecondStepValidators(prisma, {
 async function notifyMeetingPendingCoordinatorReview(prisma, meeting, organizer) {
     const ownerName = organizer?.name || 'Un responsable';
     const link = `/meetings/${meeting.id}`;
-    return notifySecondStepValidators(prisma, {
+    return notifyCoordinatorFirstStep(prisma, {
         projectId: meeting.projectId,
         type: 'MEETING_PENDING_COORDINATOR',
         emailType: 'MEETING_PENDING_COORDINATOR',
@@ -211,7 +207,7 @@ async function notifyMeetingPendingFinalApproval(prisma, meeting, organizer) {
 async function notifyMissionPendingCoordinatorReview(prisma, mission, creator) {
     const ownerName = creator?.name || 'Un responsable';
     const link = `/missions/${mission.id}`;
-    return notifySecondStepValidators(prisma, {
+    return notifyCoordinatorFirstStep(prisma, {
         projectId: mission.projectId,
         type: 'MISSION_PENDING_COORDINATOR',
         emailType: 'MISSION_PENDING_COORDINATOR',
@@ -245,7 +241,7 @@ async function notifyPlanningPendingCoordinatorReview(prisma, {
     const { formatPlanningWeekLabel } = require('./projectConsolidator.service');
     const weekLabel = formatPlanningWeekLabel(weekStart);
     const link = `/plannings/${planningId}`;
-    return notifySecondStepValidators(prisma, {
+    return notifyCoordinatorFirstStep(prisma, {
         projectId,
         type: 'PLANNING_PENDING_COORDINATOR',
         emailType: 'PLANNING_PENDING_COORDINATOR',

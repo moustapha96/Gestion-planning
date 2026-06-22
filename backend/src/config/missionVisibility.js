@@ -36,10 +36,23 @@ function consolidatorPendingMissionFilter(user) {
     const orClauses = [{ project: { consolidatorId: user.id } }];
     if (user.directionId) {
         orClauses.push({
-            directionId: user.directionId,
             OR: [
-                { project: { is: null } },
-                { project: { consolidatorId: null } },
+                {
+                    directionId: user.directionId,
+                    OR: [
+                        { project: { is: null } },
+                        { project: { consolidatorId: null } },
+                    ],
+                },
+                {
+                    project: {
+                        consolidatorId: null,
+                        OR: [
+                            { responsible: { directionId: user.directionId } },
+                            { coordinator: { directionId: user.directionId } },
+                        ],
+                    },
+                },
             ],
         });
     }

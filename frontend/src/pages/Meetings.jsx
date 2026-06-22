@@ -9,8 +9,8 @@ import {
     canManageMeeting,
     canEditMeeting,
     canPrivilegedForceDelete,
-    meetingNeedsConsolidatorApproval,
 } from '../utils/roles';
+import { meetingStatusLabel } from '../utils/statusLabels';
 import { forceDeleteDescription, forceDeleteTitle } from '../utils/deleteConfirm';
 import ResponsibleProjectField, { ResponsibleProjectBanner } from '../components/ResponsibleProjectField';
 import { applyDefaultProjectToForm, useResponsibleProjectScope } from '../hooks/useResponsibleProjectScope';
@@ -18,10 +18,13 @@ import { applyDefaultProjectToForm, useResponsibleProjectScope } from '../hooks/
 const { Title, Text } = Typography;
 
 const STATUS_COLORS = {
-    DRAFT: 'default', COORDINATOR_PENDING: 'geekblue', SENT: 'blue', CONFIRMED: 'green', COMPLETED: 'cyan', CANCELLED: 'red',
-};
-const STATUS_LABELS = {
-    DRAFT: 'Brouillon', COORDINATOR_PENDING: 'Att. validation finale', SENT: 'Envoyée', CONFIRMED: 'Confirmée', COMPLETED: 'Terminée', CANCELLED: 'Annulée',
+    DRAFT: 'default',
+    CONSOLIDATOR_PENDING: 'orange',
+    COORDINATOR_PENDING: 'geekblue',
+    SENT: 'blue',
+    CONFIRMED: 'green',
+    COMPLETED: 'cyan',
+    CANCELLED: 'red',
 };
 
 export default function Meetings() {
@@ -359,10 +362,9 @@ export default function Meetings() {
             dataIndex: 'status',
             key: 'status',
             render: (s, record) => {
-                if (meetingNeedsConsolidatorApproval(record)) {
-                    return <Tag color="orange">En attente validation</Tag>;
-                }
-                return <Tag color={STATUS_COLORS[s]}>{STATUS_LABELS[s] || s}</Tag>;
+                const label = record.statusLabel || meetingStatusLabel(record);
+                const color = STATUS_COLORS[s] || (s === 'CONSOLIDATOR_PENDING' ? 'orange' : 'default');
+                return <Tag color={color}>{label}</Tag>;
             },
         },
         {

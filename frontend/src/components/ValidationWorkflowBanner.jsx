@@ -47,7 +47,12 @@ export default function ValidationWorkflowBanner({ workflow, style }) {
                         <UserOutlined style={{ marginRight: 6 }} />
                         {description}
                     </Text>
-                    {workflow.currentStep === 1 && (
+                    {workflow.skippedCoordinator && (
+                        <Text type="secondary">
+                            Aucun coordinateur désigné sur le projet : consolidation directe (étape 2/2).
+                        </Text>
+                    )}
+                    {workflow.currentStep === 1 && !workflow.skippedCoordinator && (
                         <Text type="secondary">
                             Après cette étape, le dossier sera transmis au consolidateur (projet, direction ou rôle global).
                         </Text>

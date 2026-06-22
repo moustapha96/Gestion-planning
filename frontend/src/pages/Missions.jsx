@@ -25,16 +25,13 @@ import {
 import { forceDeleteDescription, forceDeleteTitle } from '../utils/deleteConfirm';
 import ForceDeletePopconfirm from '../components/ForceDeletePopconfirm';
 
+import { missionStatusLabel } from '../utils/statusLabels';
+
 const { Title } = Typography;
 
-const STATUS_LABELS = {
-    DRAFT: 'Brouillon',
-    COORDINATOR_PENDING: 'Att. validation finale',
-    CONFIRMED: 'Confirmée',
-    CANCELLED: 'Annulée',
-};
 const STATUS_COLORS = {
     DRAFT: 'default',
+    CONSOLIDATOR_PENDING: 'orange',
     COORDINATOR_PENDING: 'orange',
     CONFIRMED: 'green',
     CANCELLED: 'default',
@@ -184,7 +181,11 @@ export default function Missions() {
             title: 'Statut',
             dataIndex: 'status',
             key: 'status',
-            render: (s) => <Tag color={STATUS_COLORS[s]}>{STATUS_LABELS[s] || s}</Tag>,
+            render: (s, record) => (
+                <Tag color={STATUS_COLORS[s] || 'default'}>
+                    {record.statusLabel || missionStatusLabel(record)}
+                </Tag>
+            ),
         },
         {
             title: 'Actions',

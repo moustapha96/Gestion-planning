@@ -97,28 +97,55 @@ async function getDirectionConsolidatorUserIds(prisma, directionId) {
     return users.map((u) => u.id);
 }
 
-async function resolveDirectionId(prisma, { directionId, ownerUserId, project }) {
+async function resolveDirectionId(prisma, { directionId, ownerUserId, project, projectId } = {}) {
     if (directionId) return directionId;
-    if (ownerUserId) {
-        const owner = await prisma.user.findUnique({
-            where: { id: ownerUserId },
-            select: { directionId: true },
-        });
-        if (owner?.directionId) return owner.directionId;
+
+    let proj = project;
+    const pid = project?.id || projectId;
+    if (pid && (!proj?.coordinatorId && !proj?.responsibleId)) {
+        proj = await prisma.project.findUnique({
+            where: { id: pid },
+            select: {
+                id: true,
+                coordinatorId: true,
+                responsibleId: true,
+                consolidatorId: true,
+            },
+        }) || proj;
     }
-    if (project?.responsibleId) {
-        const responsible = await prisma.user.findUnique({
-            where: { id: project.responsibleId },
+
+    const loadUserDirection = async (userId) => {
+        if (!userId) return null;
+        const u = await prisma.user.findUnique({
+            where: { id: userId },
             select: { directionId: true },
         });
-        if (responsible?.directionId) return responsible.directionId;
+        return u?.directionId || null;
+    };
+
+    if (proj?.coordinatorId) {
+        const dir = await loadUserDirection(proj.coordinatorId);
+        if (dir) return dir;
+    }
+    if (proj?.responsibleId) {
+        const dir = await loadUserDirection(proj.responsibleId);
+        if (dir) return dir;
+    }
+    if (ownerUserId) {
+        const dir = await loadUserDirection(ownerUserId);
+        if (dir) return dir;
     }
     return null;
 }
 
-async function resolveConsolidatorScope(prisma, { projectId, directionId, ownerUserId } = {}) {
+async function resolveConsolidatorScope(prisma, { projectId, directionId, ownerUserId, project } = {}) {
     const { getProjectConsolidator } = consolidatorServices();
-    const resolvedDirectionId = await resolveDirectionId(prisma, { directionId, ownerUserId });
+    const resolvedDirectionId = await resolveDirectionId(prisma, {
+        directionId,
+        ownerUserId,
+        project,
+        projectId,
+    });
 
     if (projectId) {
         const projectConsolidator = await getProjectConsolidator(prisma, projectId);
@@ -129,7 +156,7 @@ async function resolveConsolidatorScope(prisma, { projectId, directionId, ownerU
     if (resolvedDirectionId) {
         const dirIds = await getDirectionConsolidatorUserIds(prisma, resolvedDirectionId);
         if (dirIds.length) {
-            return { scope: 'direction', scopeLabel: 'consolidateur de la direction' };
+            return { scope: 'direction', scopeLabel: 'consolidateur de la direction du projet' };
         }
     }
     return { scope: 'global', scopeLabel: 'consolidateur (rôle global)' };
@@ -138,14 +165,19 @@ async function resolveConsolidatorScope(prisma, { projectId, directionId, ownerU
 /**
  * Destinataires consolidation : consolidateur projet → consolidateurs direction → rôle global.
  */
-async function resolveConsolidatorRecipients(prisma, { projectId, directionId, ownerUserId } = {}) {
+async function resolveConsolidatorRecipients(prisma, { projectId, directionId, ownerUserId, project } = {}) {
     const { getProjectConsolidator, getGlobalConsolidatorRoleUsers } = consolidatorServices();
     if (projectId) {
         const projectConsolidator = await getProjectConsolidator(prisma, projectId);
         if (projectConsolidator?.email) return [projectConsolidator];
     }
 
-    const resolvedDirectionId = await resolveDirectionId(prisma, { directionId, ownerUserId });
+    const resolvedDirectionId = await resolveDirectionId(prisma, {
+        directionId,
+        ownerUserId,
+        project,
+        projectId,
+    });
     if (resolvedDirectionId) {
         const directionConsolidators = await getDirectionConsolidatorUsers(prisma, resolvedDirectionId);
         const withEmail = directionConsolidators.filter((u) => u.email);
@@ -193,7 +225,12 @@ async function resolveEntityConsolidationContext(prisma, entity, kind, cache) {
     }
 
     if (!directionId) {
-        directionId = await resolveDirectionId(prisma, { directionId, ownerUserId, project });
+        directionId = await resolveDirectionId(prisma, {
+            directionId,
+            ownerUserId,
+            project,
+            projectId: project?.id || null,
+        });
     }
 
     const directionConsolidatorIds = await c.getDirectionConsolidatorIds(prisma, directionId);
@@ -219,10 +256,23 @@ async function buildConsolidatorPendingScope(prisma, user) {
 
     if (user.directionId && await userIsDirectionConsolidatorCandidate(prisma, user)) {
         orClauses.push({
-            directionId: user.directionId,
             OR: [
-                { project: { is: null } },
-                { project: { consolidatorId: null } },
+                {
+                    directionId: user.directionId,
+                    OR: [
+                        { project: { is: null } },
+                        { project: { consolidatorId: null } },
+                    ],
+                },
+                {
+                    project: {
+                        consolidatorId: null,
+                        OR: [
+                            { responsible: { directionId: user.directionId } },
+                            { coordinator: { directionId: user.directionId } },
+                        ],
+                    },
+                },
             ],
         });
     }
@@ -255,13 +305,28 @@ async function buildPlanningConsolidatorScope(prisma, user) {
 
     if (user.directionId && await userIsDirectionConsolidatorCandidate(prisma, user)) {
         orClauses.push({
-            user: {
-                directionId: user.directionId,
-                OR: [
-                    { projectId: null },
-                    { project: { consolidatorId: null } },
-                ],
-            },
+            OR: [
+                {
+                    user: {
+                        directionId: user.directionId,
+                        OR: [
+                            { projectId: null },
+                            { project: { consolidatorId: null } },
+                        ],
+                    },
+                },
+                {
+                    user: {
+                        project: {
+                            consolidatorId: null,
+                            OR: [
+                                { responsible: { directionId: user.directionId } },
+                                { coordinator: { directionId: user.directionId } },
+                            ],
+                        },
+                    },
+                },
+            ],
         });
     }
 

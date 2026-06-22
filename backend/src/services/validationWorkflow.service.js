@@ -4,11 +4,11 @@ const {
     isPendingCoordinatorValidation,
 } = require('../config/planningWorkflow');
 const { getProjectCoordinator } = require('./projectCoordinator.service');
-const { getGlobalConsolidatorRoleUsers } = require('./projectConsolidator.service');
 const {
     resolveConsolidatorRecipients,
     resolveConsolidatorScope,
 } = require('./consolidatorResolution.service');
+const { attachStatusLabel } = require('../config/statusLabels');
 
 function mapValidator(user, roleLabel, kind) {
     if (!user?.id) return null;
@@ -32,15 +32,12 @@ async function resolveCoordinatorValidators(prisma, projectId) {
             isFallback: false,
         };
     }
-    const globalUsers = await getGlobalConsolidatorRoleUsers(prisma);
     return {
-        validators: globalUsers
-            .filter((u) => u.isActive !== false && !u.isDeleted)
-            .map((u) => mapValidator(u, 'consolidateur (rôle global — coordinateur non désigné)', 'global'))
-            .filter(Boolean),
-        scope: 'global',
-        scopeLabel: 'consolidateur (rôle global)',
-        isFallback: true,
+        validators: [],
+        scope: null,
+        scopeLabel: 'Coordinateur non désigné — consolidation directe',
+        isFallback: false,
+        skippedCoordinator: true,
     };
 }
 
@@ -74,6 +71,7 @@ function buildStepPayload(step, totalSteps, stepLabel, actionLabel, resolver) {
         resolverScopeLabel: resolver.scopeLabel,
         isFallback: Boolean(resolver.isFallback),
         pendingValidatorNames: resolver.validators.map((v) => v.name).filter(Boolean),
+        skippedCoordinator: Boolean(resolver.skippedCoordinator),
     };
 }
 
@@ -227,12 +225,18 @@ async function buildPlanningValidationWorkflow(prisma, planning) {
 
 async function attachMeetingValidationWorkflow(prisma, meeting) {
     const workflow = await buildMeetingValidationWorkflow(prisma, meeting);
-    return { ...meeting, validation: { ...(meeting.validation || {}), workflow } };
+    return attachStatusLabel({
+        ...meeting,
+        validation: { ...(meeting.validation || {}), workflow },
+    }, 'meeting');
 }
 
 async function attachMissionValidationWorkflow(prisma, mission) {
     const workflow = await buildMissionValidationWorkflow(prisma, mission);
-    return { ...mission, validation: { ...(mission.validation || {}), workflow } };
+    return attachStatusLabel({
+        ...mission,
+        validation: { ...(mission.validation || {}), workflow },
+    }, 'mission');
 }
 
 module.exports = {

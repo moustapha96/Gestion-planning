@@ -25,6 +25,8 @@ const {
 } = require('../services/validationPolicy.service');
 const { canUserConsolidateEntity } = require('../services/consolidatorResolution.service');
 const { attachMissionValidationWorkflow } = require('../services/validationWorkflow.service');
+const { resolveInitialResponsibleStatus, startMissionValidation } = require('../services/validationSubmission.service');
+const { attachStatusLabel } = require('../config/statusLabels');
 const { notifyConsolidatorsPendingMission } = require('../services/projectConsolidator.service');
 const { notifyMissionPendingCoordinatorReview } = require('../services/projectCoordinator.service');
 const { pdfOnlyMulterFileFilter, wrapMulterUpload } = require('../utils/pdfUpload');
@@ -188,16 +190,17 @@ router.get('/', async (req, res) => {
             }),
             req.prisma.mission.count({ where }),
         ]);
+        const labeledMissions = missions.map((m) => attachStatusLabel(m, 'mission'));
         if (q || directionId || projectId || status || from || to || req.query.page || req.query.limit) {
             return res.json({
-                items: missions,
+                items: labeledMissions,
                 total,
                 page,
                 limit,
                 pages: Math.max(1, Math.ceil(total / limit)),
             });
         }
-        return res.json(missions);
+        return res.json(labeledMissions);
     } catch (error) {
         logger.error('GET_MISSIONS', error.message, { userId: req.user?.id });
         res.status(500).json({ error: error.message });
@@ -264,6 +267,10 @@ router.post('/', async (req, res) => {
         const projectCheck = await validateProjectForUserAction(req.prisma, req.user, projectId || null);
         if (!projectCheck.ok) return res.status(403).json({ error: projectCheck.error });
         const resolvedProjectId = projectCheck.value;
+        const needsApproval = requiresConsolidatorApproval(creatorRole);
+        const initialStatus = needsApproval
+            ? await resolveInitialResponsibleStatus(req.prisma, resolvedProjectId)
+            : 'DRAFT';
 
         const mission = await req.prisma.mission.create({
             data: {
@@ -275,7 +282,7 @@ router.post('/', async (req, res) => {
                 directionId: directionId || null,
                 projectId: resolvedProjectId || null,
                 createdById: req.user.id,
-                status: 'DRAFT',
+                status: initialStatus,
             },
         });
         const assigneeIds = Array.isArray(userIds) ? [...new Set(userIds.filter((id) => id && id !== req.user.id))] : [];
@@ -298,11 +305,17 @@ router.post('/', async (req, res) => {
         try {
             const creator = missionWithRelations.createdBy;
             if (requiresConsolidatorApproval(creator?.role)) {
-                await notifyMissionPendingCoordinatorReview(req.prisma, missionWithRelations, creator);
+                if (missionWithRelations.status === 'DRAFT') {
+                    await notifyMissionPendingCoordinatorReview(req.prisma, missionWithRelations, creator);
+                } else {
+                    await notifyConsolidatorsPendingMission(req.prisma, missionWithRelations, creator);
+                }
             }
             if (creator?.email) {
                 const pendingMsg = requiresConsolidatorApproval(creator.role)
-                    ? 'Statut : brouillon — en attente de validation par le coordinateur du projet (1er palier).'
+                    ? (missionWithRelations.status === 'DRAFT'
+                        ? 'Statut : en attente du coordinateur du projet (étape 1/2).'
+                        : 'Statut : en attente de consolidation (étape 2/2) — coordinateur non désigné sur le projet.')
                     : 'Statut : brouillon — la mission sera confirmée après validation.';
                 await notificationService.sendFullNotification(
                     req.prisma,
@@ -426,7 +439,10 @@ router.put('/:id', async (req, res) => {
 
         try {
             if (updated.status === 'DRAFT' && contentChanged && requiresConsolidatorApproval(updated.createdBy?.role)) {
-                await notifyMissionPendingCoordinatorReview(req.prisma, updated, updated.createdBy);
+                await startMissionValidation(req.prisma, updated, updated.createdBy);
+            } else if (isPendingConsolidatorValidation(updated.status) && contentChanged
+                && requiresConsolidatorApproval(updated.createdBy?.role)) {
+                await notifyConsolidatorsPendingMission(req.prisma, updated, updated.createdBy);
             }
         } catch (notifyErr) {
             logger.warn('MISSION_CONSOLIDATOR_NOTIFY_FAILED', notifyErr.message, { missionId: updated.id });

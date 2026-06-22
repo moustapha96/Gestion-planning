@@ -49,7 +49,7 @@ import {
 } from '../utils/roles';
 import { forceDeleteDescription, forceDeleteTitle } from '../utils/deleteConfirm';
 import ForceDeletePopconfirm from '../components/ForceDeletePopconfirm';
-import { PDF_ACCEPT, isAcceptedPdfFile } from '../utils/pdfAttachment';
+import { missionStatusLabel } from '../utils/statusLabels';
 
 const { Text } = Typography;
 const MAX_FILE_SIZE = 15 * 1024 * 1024;
@@ -377,6 +377,11 @@ export default function MissionDetail() {
                     </Text>
                 )}
                 <Descriptions column={1} bordered size="small">
+                    <Descriptions.Item label="Statut">
+                        <Tag color={mission.status === 'CONFIRMED' ? 'green' : mission.status === 'CANCELLED' ? 'red' : 'orange'}>
+                            {mission.statusLabel || missionStatusLabel(mission)}
+                        </Tag>
+                    </Descriptions.Item>
                     <Descriptions.Item label={<><EnvironmentOutlined /> Lieu</>}>
                         {mission.location}
                     </Descriptions.Item>

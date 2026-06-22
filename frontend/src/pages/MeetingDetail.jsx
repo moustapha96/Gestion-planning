@@ -64,6 +64,8 @@ import { PDF_ACCEPT, isAcceptedPdfFile } from '../utils/pdfAttachment';
 
 const { Title, Text } = Typography;
 
+import { meetingStatusLabel } from '../utils/statusLabels';
+
 const STATUS_COLORS = {
     DRAFT: 'default',
     CONSOLIDATOR_PENDING: 'orange',
@@ -73,28 +75,7 @@ const STATUS_COLORS = {
     COMPLETED: 'cyan',
     CANCELLED: 'red',
 };
-const STATUS_LABELS = {
-    DRAFT: 'Brouillon',
-    CONSOLIDATOR_PENDING: 'Att. consolidation',
-    COORDINATOR_PENDING: 'Att. validation finale',
-    SENT: 'Envoyée',
-    CONFIRMED: 'Confirmée',
-    COMPLETED: 'Terminée',
-    CANCELLED: 'Annulée',
-};
 
-function meetingStatusLabel(meeting) {
-    if (isPendingConsolidatorStatus(meeting.status)) {
-        return STATUS_LABELS.CONSOLIDATOR_PENDING;
-    }
-    if (isPendingCoordinatorStatus(meeting.status)) {
-        return STATUS_LABELS.COORDINATOR_PENDING;
-    }
-    if (meetingNeedsConsolidatorApproval(meeting) && meeting.status === 'DRAFT') {
-        return 'En attente coordinateur';
-    }
-    return STATUS_LABELS[meeting.status] || meeting.status;
-}
 const INV_STATUS = { PENDING: 'En attente', ACCEPTED: 'Acceptée', DECLINED: 'Refusée' };
 
 export default function MeetingDetail() {
@@ -953,7 +934,7 @@ export default function MeetingDetail() {
                         </Space>
                     </div>
                     <Tag color={needsCoordinator || needsConsolidator ? 'orange' : STATUS_COLORS[meeting.status]}>
-                        {meetingStatusLabel(meeting)}
+                        {meeting.statusLabel || meetingStatusLabel(meeting)}
                     </Tag>
                 </Space>
 
