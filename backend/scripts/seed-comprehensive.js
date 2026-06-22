@@ -111,7 +111,7 @@ async function createRooms() {
             created.push(room);
             if (VERBOSE) console.log(`  ✓ Salle créée : ${room.name}`);
         } catch (err) {
-            if (err.code === 'P2002' && err.meta ? .target ? .includes('name')) {
+            if (err.code === 'P2002' && err.meta?.target?.includes('name')) {
                 console.log(`  ⚠ Salle existante : ${roomData.name}`);
                 const existing = await prisma.room.findUnique({
                     where: { name: roomData.name },
@@ -148,7 +148,7 @@ async function createUsers() {
                 created.push(user);
                 if (VERBOSE) console.log(`  ✓ Utilisateur créé : ${user.name} (${user.role})`);
             } catch (err) {
-                if (err.code === 'P2002' && err.meta ? .target ? .includes('email')) {
+                if (err.code === 'P2002' && err.meta?.target?.includes('email')) {
                     console.log(`  ⚠ Utilisateur existant : ${email}`);
                     const existing = await prisma.user.findUnique({ where: { email } });
                     if (existing) created.push(existing);
@@ -178,7 +178,7 @@ async function createMissions(users, directions, projects) {
                     startTime: plusDays(i + 7),
                     endTime: plusDays(i + 7, 11),
                     directionId: direction.id,
-                    projectId: project ? .id || null,
+                    projectId: project?.id || null,
                     createdById: creator.id,
                     status: 'CONFIRMED',
                 },
@@ -216,7 +216,7 @@ async function createMeetings(users, directions, rooms, projects) {
                     organizerId: organizer.id,
                     roomId: room.id,
                     directionId: direction.id,
-                    projectId: project ? .id || null,
+                    projectId: project?.id || null,
                     startTime: plusDays(i + 3, 10 + i),
                     endTime: plusDays(i + 3, 11 + i),
                     status: 'SCHEDULED',
@@ -261,7 +261,7 @@ async function createEventTypes() {
             created.push(et);
             if (VERBOSE) console.log(`  ✓ Type d'événement créé : ${et.name}`);
         } catch (err) {
-            if (err.code === 'P2002' && err.meta ? .target ? .includes('code')) {
+            if (err.code === 'P2002' && err.meta?.target?.includes('code')) {
                 console.log(`  ⚠ Type d'événement existant : ${etData.code}`);
                 const existing = await prisma.eventType.findUnique({
                     where: { code: etData.code },
