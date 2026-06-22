@@ -64,8 +64,15 @@ export default function MissionEdit() {
                     userIds: missionRes.data.assignments?.map((a) => a.userId) || [],
                 });
             })
-            .catch(() => {
-                message.error('Mission introuvable');
+            .catch((err) => {
+                const status = err?.response?.status;
+                if (status === 403) {
+                    message.error('Vous n\'avez pas accès à cette mission');
+                } else if (status === 404) {
+                    message.error('Mission introuvable');
+                } else {
+                    message.error(err?.response?.data?.error || 'Impossible de charger la mission');
+                }
                 navigate('/missions');
             })
             .finally(() => setLoading(false));

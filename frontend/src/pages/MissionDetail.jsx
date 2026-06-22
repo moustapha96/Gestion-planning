@@ -34,6 +34,7 @@ import {
     CheckCircleOutlined,
 } from '@ant-design/icons';
 import dayjs from 'dayjs';
+import api, { API_BASE } from '../api/client';
 import ValidationWorkflowBanner from '../components/ValidationWorkflowBanner';
 import { useAuth } from '../context/AuthContext';
 import { isPrivilegedAdmin, canManageMission, canEditMission, canPrivilegedForceDelete } from '../utils/roles';
@@ -74,8 +75,15 @@ export default function MissionDetail() {
         try {
             const res = await api.get(`/missions/${id}`);
             setMission(res.data);
-        } catch {
-            message.error('Mission introuvable');
+        } catch (err) {
+            const status = err?.response?.status;
+            if (status === 403) {
+                message.error('Vous n\'avez pas accès à cette mission');
+            } else if (status === 404) {
+                message.error('Mission introuvable');
+            } else {
+                message.error(err?.response?.data?.error || 'Impossible de charger la mission');
+            }
             navigate('/missions');
         } finally {
             setLoading(false);

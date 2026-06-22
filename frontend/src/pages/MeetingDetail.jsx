@@ -40,6 +40,7 @@ import {
     VideoCameraOutlined,
 } from '@ant-design/icons';
 import dayjs from 'dayjs';
+import api, { API_BASE } from '../api/client';
 import ValidationWorkflowBanner from '../components/ValidationWorkflowBanner';
 import { useAuth } from '../context/AuthContext';
 import { enqueueRealtimeTask } from '../realtime/socket';
@@ -176,8 +177,15 @@ export default function MeetingDetail() {
         try {
             const res = await api.get(`/meetings/${id}`);
             setMeeting(res.data);
-        } catch {
-            message.error('Réunion introuvable');
+        } catch (err) {
+            const status = err?.response?.status;
+            if (status === 403) {
+                message.error('Vous n\'avez pas accès à cette réunion');
+            } else if (status === 404) {
+                message.error('Réunion introuvable');
+            } else {
+                message.error(err?.response?.data?.error || 'Impossible de charger la réunion');
+            }
             navigate('/meetings');
         } finally {
             setLoading(false);
