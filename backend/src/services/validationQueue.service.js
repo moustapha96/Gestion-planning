@@ -6,6 +6,12 @@ const {
 const { formatPlanningWeekLabel, attachPlanningValidationProject } = require('./projectConsolidator.service');
 const { canAutoFinalizeAfterConsolidation } = require('./planningValidation.service');
 const {
+    createConsolidationContextCache,
+    canUserConsolidateEntity,
+    buildConsolidatorPendingScope,
+    buildPlanningConsolidatorScope,
+} = require('./consolidatorResolution.service');
+const {
     userCanSeeValidationMenu,
     canCoordinateDraftMeeting,
     canApproveDraftMeeting,
@@ -19,6 +25,7 @@ const {
     canConsolidatePendingPlanning,
     canValidatePlanningAsCoordinator,
     isGlobalConsolidatorRole,
+    isUserProjectConsolidator,
     meetingValidationAction,
     missionValidationAction,
     planningValidationActionLabel,
@@ -27,6 +34,7 @@ const {
 const MEETING_INCLUDE = {
     organizer: { select: { id: true, name: true, email: true, role: true } },
     project: { select: { id: true, name: true, code: true, consolidatorId: true, coordinatorId: true } },
+    direction: { select: { id: true, name: true, code: true } },
     room: { select: { id: true, name: true, location: true } },
     eventType: { select: { id: true, name: true, code: true, color: true } },
 };
@@ -44,6 +52,7 @@ const PLANNING_INCLUDE = {
             name: true,
             email: true,
             projectId: true,
+            directionId: true,
             project: { select: { id: true, name: true, code: true, consolidatorId: true, coordinatorId: true } },
         },
     },
@@ -66,13 +75,28 @@ function buildMeetingCoordinatorDraftWhere(user) {
     return { ...base, project: { coordinatorId: user.id } };
 }
 
-function buildMeetingConsolidatorPendingWhere(user) {
+function buildMeetingConsolidatorPendingWhere(scope) {
     const base = {
         status: { in: PENDING_CONSOLIDATOR_STATUSES },
         organizer: { role: ROLES.RESPONSABLE },
     };
-    if (isPrivilegedAdmin(user.role) || isGlobalConsolidatorRole(user)) return base;
-    return { ...base, id: { in: [] } };
+    if (!scope) return base;
+    return { ...base, ...scope };
+}
+
+function buildMissionConsolidatorPendingWhere(scope) {
+    const base = {
+        status: { in: PENDING_CONSOLIDATOR_STATUSES },
+        createdBy: { role: ROLES.RESPONSABLE },
+    };
+    if (!scope) return base;
+    return { ...base, ...scope };
+}
+
+function buildPlanningsToConsolidateWhere(scope) {
+    const base = { status: { in: PENDING_CONSOLIDATOR_STATUSES } };
+    if (!scope) return base;
+    return { ...base, ...scope };
 }
 
 function buildMeetingLegacyCoordinatorWhere(user) {
@@ -88,15 +112,6 @@ function buildMissionCoordinatorDraftWhere(user) {
     const base = { status: 'DRAFT', createdBy: { role: ROLES.RESPONSABLE } };
     if (isPrivilegedAdmin(user.role)) return base;
     return { ...base, project: { coordinatorId: user.id } };
-}
-
-function buildMissionConsolidatorPendingWhere(user) {
-    const base = {
-        status: { in: PENDING_CONSOLIDATOR_STATUSES },
-        createdBy: { role: ROLES.RESPONSABLE },
-    };
-    if (isPrivilegedAdmin(user.role) || isGlobalConsolidatorRole(user)) return base;
-    return { ...base, id: { in: [] } };
 }
 
 function buildMissionLegacyCoordinatorWhere(user) {
@@ -115,12 +130,6 @@ function buildPlanningsToCoordinateWhere(user) {
         ...base,
         user: { project: { coordinatorId: user.id } },
     };
-}
-
-function buildPlanningsToConsolidateWhere(user) {
-    const base = { status: { in: PENDING_CONSOLIDATOR_STATUSES } };
-    if (isPrivilegedAdmin(user.role) || isGlobalConsolidatorRole(user)) return base;
-    return { ...base, id: { in: [] } };
 }
 
 function buildPlanningsLegacyCoordinatorWhere(user) {
@@ -311,7 +320,13 @@ async function getPendingValidations(prisma, user) {
         };
     }
 
-    const [meetingCoordDraftRaw, meetingConsolidatorRaw, meetingLegacyRaw, missionCoordDraftRaw, missionConsolidatorRaw, missionLegacyRaw, planningCoordinateRaw, planningConsolidateRaw, planningLegacyRaw] = await Promise.all([
+    const consolidationCache = createConsolidationContextCache();
+    // Les plannings ne sont plus soumis à validation : ils agrègent des
+    // réunions et missions déjà validées. La file « À valider » ne contient
+    // donc plus que des réunions et des missions.
+    const consolidatorScope = await buildConsolidatorPendingScope(prisma, user);
+
+    const [meetingCoordDraftRaw, meetingConsolidatorRaw, meetingLegacyRaw, missionCoordDraftRaw, missionConsolidatorRaw, missionLegacyRaw] = await Promise.all([
         prisma.meeting.findMany({
             where: buildMeetingCoordinatorDraftWhere(user),
             include: MEETING_INCLUDE,
@@ -319,7 +334,7 @@ async function getPendingValidations(prisma, user) {
             take: 100,
         }),
         prisma.meeting.findMany({
-            where: buildMeetingConsolidatorPendingWhere(user),
+            where: buildMeetingConsolidatorPendingWhere(consolidatorScope),
             include: MEETING_INCLUDE,
             orderBy: { startTime: 'asc' },
             take: 100,
@@ -337,7 +352,7 @@ async function getPendingValidations(prisma, user) {
             take: 100,
         }),
         prisma.mission.findMany({
-            where: buildMissionConsolidatorPendingWhere(user),
+            where: buildMissionConsolidatorPendingWhere(consolidatorScope),
             include: MISSION_INCLUDE,
             orderBy: { startTime: 'asc' },
             take: 100,
@@ -348,80 +363,67 @@ async function getPendingValidations(prisma, user) {
             orderBy: { startTime: 'asc' },
             take: 100,
         }),
-        prisma.planning.findMany({
-            where: buildPlanningsToCoordinateWhere(user),
-            include: PLANNING_INCLUDE,
-            orderBy: { weekStart: 'desc' },
-            take: 50,
-        }),
-        prisma.planning.findMany({
-            where: buildPlanningsToConsolidateWhere(user),
-            include: PLANNING_INCLUDE,
-            orderBy: { weekStart: 'desc' },
-            take: 50,
-        }),
-        prisma.planning.findMany({
-            where: buildPlanningsLegacyCoordinatorWhere(user),
-            include: PLANNING_INCLUDE,
-            orderBy: { weekStart: 'desc' },
-            take: 50,
-        }),
     ]);
 
     const meetingIds = new Set();
+    const meetingCoordItems = meetingCoordDraftRaw
+        .filter((m) => {
+            const ok = canCoordinateDraftMeeting(m, user) || canApproveDraftMeeting(m, user);
+            if (ok) meetingIds.add(m.id);
+            return ok;
+        })
+        .map(mapMeetingItem);
+
+    const meetingConsolidatorItems = [];
+    for (const m of meetingConsolidatorRaw) {
+        if (meetingIds.has(m.id)) continue;
+        if (await canUserConsolidateEntity(prisma, user, m, 'meeting', consolidationCache)) {
+            meetingIds.add(m.id);
+            meetingConsolidatorItems.push(mapMeetingItem(m));
+        }
+    }
+
     const meetings = [
-        ...meetingCoordDraftRaw
-            .filter((m) => {
-                const ok = canCoordinateDraftMeeting(m, user) || canApproveDraftMeeting(m, user);
-                if (ok) meetingIds.add(m.id);
-                return ok;
-            })
-            .map(mapMeetingItem),
-        ...meetingConsolidatorRaw
-            .filter((m) => canConsolidatePendingMeeting(m, user) && !meetingIds.has(m.id))
-            .map((m) => { meetingIds.add(m.id); return mapMeetingItem(m); }),
+        ...meetingCoordItems,
+        ...meetingConsolidatorItems,
         ...meetingLegacyRaw
             .filter((m) => canFinalizePendingMeeting(m, user) && !meetingIds.has(m.id))
             .map(mapMeetingItem),
     ];
 
     const missionIds = new Set();
+    const missionCoordItems = missionCoordDraftRaw
+        .filter((m) => {
+            const ok = canCoordinateDraftMission(m, user) || canApproveDraftMission(m, user);
+            if (ok) missionIds.add(m.id);
+            return ok;
+        })
+        .map(mapMissionItem);
+
+    const missionConsolidatorItems = [];
+    for (const m of missionConsolidatorRaw) {
+        if (missionIds.has(m.id)) continue;
+        if (await canUserConsolidateEntity(prisma, user, m, 'mission', consolidationCache)) {
+            missionIds.add(m.id);
+            missionConsolidatorItems.push(mapMissionItem(m));
+        }
+    }
+
     const missions = [
-        ...missionCoordDraftRaw
-            .filter((m) => {
-                const ok = canCoordinateDraftMission(m, user) || canApproveDraftMission(m, user);
-                if (ok) missionIds.add(m.id);
-                return ok;
-            })
-            .map(mapMissionItem),
-        ...missionConsolidatorRaw
-            .filter((m) => canConsolidatePendingMission(m, user) && !missionIds.has(m.id))
-            .map((m) => { missionIds.add(m.id); return mapMissionItem(m); }),
+        ...missionCoordItems,
+        ...missionConsolidatorItems,
         ...missionLegacyRaw
             .filter((m) => canFinalizePendingMission(m, user) && !missionIds.has(m.id))
             .map(mapMissionItem),
     ];
 
-    const planningsConsolidate = planningConsolidateRaw
-        .filter((p) => canConsolidatePendingPlanning(p, user))
-        .map((p) => mapPlanningItem(p, 'consolidate', 0, user));
-    const planningsCoordinate = [
-        ...planningCoordinateRaw
-            .filter((p) => canCoordinateSubmittedPlanning(p, user))
-            .map((p) => mapPlanningItem(p, 'coordinate', 0, user)),
-        ...planningLegacyRaw
-            .filter((p) => canValidatePlanningAsCoordinator(p, user))
-            .map((p) => mapPlanningItem(p, 'coordinate', 0, user)),
-    ];
-    const planningEvents = [];
-
     const counts = {
         meetings: meetings.length,
-        planningsConsolidate: planningsConsolidate.length,
-        planningsCoordinate: planningsCoordinate.length,
+        planningsConsolidate: 0,
+        planningsCoordinate: 0,
         missions: missions.length,
         events: 0,
-        total: meetings.length + missions.length + planningsConsolidate.length + planningsCoordinate.length,
+        total: meetings.length + missions.length,
     };
 
     return {
@@ -429,10 +431,10 @@ async function getPendingValidations(prisma, user) {
         hasAccess: true,
         counts,
         meetings,
-        planningsConsolidate,
-        planningsCoordinate,
+        planningsConsolidate: [],
+        planningsCoordinate: [],
         missions,
-        planningEvents,
+        planningEvents: [],
     };
 }
 

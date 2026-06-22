@@ -221,3 +221,8 @@ curl -X POST http://localhost:3001/api/meetings \
 ---
 
 **Durée totale de test recommandée: 15-20 minutes**
+
+
+
+Créateur (responsable) : Amadou Diallo
+Projet PACASEN : coordinateur = Marème Ndiaye, consolidateur = Fatou Seck (distincts → circuit complet à 2 étapes)

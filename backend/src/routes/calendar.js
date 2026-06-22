@@ -1,6 +1,5 @@
 const express = require('express');
 const { logger } = require('../utils/logger');
-const { missionScopeWhere } = require('../config/roles');
 const { meetingCalendarWhereForUser } = require('../config/meetingVisibility');
 const {
   toAppYmd,
@@ -69,7 +68,6 @@ async function monthHandler(req, res) {
       where: {
         ...timedEventOverlapsRange(startDate, endDate),
         status: 'CONFIRMED',
-        ...missionScopeWhere(req.user),
       },
       include: {
         createdBy: { select: { name: true, email: true } },
@@ -175,7 +173,6 @@ router.get('/week', async (req, res) => {
       where: {
         ...timedEventOverlapsRange(weekStart, weekEnd),
         status: 'CONFIRMED',
-        ...missionScopeWhere(req.user),
       },
       include: { createdBy: { select: { name: true } } },
     });
@@ -254,15 +251,16 @@ router.get('/day', async (req, res) => {
       where: {
         ...timedEventOverlapsRange(dayStart, dayEnd),
         status: 'CONFIRMED',
-        ...missionScopeWhere(req.user),
       },
       include: { createdBy: { select: { name: true } } },
       orderBy: { startTime: 'asc' },
     });
 
+    // Calendrier partagé : tous les événements de planning validés sont
+    // visibles par tous les utilisateurs de l'application.
     const planningEventWhere = {
       ...timedEventOverlapsRange(dayStart, dayEnd),
-      ...(req.user.role === 'RESPONSABLE' ? { planning: { userId: req.user.id } } : {}),
+      planning: { status: 'VALIDATED' },
     };
 
     const planningEvents = await req.prisma.planningEvent.findMany({

@@ -255,29 +255,25 @@ router.put('/:id/admin-submit', roleMiddleware(ADMIN_ROUTE_ROLES), async (req, r
         if (!['DRAFT', 'RETURNED'].includes(planning.status)) {
             return res.status(400).json({ error: 'Seul un brouillon ou un planning retourné peut être soumis.' });
         }
-        await attachPlanningValidationProject(req.prisma, planning);
-        const nextStatus = 'SUBMITTED';
+        // Les plannings ne sont plus soumis à validation : ils agrègent des
+        // réunions et missions déjà validées. La « soumission » se contente de
+        // marquer le planning comme à jour (VALIDATED), sans circuit coordinateur.
         const updated = await req.prisma.planning.update({
             where: { id: req.params.id },
             data: {
-                status: nextStatus,
+                status: 'VALIDATED',
                 submittedAt: new Date(),
+                validatedAt: new Date(),
             },
             include: {
                 events: { include: PLANNING_EVENT_INCLUDE },
             },
         });
-        await createAuditLog(req, 'PLANNING_SUBMITTED', 'Planning', req.params.id, `Soumission admin`);
-        await notifyPlanningPendingConsolidation(req.prisma, {
-            projectId: planning.user?.projectId,
-            ownerUserId: planning.userId,
-            ownerName: planning.user?.name,
-            planningId: req.params.id,
-            weekStart: planning.weekStart,
-            projectName: planning.user?.project?.name,
-        });
+        await createAuditLog(req, 'PLANNING_VALIDATED', 'Planning', req.params.id, `Planning marqué à jour (admin) — aucune validation requise`);
         await notificationService.createNotification(
-            req.prisma, planning.userId, 'PLANNING_SUBMITTED', 'Planning soumis', 'Votre planning a été soumis par l\'administration.', `/planning/${req.params.id}`
+            req.prisma, planning.userId, 'PLANNING_VALIDATED', 'Planning à jour',
+            'Votre planning a été mis à jour par l\'administration. Il regroupe vos réunions et missions déjà validées — aucune validation supplémentaire n\'est requise.',
+            `/planning/${req.params.id}`
         );
         res.json(updated);
     } catch (error) {
@@ -562,60 +558,48 @@ router.put('/:id/submit', async (req, res) => {
             return res.status(400).json({ error: 'Seuls les brouillons ou plannings retournés peuvent être soumis à nouveau.' });
         }
 
-        await attachPlanningValidationProject(req.prisma, planning);
-        const nextStatus = 'SUBMITTED';
+        // Les plannings ne sont plus soumis à validation : ils agrègent des
+        // réunions et missions déjà validées. La « soumission » marque
+        // simplement le planning comme à jour (VALIDATED), sans circuit.
         const updated = await req.prisma.planning.update({
             where: { id: req.params.id },
             data: {
-                status: nextStatus,
+                status: 'VALIDATED',
                 submittedAt: new Date(),
+                validatedAt: new Date(),
             },
             include: {
                 events: { include: PLANNING_EVENT_INCLUDE },
             },
         });
 
-        logger.info('PLANNING_SUBMITTED', `Planning soumis par ${req.user.name}`, {
+        logger.info('PLANNING_VALIDATED', `Planning mis à jour par ${req.user.name}`, {
             planningId: req.params.id,
             userId: req.user.id,
             byAdmin: isAdmin,
-            nextStatus,
         });
 
         await createAuditLog(
             req,
-            'PLANNING_SUBMITTED',
+            'PLANNING_VALIDATED',
             'Planning',
             req.params.id,
             isAdmin
-                ? `Planning ${req.params.id} soumis par l'administration (responsable: ${planning.userId})`
-                : `Planning ${req.params.id} soumis`
+                ? `Planning ${req.params.id} mis à jour par l'administration (responsable: ${planning.userId})`
+                : `Planning ${req.params.id} mis à jour`
         );
 
-        if (nextStatus === 'SUBMITTED') {
-            await notifyPlanningPendingCoordinatorReview(req.prisma, {
-                projectId: planning.user?.projectId,
-                ownerUserId: planning.userId,
-                ownerName: planning.user?.name,
-                planningId: req.params.id,
-                weekStart: planning.weekStart,
-                projectName: planning.user?.project?.name,
-            });
-        }
-
-        const ownerMsg = isAdmin
-            ? 'Votre planning a été soumis par l\'administration et est en attente de validation par le coordinateur du projet (1er palier).'
-            : 'Votre planning a été soumis et est en attente de validation par le coordinateur du projet (1er palier).';
+        const ownerMsg = 'Votre planning est à jour. Il regroupe vos réunions et missions déjà validées — aucune validation supplémentaire n\'est requise.';
         const weekLabel = formatPlanningWeekLabel(planning.weekStart);
         if (planning.user?.email) {
             await notificationService.sendFullNotification(
                 req.prisma,
                 planning.userId,
                 planning.user.email,
-                'PLANNING_SUBMITTED',
+                'PLANNING_VALIDATED',
                 'PLANNING_SUBMITTED',
                 [planning.user, req.params.id, ownerMsg, weekLabel],
-                'Planning soumis',
+                'Planning à jour',
                 ownerMsg,
                 `/plannings/${req.params.id}`,
             );
@@ -623,8 +607,8 @@ router.put('/:id/submit', async (req, res) => {
             await notificationService.createNotification(
                 req.prisma,
                 planning.userId,
-                'PLANNING_SUBMITTED',
-                'Planning soumis',
+                'PLANNING_VALIDATED',
+                'Planning à jour',
                 ownerMsg,
                 `/plannings/${req.params.id}`,
             );
@@ -810,6 +794,7 @@ async function handleCoordinatorApprove(req, res) {
                     planningId: req.params.id,
                     weekStart: planning.weekStart,
                     projectName: project?.name,
+                    directionId: planning.user?.directionId || null,
                 }));
 
                 const ownerInApp = 'Votre planning a été validé par le coordinateur du projet. Il attend la consolidation par le rôle Consolidateur.';
@@ -819,8 +804,8 @@ async function handleCoordinatorApprove(req, res) {
                             req.prisma,
                             planning.userId,
                             planning.user.email,
-                            'PLANNING_CONSOLIDATED',
-                            'PLANNING_CONSOLIDATED',
+                            'PLANNING_COORDINATED',
+                            'PLANNING_COORDINATED',
                             [planning.user, req.params.id, weekLabel, project?.name, req.user],
                             'Planning validé (coordinateur)',
                             ownerInApp,

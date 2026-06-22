@@ -23,11 +23,19 @@ const {
     canApproveDraftMission,
     canFinalizePendingMission,
 } = require('../services/validationPolicy.service');
+const { canUserConsolidateEntity } = require('../services/consolidatorResolution.service');
+const { attachMissionValidationWorkflow } = require('../services/validationWorkflow.service');
 const { notifyConsolidatorsPendingMission } = require('../services/projectConsolidator.service');
 const { notifyMissionPendingCoordinatorReview } = require('../services/projectCoordinator.service');
 const { pdfOnlyMulterFileFilter, wrapMulterUpload } = require('../utils/pdfUpload');
 
 const router = express.Router();
+
+async function canViewMission(mission, user, prisma) {
+    if (canViewMissionForUser(mission, user)) return true;
+    if (!prisma || !isPendingConsolidatorValidation(mission?.status)) return false;
+    return canUserConsolidateEntity(prisma, user, mission, 'mission');
+}
 
 const missionsUploadDir = path.join(__dirname, '../../uploads/missions');
 const uploadMissionFile = multer({
@@ -96,18 +104,15 @@ async function confirmMission(req, mission) {
 async function notifyCreatorMissionProgress(req, mission, stage) {
     const creator = mission.createdBy;
     if (!creator?.email) return;
-    const isCoordinated = stage === 'coordinated';
-    const isConsolidated = stage === 'consolidated';
-    const notifType = isCoordinated || isConsolidated ? 'MISSION_CONSOLIDATED' : 'MISSION_CONFIRMED';
-    const emailTemplate = isCoordinated || isConsolidated ? 'MISSION_CONSOLIDATED' : 'MISSION_CONFIRMED';
-    const inAppTitle = isCoordinated || isConsolidated
-        ? `Mission en cours de validation : ${mission.title}`
+    const isCoordinated = stage === 'coordinated' || stage === 'consolidated';
+    const notifType = isCoordinated ? 'MISSION_COORDINATED' : 'MISSION_CONFIRMED';
+    const emailTemplate = isCoordinated ? 'MISSION_COORDINATED' : 'MISSION_CONFIRMED';
+    const inAppTitle = isCoordinated
+        ? `Mission validée (étape 1/2) : ${mission.title}`
         : `Mission confirmée : ${mission.title}`;
     const inAppBody = isCoordinated
-        ? `Votre mission a été validée par ${req.user.name} (coordinateur). Elle attend la consolidation par le rôle Consolidateur.`
-        : isConsolidated
-            ? `Votre mission a été consolidée par ${req.user.name}. Elle attend la validation finale avant confirmation.`
-            : `Votre mission a été validée par ${req.user.name} et confirmée. Les intervenants ont été notifiés.`;
+        ? `Votre mission a été validée par ${req.user.name} (coordinateur). Elle attend la consolidation (étape 2/2).`
+        : `Votre mission a été consolidée et confirmée par ${req.user.name}. Les intervenants ont été notifiés.`;
     try {
         await notificationService.sendFullNotification(
             req.prisma,
@@ -218,8 +223,9 @@ router.get('/:id', async (req, res) => {
             },
         });
         if (!mission) return res.status(404).json({ error: 'Mission introuvable' });
-        if (!canViewMissionForUser(mission, req.user)) return res.status(403).json({ error: 'Accès non autorisé' });
-        res.json(mission);
+        if (!await canViewMission(mission, req.user, req.prisma)) return res.status(403).json({ error: 'Accès non autorisé' });
+        const enriched = await attachMissionValidationWorkflow(req.prisma, mission);
+        res.json(enriched);
     } catch (error) {
         logger.error('GET_MISSION', error.message, { missionId: req.params.id });
         res.status(500).json({ error: error.message });
@@ -572,7 +578,7 @@ router.post('/:id/files', wrapMulterUpload(uploadMissionFile.single('file')), as
         });
         if (!mission) return res.status(404).json({ error: 'Mission introuvable' });
 
-        if (!canViewMissionForUser(mission, req.user)) return res.status(403).json({ error: 'Accès non autorisé' });
+        if (!await canViewMission(mission, req.user, req.prisma)) return res.status(403).json({ error: 'Accès non autorisé' });
 
         const kind = 'DOCUMENT';
         const fileUrl = `/uploads/missions/${req.file.filename}`;
@@ -652,7 +658,7 @@ router.put('/:id/approve', async (req, res) => {
         }
 
         if (isPendingConsolidatorValidation(mission.status)) {
-            if (!canConsolidatePendingMission(mission, req.user)) {
+            if (!await canUserConsolidateEntity(req.prisma, req.user, mission, 'mission')) {
                 return res.status(403).json({ error: 'Vous n\'êtes pas autorisé à consolider cette mission.' });
             }
             const updated = await confirmMission(req, mission);

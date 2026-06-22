@@ -1,27 +1,17 @@
 import { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import {
-    Card, Typography, Tabs, Tag, Space, Button, Empty, Spin, Alert, Badge, List, Tooltip, App,
+    Card, Typography, Tabs, Tag, Space, Button, Empty, Spin, Alert, Badge, Tooltip, App,
 } from 'antd';
 import {
-    CheckCircleOutlined, TeamOutlined, ScheduleOutlined, FlagOutlined,
-    AppstoreOutlined, ReloadOutlined, EyeOutlined, CalendarOutlined,
+    CheckCircleOutlined, TeamOutlined, FlagOutlined,
+    ReloadOutlined, EyeOutlined, CalendarOutlined,
 } from '@ant-design/icons';
 import dayjs from 'dayjs';
 import api from '../api/client';
 import usePendingValidations, { notifyPendingValidationsRefresh } from '../hooks/usePendingValidations';
 
 const { Title, Text } = Typography;
-
-const PLANNING_STATUS_LABELS = {
-    SUBMITTED: 'Soumis',
-    CONSOLIDATOR_PENDING: 'Att. consolidation',
-    IN_CONSOLIDATION: 'En consolidation',
-    COORDINATOR_PENDING: 'Att. validation finale',
-    CP_PENDING: 'Att. validation finale',
-    SG_PENDING: 'Att. SG',
-    DG_PENDING: 'Att. DG',
-};
 
 const MEETING_STATUS_LABELS = {
     DRAFT: 'Brouillon',
@@ -100,67 +90,6 @@ function MeetingCard({ item, loading, onAction }) {
     );
 }
 
-function PlanningCard({ item, loading, onAction }) {
-    const navigate = useNavigate();
-    const isConsolidate = item.action === 'consolidate' || item.action === 'consolidate_and_validate';
-    const actionLabel = item.action === 'consolidate_and_validate'
-        ? 'Consolider et publier'
-        : isConsolidate
-            ? 'Consolider et publier'
-            : item.action === 'fallback'
-                ? 'Valider (consolidateur rôle)'
-                : item.action === 'coordinate' && item.status === 'SUBMITTED'
-                    ? 'Valider (coordinateur)'
-                    : 'Valider (coordinateur)';
-    const actionColor = item.action === 'consolidate_and_validate'
-        ? '#52c41a'
-        : isConsolidate
-            ? '#722ed1'
-            : item.action === 'fallback'
-                ? '#fa541c'
-                : '#52c41a';
-
-    return (
-        <Card size="small" style={{ marginBottom: 12 }}>
-            <Space orientation="vertical" size={8} style={{ width: '100%' }}>
-                <Space wrap>
-                    <ScheduleOutlined style={{ color: actionColor }} />
-                    <Text strong>Planning — {item.weekLabel}</Text>
-                    <Tag color={isConsolidate ? 'purple' : 'green'}>
-                        {PLANNING_STATUS_LABELS[item.status] || item.status}
-                    </Tag>
-                </Space>
-                <Text style={{ fontSize: 13 }}>
-                    Responsable : <Text strong>{item.owner?.name}</Text>
-                    {item.project?.name ? ` · ${item.project.name}` : ''}
-                </Text>
-                <Space wrap size={4}>
-                    {item.missionsCount > 0 && (
-                        <Tag icon={<FlagOutlined />} color="purple">{item.missionsCount} mission(s)</Tag>
-                    )}
-                    {item.eventsCount > 0 && (
-                        <Tag icon={<AppstoreOutlined />} color="cyan">{item.eventsCount} événement(s)</Tag>
-                    )}
-                </Space>
-                <Space wrap>
-                    <Button
-                        type="primary"
-                        icon={<CheckCircleOutlined />}
-                        loading={loading}
-                        style={{ background: actionColor, borderColor: actionColor }}
-                        onClick={() => onAction(item)}
-                    >
-                        {actionLabel}
-                    </Button>
-                    <Button icon={<EyeOutlined />} onClick={() => navigate(item.link)}>
-                        Examiner le planning
-                    </Button>
-                </Space>
-            </Space>
-        </Card>
-    );
-}
-
 function MissionCard({ item, loading, onAction }) {
     const navigate = useNavigate();
     const isConsolidate = item.action === 'consolidate';
@@ -214,8 +143,7 @@ export default function PendingValidations() {
     const { message } = App.useApp();
     const {
         loading, refresh, canSeeMenu, counts,
-        meetings, planningsConsolidate, planningsCoordinate,
-        missions, planningEvents,
+        meetings, missions,
     } = usePendingValidations(true);
 
     const [actionId, setActionId] = useState(null);
@@ -254,18 +182,6 @@ export default function PendingValidations() {
                     await api.put(`/missions/${id}/approve`);
                     message.success('Mission validée');
                 }
-            } else if (entityKind === 'planning') {
-                if (action === 'consolidate' || action === 'consolidate_and_validate') {
-                    await api.put(`/plannings/${id}/consolidate`);
-                    message.success('Planning consolidé et publié sur le calendrier');
-                } else {
-                    await api.put(`/plannings/${id}/approve-coordinator`);
-                    message.success(
-                        action === 'fallback'
-                            ? 'Planning validé (consolidateur rôle)'
-                            : 'Planning validé par le coordinateur — transmis au Consolidateur',
-                    );
-                }
             }
             await refresh();
             notifyPendingValidationsRefresh();
@@ -276,14 +192,13 @@ export default function PendingValidations() {
         }
     };
 
-    if (loading && !meetings.length && !planningsConsolidate.length && !planningsCoordinate.length) {
+    if (loading && !meetings.length && !missions.length) {
         return (
             <div style={{ textAlign: 'center', padding: 64 }}>
                 <Spin size="large" />
             </div>
         );
     }
-
     if (!canSeeMenu) {
         return (
             <Empty
@@ -294,10 +209,10 @@ export default function PendingValidations() {
     }
 
     const roleHints = [];
-    if (planningsConsolidate.length > 0 || meetings.some((m) => m.action === 'consolidate')) {
-        roleHints.push('rôle Consolidateur');
+    if (meetings.some((m) => m.action === 'consolidate') || missions.some((m) => m.action === 'consolidate')) {
+        roleHints.push('consolidateur de projet');
     }
-    if (planningsCoordinate.length > 0 || meetings.some((m) => m.action === 'coordinate')) {
+    if (meetings.some((m) => m.action === 'coordinate') || missions.some((m) => m.action === 'coordinate')) {
         roleHints.push('coordinateur de projet');
     }
 
@@ -323,32 +238,6 @@ export default function PendingValidations() {
                                             key={m.id}
                                             item={m}
                                             loading={actionId === m.id}
-                                            onAction={runAction}
-                                        />
-                                    ))}
-                                </>
-                            )}
-                            {planningsConsolidate.length > 0 && (
-                                <>
-                                    <Title level={5}>Plannings à consolider</Title>
-                                    {planningsConsolidate.map((p) => (
-                                        <PlanningCard
-                                            key={p.id}
-                                            item={p}
-                                            loading={actionId === p.id}
-                                            onAction={runAction}
-                                        />
-                                    ))}
-                                </>
-                            )}
-                            {planningsCoordinate.length > 0 && (
-                                <>
-                                    <Title level={5}>Plannings à valider (coordinateur)</Title>
-                                    {planningsCoordinate.map((p) => (
-                                        <PlanningCard
-                                            key={p.id}
-                                            item={p}
-                                            loading={actionId === p.id}
                                             onAction={runAction}
                                         />
                                     ))}
@@ -389,38 +278,6 @@ export default function PendingValidations() {
             )) : <Empty description="Aucune réunion en attente" />,
         },
         {
-            key: 'consolidate',
-            label: (
-                <Badge count={counts.planningsConsolidate} size="small" offset={[6, 0]} color="#722ed1">
-                    Plannings
-                </Badge>
-            ),
-            children: planningsConsolidate.length ? planningsConsolidate.map((p) => (
-                <PlanningCard
-                    key={p.id}
-                    item={p}
-                    loading={actionId === p.id}
-                    onAction={runAction}
-                />
-            )) : <Empty description="Aucun planning à consolider" />,
-        },
-        {
-            key: 'coordinate',
-            label: (
-                <Badge count={counts.planningsCoordinate} size="small" offset={[6, 0]} color="#52c41a">
-                    Coordination
-                </Badge>
-            ),
-            children: planningsCoordinate.length ? planningsCoordinate.map((p) => (
-                <PlanningCard
-                    key={p.id}
-                    item={p}
-                    loading={actionId === p.id}
-                    onAction={runAction}
-                />
-            )) : <Empty description="Aucun planning en attente de validation coordinateur" />,
-        },
-        {
             key: 'missions',
             label: (
                 <Badge count={counts.missions} size="small" offset={[6, 0]} color="#722ed1">
@@ -435,48 +292,7 @@ export default function PendingValidations() {
                     onAction={runAction}
                 />
             )) : (
-                <Empty description="Aucune mission liée aux plannings en attente" />
-            ),
-        },
-        {
-            key: 'events',
-            label: (
-                <Badge count={counts.events} size="small" offset={[6, 0]} color="#13c2c2">
-                    Événements
-                </Badge>
-            ),
-            children: planningEvents.length ? (
-                <List
-                    dataSource={planningEvents}
-                    renderItem={(ev) => (
-                        <List.Item
-                            actions={[
-                                <Button key="view" type="link" onClick={() => navigate(ev.link)}>
-                                    Voir le planning
-                                </Button>,
-                            ]}
-                        >
-                            <List.Item.Meta
-                                avatar={<AppstoreOutlined style={{ color: '#13c2c2', fontSize: 18 }} />}
-                                title={(
-                                    <Space wrap>
-                                        <span>{ev.title}</span>
-                                        <EventTypeTag eventType={ev.eventType} fallback={ev.type} />
-                                    </Space>
-                                )}
-                                description={(
-                                    <Text type="secondary" style={{ fontSize: 12 }}>
-                                        {formatDateTime(ev.startTime)}
-                                        {ev.room?.name ? ` · ${ev.room.name}` : ''}
-                                        {' · Semaine '}{ev.weekLabel} — {ev.ownerName}
-                                    </Text>
-                                )}
-                            />
-                        </List.Item>
-                    )}
-                />
-            ) : (
-                <Empty description="Aucun événement de planning en attente" />
+                <Empty description="Aucune mission en attente" />
             ),
         },
     ];
@@ -515,7 +331,7 @@ export default function PendingValidations() {
                 showIcon
                 icon={<CalendarOutlined />}
                 title="Circuit de validation"
-                description="1er palier : coordinateur du projet (réunions, missions, plannings soumis). 2e palier : rôle Consolidateur global — publication sur le calendrier uniquement après cette étape."
+                description="1er palier : coordinateur du projet. 2e palier : consolidateur du projet, puis consolidateur de la même direction, sinon rôle Consolidateur global. Publication calendrier uniquement après consolidation."
                 style={{ marginBottom: 16 }}
             />
 

@@ -63,12 +63,7 @@ export function isGlobalConsolidatorRole(user) {
 }
 
 export function canConsolidateMission(mission, user) {
-    if (!mission || !user) return false;
-    if (!isPendingConsolidatorStatus(mission.status)) return false;
-    if (isPrivilegedAdmin(user.role)) return true;
-    const creatorRole = normalizeRole(mission.createdBy?.role);
-    if (creatorRole !== ROLES.RESPONSABLE) return false;
-    return isGlobalConsolidatorRole(user);
+    return canConsolidateResponsibleEntity(mission, user, mission?.project, mission?.directionId);
 }
 
 export function canCoordinateMission(mission, user) {
@@ -168,6 +163,30 @@ export function isUserProjectResponsible(user, project) {
     return project.responsibleId === user.id;
 }
 
+/** Consolidation étape 2 : consolidateur projet → direction → rôle global. */
+export function canConsolidateForProject(user, project, directionId) {
+    if (!user) return false;
+    if (isPrivilegedAdmin(user.role)) return true;
+    if (project?.consolidatorId) {
+        return project.consolidatorId === user.id;
+    }
+    if (directionId && user.directionId === directionId) {
+        return isGlobalConsolidatorRole(user) || userMayConsolidate(user) || isProjectConsolidator({ project }, user);
+    }
+    return isGlobalConsolidatorRole(user);
+}
+
+function canConsolidateResponsibleEntity(entity, user, project, directionId) {
+    if (!entity || !user) return false;
+    if (!isPendingConsolidatorStatus(entity.status)) return false;
+    const creatorOrOrganizerRole = normalizeRole(
+        entity.createdBy?.role ?? entity.organizer?.role,
+    );
+    if (creatorOrOrganizerRole !== ROLES.RESPONSABLE) return false;
+    const dirId = directionId ?? entity.directionId ?? entity.direction?.id;
+    return canConsolidateForProject(user, project ?? entity.project ?? entity.user?.project, dirId);
+}
+
 function planningValidationFlags(planning) {
     return planning?.validation || null;
 }
@@ -175,10 +194,11 @@ function planningValidationFlags(planning) {
 export function canConsolidatePlanning(planning, user) {
     const fromApi = planningValidationFlags(planning);
     if (fromApi && typeof fromApi.canConsolidate === 'boolean') return fromApi.canConsolidate;
+    const project = planning?.user?.project || planning?.project || fromApi?.project;
+    const directionId = planning?.user?.directionId || planning?.directionId;
     if (!planning || !user) return false;
-    if (isPrivilegedAdmin(user.role)) return true;
     if (!isPendingConsolidatorStatus(planning.status)) return false;
-    return isGlobalConsolidatorRole(user);
+    return canConsolidateForProject(user, project, directionId);
 }
 
 const PENDING_CONSOLIDATOR = ['CONSOLIDATOR_PENDING'];
@@ -225,20 +245,20 @@ export function canViewPlanningDetail(planning, user) {
     if (!planning || !user?.id) return false;
     if (planning.userId === user.id) return true;
     if (isPrivilegedAdmin(user.role)) return true;
-    if (isGlobalConsolidatorRole(user)) return true;
     const project = planning.user?.project || planning.project;
     if (project?.coordinatorId === user.id) return true;
+    if (project?.consolidatorId === user.id) return true;
+    if (isGlobalConsolidatorRole(user) && projectNeedsGlobalConsolidatorFallback(project)) return true;
     if (canConsolidatePlanning(planning, user) || canCoordinatePlanning(planning, user)) return true;
     return false;
 }
 
+function projectNeedsGlobalConsolidatorFallback(project) {
+    return !project?.consolidatorId;
+}
+
 export function canConsolidateMeeting(meeting, user) {
-    if (!meeting || !user) return false;
-    if (!isPendingConsolidatorStatus(meeting.status)) return false;
-    if (isPrivilegedAdmin(user.role)) return true;
-    const organizerRole = normalizeRole(meeting.organizer?.role);
-    if (organizerRole !== ROLES.RESPONSABLE) return false;
-    return isGlobalConsolidatorRole(user);
+    return canConsolidateResponsibleEntity(meeting, user, meeting?.project, meeting?.directionId);
 }
 
 export function canCoordinateMeeting(meeting, user) {
@@ -293,10 +313,11 @@ export function userAssignedOnAnyProject(projects, userId) {
     return userConsolidatesAnyProject(projects, userId) || userCoordinatesAnyProject(projects, userId);
 }
 
-/** Menu « À valider » : admin, rôle Consolidateur, ou coordinateur sur un projet. */
+/** Menu « À valider » : admin, rôle Consolidateur, coordinateur, consolidateur projet ou direction. */
 export function userCanSeeValidationMenu(user, projects = []) {
     if (!user?.id) return false;
     if (isPrivilegedAdmin(user.role)) return true;
     if (isGlobalConsolidatorRole(user)) return true;
-    return userCoordinatesAnyProject(projects, user.id);
+    if (userMayConsolidate(user) && user.directionId) return true;
+    return userCoordinatesAnyProject(projects, user.id) || userConsolidatesAnyProject(projects, user.id);
 }

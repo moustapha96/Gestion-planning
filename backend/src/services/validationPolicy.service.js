@@ -4,9 +4,8 @@ const {
     isPendingCoordinatorValidation,
 } = require('../config/planningWorkflow');
 
-function isUserProjectCoordinator(user, project) {
-    if (!user?.id || !project) return false;
-    return project.coordinatorId === user.id;
+function isGlobalConsolidatorRole(user) {
+    return normalizeRole(user?.storedRole || user?.role) === ROLES.CONSOLIDATEUR;
 }
 
 function normalizeRole(role) {
@@ -15,35 +14,61 @@ function normalizeRole(role) {
     return role;
 }
 
-/** Utilisateur au rôle Consolidateur (validation globale étape 2). */
-function isGlobalConsolidatorRole(user) {
-    return normalizeRole(user?.storedRole || user?.role) === ROLES.CONSOLIDATEUR;
+/** Consolidation étape 2 (sync) : projet → direction → rôle global. */
+function canConsolidateInContext(user, { project, directionId, directionConsolidatorIds = [] } = {}) {
+    if (!user) return false;
+    if (isPrivilegedAdmin(user.role)) return true;
+    if (project?.consolidatorId) {
+        return project.consolidatorId === user.id;
+    }
+    const dirIds = Array.isArray(directionConsolidatorIds) ? directionConsolidatorIds : [];
+    if (directionId && dirIds.length > 0) {
+        return dirIds.includes(user.id);
+    }
+    return isGlobalConsolidatorRole(user);
 }
 
-/** @deprecated Plus de consolidateur par projet — conservé pour compatibilité schéma / affichage. */
-function projectHasConsolidator(_project) {
-    return false;
+async function userCanSeeValidationMenu(prisma, user) {
+    const { userCanAccessValidationMenuExtended } = require('./consolidatorResolution.service');
+    return userCanAccessValidationMenuExtended(prisma, user);
+}
+
+function isUserProjectCoordinator(user, project) {
+    if (!user?.id || !project) return false;
+    return project.coordinatorId === user.id;
+}
+
+/** Utilisateur désigné consolidateur sur le projet (fiche projet). */
+function isUserProjectConsolidator(user, project) {
+    if (!user?.id || !project?.consolidatorId) return false;
+    return project.consolidatorId === user.id;
+}
+
+function projectHasConsolidator(project) {
+    return Boolean(project?.consolidatorId);
 }
 
 function projectHasCoordinator(project) {
     return Boolean(project?.coordinatorId);
 }
 
-/** @deprecated */
-function projectNeedsGlobalConsolidatorFallback(project) {
-    if (!project) return true;
-    return !projectHasCoordinator(project);
+/** Consolidation étape 2 : consolidateur projet → direction → rôle global. */
+function canConsolidateForContext(user, context) {
+    return canConsolidateInContext(user, context);
 }
 
-/** Accès au menu / page « À valider ». */
-async function userCanSeeValidationMenu(prisma, user) {
-    if (!user?.id) return false;
-    if (isPrivilegedAdmin(user.role)) return true;
-    if (isGlobalConsolidatorRole(user)) return true;
-    const asCoordinator = await prisma.project.count({
-        where: { coordinatorId: user.id, isActive: true },
+/** @deprecated alias */
+function canConsolidateForProject(user, project, directionId, directionConsolidatorIds) {
+    return canConsolidateInContext(user, {
+        project,
+        directionId,
+        directionConsolidatorIds,
     });
-    return asCoordinator > 0;
+}
+
+function projectNeedsGlobalConsolidatorFallback(project) {
+    if (!project) return true;
+    return !projectHasConsolidator(project);
 }
 
 function meetingOrganizerNeedsApproval(meeting) {
@@ -69,13 +94,17 @@ function canCoordinateDraftMeeting(meeting, user) {
 }
 
 /**
- * 2e palier réunion (CONSOLIDATOR_PENDING) : rôle Consolidateur global.
+ * 2e palier réunion (CONSOLIDATOR_PENDING) : consolidateur du projet
+ * ou rôle Consolidateur global si aucun consolidateur désigné.
  */
 function canConsolidatePendingMeeting(meeting, user) {
     if (!meeting || !isPendingConsolidatorValidation(meeting.status) || !user) return false;
     if (!meetingOrganizerNeedsApproval(meeting)) return false;
-    if (isPrivilegedAdmin(user.role)) return true;
-    return isGlobalConsolidatorRole(user);
+    return canConsolidateInContext(user, {
+        project: meeting.project || null,
+        directionId: meeting.directionId || null,
+        directionConsolidatorIds: meeting._directionConsolidatorIds || [],
+    });
 }
 
 /** Publication directe depuis DRAFT : uniquement si le créateur n'est pas responsable. */
@@ -115,8 +144,11 @@ function canCoordinateDraftMission(mission, user) {
 function canConsolidatePendingMission(mission, user) {
     if (!mission || !isPendingConsolidatorValidation(mission.status) || !user) return false;
     if (!missionCreatorNeedsApproval(mission)) return false;
-    if (isPrivilegedAdmin(user.role)) return true;
-    return isGlobalConsolidatorRole(user);
+    return canConsolidateInContext(user, {
+        project: mission.project || null,
+        directionId: mission.directionId || null,
+        directionConsolidatorIds: mission._directionConsolidatorIds || [],
+    });
 }
 
 function canApproveDraftMission(mission, user) {
@@ -163,12 +195,17 @@ function canCoordinateSubmittedPlanning(planning, user) {
     return projectHasCoordinator(project) && isUserProjectCoordinator(user, project);
 }
 
-/** 2e palier planning (CONSOLIDATOR_PENDING) : rôle Consolidateur global. */
+/** 2e palier planning (CONSOLIDATOR_PENDING) : consolidateur du projet ou rôle global. */
 function canConsolidatePendingPlanning(planning, user) {
     if (!planning || !user) return false;
-    if (isPrivilegedAdmin(user.role)) return true;
     if (!isPendingConsolidatorValidation(planning.status)) return false;
-    return isGlobalConsolidatorRole(user);
+    const project = planning.user?.project || planning.project || null;
+    const directionId = planning.user?.directionId || planning._directionId || null;
+    return canConsolidateInContext(user, {
+        project,
+        directionId,
+        directionConsolidatorIds: planning._directionConsolidatorIds || [],
+    });
 }
 
 /** Legacy : coordinateur finalise les plannings en COORDINATOR_PENDING (ancien flux). */
@@ -193,6 +230,7 @@ function canUserViewPlanning(planning, user) {
 
     const project = planning.user?.project || planning.project || null;
     if (isUserProjectCoordinator(user, project)) return true;
+    if (isUserProjectConsolidator(user, project)) return true;
     if (canCoordinateSubmittedPlanning(planning, user)) return true;
     if (canConsolidatePendingPlanning(planning, user)) return true;
     if (canValidatePlanningAsCoordinator(planning, user)) return true;
@@ -210,9 +248,13 @@ function planningValidationActionLabel(planning) {
 
 module.exports = {
     isGlobalConsolidatorRole,
+    isUserProjectConsolidator,
+    canConsolidateForContext,
+    canConsolidateForProject,
     projectHasConsolidator,
     projectHasCoordinator,
     projectNeedsGlobalConsolidatorFallback,
+    canConsolidateInContext,
     userCanSeeValidationMenu,
     meetingOrganizerNeedsApproval,
     canCoordinateDraftMeeting,

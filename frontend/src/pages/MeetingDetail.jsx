@@ -40,7 +40,7 @@ import {
     VideoCameraOutlined,
 } from '@ant-design/icons';
 import dayjs from 'dayjs';
-import api, { API_BASE } from '../api/client';
+import ValidationWorkflowBanner from '../components/ValidationWorkflowBanner';
 import { useAuth } from '../context/AuthContext';
 import { enqueueRealtimeTask } from '../realtime/socket';
 import {
@@ -788,7 +788,9 @@ export default function MeetingDetail() {
                 )}
             </Space>
 
-            {needsCoordinator && (
+            <ValidationWorkflowBanner workflow={meeting.validation?.workflow} />
+
+            {!meeting.validation?.workflow?.inWorkflow && needsCoordinator && (
                 <Alert
                     type="warning"
                     showIcon
@@ -800,7 +802,7 @@ export default function MeetingDetail() {
                     }
                 />
             )}
-            {needsConsolidator && (
+            {!meeting.validation?.workflow?.inWorkflow && needsConsolidator && (
                 <Alert
                     type="warning"
                     showIcon

@@ -28,6 +28,8 @@ const {
     canApproveDraftMeeting,
     canFinalizePendingMeeting,
 } = require('../services/validationPolicy.service');
+const { canUserConsolidateEntity } = require('../services/consolidatorResolution.service');
+const { attachMeetingValidationWorkflow } = require('../services/validationWorkflow.service');
 const { notifyMeetingPendingCoordinatorReview } = require('../services/projectCoordinator.service');
 const { emitToUsers, emitToMeetingRoom } = require('../realtime/socket');
 const { pdfOnlyMulterFileFilter, wrapMulterUpload } = require('../utils/pdfUpload');
@@ -54,8 +56,10 @@ async function canUseMeetingFiles(prisma) {
     return meetingFilesFeatureEnabled;
 }
 
-function canViewMeeting(meeting, user) {
-    return canViewMeetingForUser(meeting, user);
+async function canViewMeeting(meeting, user, prisma) {
+    if (canViewMeetingForUser(meeting, user)) return true;
+    if (!prisma || !isPendingConsolidatorValidation(meeting?.status)) return false;
+    return canUserConsolidateEntity(prisma, user, meeting, 'meeting');
 }
 
 function isParticipant(meeting, user) {
@@ -406,11 +410,16 @@ router.get('/:id', async (req, res) => {
             return res.status(404).json({ error: 'Meeting not found' });
         }
 
-        if (!canViewMeeting(meeting, req.user)) {
+        if (!await canViewMeeting(meeting, req.user, req.prisma)) {
             return res.status(403).json({ error: 'Accès non autorisé' });
         }
 
-        res.json({ ...meeting, files: meeting.files || [], messages: meeting.messages || [] });
+        const enriched = await attachMeetingValidationWorkflow(req.prisma, {
+            ...meeting,
+            files: meeting.files || [],
+            messages: meeting.messages || [],
+        });
+        res.json(enriched);
     } catch (error) {
         logger.error('GET_MEETING', 'Erreur récupération réunion', {
             meetingId: req.params.id,
@@ -1121,18 +1130,15 @@ router.put('/:id/send', async (req, res) => {
 
 async function notifyOrganizerMeetingProgress(req, meeting, stage) {
     if (!meeting.organizer?.email) return;
-    const isCoordinated = stage === 'coordinated';
-    const isConsolidated = stage === 'consolidated';
-    const notifType = isCoordinated || isConsolidated ? 'MEETING_CONSOLIDATED' : 'MEETING_PUBLISHED';
-    const emailTemplate = isCoordinated || isConsolidated ? 'MEETING_CONSOLIDATED' : 'MEETING_PUBLISHED';
-    const inAppTitle = isCoordinated || isConsolidated
-        ? `Réunion en cours de validation : ${meeting.title}`
+    const isCoordinated = stage === 'coordinated' || stage === 'consolidated';
+    const notifType = isCoordinated ? 'MEETING_COORDINATED' : 'MEETING_PUBLISHED';
+    const emailTemplate = isCoordinated ? 'MEETING_COORDINATED' : 'MEETING_PUBLISHED';
+    const inAppTitle = isCoordinated
+        ? `Réunion validée (étape 1/2) : ${meeting.title}`
         : `Réunion publiée : ${meeting.title}`;
     const inAppBody = isCoordinated
-        ? `Votre réunion a été validée par ${req.user.name} (coordinateur). Elle attend la consolidation par le rôle Consolidateur.`
-        : isConsolidated
-            ? `Votre réunion a été consolidée par ${req.user.name}. Elle attend la validation finale avant publication.`
-            : `Votre réunion a été validée par ${req.user.name} et publiée sur le calendrier. Les convocations ont été envoyées.`;
+        ? `Votre réunion a été validée par ${req.user.name} (coordinateur). Elle attend la consolidation (étape 2/2).`
+        : `Votre réunion a été consolidée et publiée par ${req.user.name}. Les convocations ont été envoyées.`;
     try {
         await notificationService.sendFullNotification(
             req.prisma,
@@ -1178,7 +1184,7 @@ router.put('/:id/approve', async (req, res) => {
         }
 
         if (isPendingConsolidatorValidation(meeting.status)) {
-            if (!canConsolidatePendingMeeting(meeting, req.user)) {
+            if (!await canUserConsolidateEntity(req.prisma, req.user, meeting, 'meeting')) {
                 return res.status(403).json({ error: 'Vous n\'êtes pas autorisé à consolider cette réunion.' });
             }
             const updated = await publishMeeting(req, meeting);

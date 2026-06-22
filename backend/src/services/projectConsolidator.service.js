@@ -2,10 +2,10 @@ const { ROLES, isPrivilegedAdmin } = require('../config/roles');
 const {
     projectHasConsolidator,
     projectNeedsGlobalConsolidatorFallback,
-    canConsolidatePendingPlanning,
 } = require('./validationPolicy.service');
 const { notificationService } = require('./notification.service');
 const { logger } = require('../utils/logger');
+const { canUserConsolidateEntity, resolveConsolidatorScope } = require('./consolidatorResolution.service');
 
 const CONSOLIDATOR_USER_SELECT = {
     id: true,
@@ -162,9 +162,15 @@ async function getGlobalConsolidatorRoleUsers(prisma) {
     });
 }
 
-async function resolveConsolidatorRecipients(prisma, _projectId) {
-    const globalConsolidators = await getGlobalConsolidatorRoleUsers(prisma);
-    return globalConsolidators.filter((u) => u.email);
+async function resolveConsolidatorRecipients(prisma, projectIdOrOptions, legacyOwnerUserId) {
+    const { resolveConsolidatorRecipients: resolveOrdered } = require('./consolidatorResolution.service');
+    if (projectIdOrOptions && typeof projectIdOrOptions === 'object') {
+        return resolveOrdered(prisma, projectIdOrOptions);
+    }
+    return resolveOrdered(prisma, {
+        projectId: projectIdOrOptions,
+        ownerUserId: legacyOwnerUserId,
+    });
 }
 
 async function notifyConsolidatorsForProject(prisma, _req, projectId, {
@@ -175,9 +181,19 @@ async function notifyConsolidatorsForProject(prisma, _req, projectId, {
     message,
     link,
     ownerUserId,
+    directionId,
 }) {
     const resolvedProjectId = await resolveProjectIdForConsolidation(prisma, projectId, ownerUserId);
-    const recipients = await resolveConsolidatorRecipients(prisma, resolvedProjectId);
+    const scopeInfo = await resolveConsolidatorScope(prisma, {
+        projectId: resolvedProjectId,
+        directionId,
+        ownerUserId,
+    });
+    const recipients = await resolveConsolidatorRecipients(prisma, {
+        projectId: resolvedProjectId,
+        directionId,
+        ownerUserId,
+    });
     if (!recipients.length) {
         logger.warn('CONSOLIDATOR_NOTIFY_SKIPPED', 'Aucun consolidateur joignable pour cette notification', {
             type,
@@ -191,7 +207,9 @@ async function notifyConsolidatorsForProject(prisma, _req, projectId, {
     let failed = 0;
     for (const c of recipients) {
         try {
-            const args = typeof emailArgs === 'function' ? emailArgs(c) : (emailArgs || [c]);
+            const args = typeof emailArgs === 'function'
+                ? emailArgs(c, { ...scopeInfo, isFallbackRole: scopeInfo.scope === 'global' })
+                : (emailArgs || [c]);
             const result = await notificationService.sendFullNotification(
                 prisma,
                 c.id,
@@ -247,11 +265,12 @@ async function notifyConsolidatorsPendingMission(prisma, mission, creator) {
     const ownerName = creator?.name || 'Un responsable';
     return notifyConsolidatorsForProject(prisma, null, projectId, {
         ownerUserId: creator?.id || mission.createdById,
+        directionId: mission.directionId || null,
         type: 'MISSION_PENDING_APPROVAL',
         emailType: 'MISSION_PENDING_APPROVAL',
-        emailArgs: (c) => [c, mission, creator],
+        emailArgs: (c, scopeInfo) => [c, mission, creator, scopeInfo],
         title: `Mission à valider : ${mission.title}`,
-        message: `${ownerName} a soumis une mission — validée par le coordinateur, en attente de votre validation (2e palier).`,
+        message: `${ownerName} a soumis une mission — validée par le coordinateur, en attente de votre validation consolidateur (2e palier).`,
         link: `/missions/${mission.id}`,
     });
 }
@@ -266,11 +285,12 @@ async function notifyConsolidatorsPendingMeeting(prisma, meeting, organizer) {
     const ownerName = org?.name || 'Un responsable';
     return notifyConsolidatorsForProject(prisma, null, projectId, {
         ownerUserId: org?.id || meeting.organizerId,
+        directionId: enriched.directionId || meeting.directionId || null,
         type: 'MEETING_PENDING_APPROVAL',
         emailType: 'MEETING_PENDING_APPROVAL',
-        emailArgs: (c) => [c, enriched, org, enriched.room],
+        emailArgs: (c, scopeInfo) => [c, enriched, org, enriched.room, scopeInfo],
         title: `Réunion à valider : ${enriched.title}`,
-        message: `${ownerName} a soumis une réunion — validée par le coordinateur, en attente de votre validation (2e palier).`,
+        message: `${ownerName} a soumis une réunion — validée par le coordinateur, en attente de votre validation consolidateur (2e palier).`,
         link: `/meetings/${enriched.id}`,
     });
 }
@@ -283,13 +303,15 @@ async function notifyPlanningPendingConsolidation(prisma, {
     planningId,
     weekStart,
     projectName,
+    directionId,
 }) {
     const weekLabel = formatPlanningWeekLabel(weekStart);
     return notifyConsolidatorsForProject(prisma, null, projectId, {
         ownerUserId,
+        directionId,
         type: 'PLANNING_PENDING_CONSOLIDATION',
         emailType: 'PLANNING_PENDING_CONSOLIDATION',
-        emailArgs: (c) => [c, ownerName, planningId, weekLabel, projectName],
+        emailArgs: (c, scopeInfo) => [c, ownerName, planningId, weekLabel, projectName, scopeInfo],
         title: 'Planning à consolider',
         message: `${ownerName || 'Un responsable'} a soumis un planning${weekLabel ? ` (semaine du ${weekLabel})` : ''} — validé par le coordinateur, en attente de consolidation (2e palier).`,
         link: `/plannings/${planningId}`,
@@ -307,6 +329,13 @@ function isUserProjectConsolidator(user, projectOrConsolidatorId) {
 function canActAsConsolidator(user, projectOrConsolidatorId) {
     if (!user) return false;
     if (isPrivilegedAdmin(user.role)) return true;
+    const { canConsolidateInContext } = require('./validationPolicy.service');
+    if (typeof projectOrConsolidatorId === 'object' && projectOrConsolidatorId !== null) {
+        return canConsolidateInContext(user, {
+            project: projectOrConsolidatorId,
+            directionId: projectOrConsolidatorId._directionId || null,
+        });
+    }
     return isUserProjectConsolidator(user, projectOrConsolidatorId);
 }
 
@@ -319,7 +348,7 @@ async function canUserConsolidatePlanning(prisma, user, planning) {
         });
     }
     await attachPlanningValidationProject(prisma, planning);
-    return canConsolidatePendingPlanning(planning, user);
+    return canUserConsolidateEntity(prisma, user, planning, 'planning');
 }
 
 /** Email + notification in-app : nouvel consolidateur désigné pour un projet. */

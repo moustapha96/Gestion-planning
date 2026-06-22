@@ -3,8 +3,9 @@ const fs = require('fs');
 const path = require('path');
 const multer = require('multer');
 const roleMiddleware = require('../middlewares/role.middleware');
-const { ROLES, ADMIN_ROUTE_ROLES, isPrivilegedAdmin, isSuperAdmin, canManageProjects, missionScopeWhere, planningScopeWhere } = require('../config/roles');
-const { meetingListWhereForUser, publishedMeetingStatusFilter } = require('../config/meetingVisibility');
+const { ROLES, ADMIN_ROUTE_ROLES, isPrivilegedAdmin, isSuperAdmin, canManageProjects } = require('../config/roles');
+const { meetingListWhereForUser, publishedMeetingStatusFilter, ownMeetingScope } = require('../config/meetingVisibility');
+const { ownMissionScope } = require('../config/missionVisibility');
 const { detachProjectReferences, detachDirectionReferences } = require('../utils/forceDelete');
 const { syncDirectionDiscussionMembers } = require('../services/directionDiscussion.service');
 const {
@@ -178,7 +179,12 @@ router.get('/unified', async (req, res) => {
         const page = Math.max(1, parseInt(req.query.page, 10) || 1);
         const skip = (page - 1) * limit;
         const eventTypeCategories = await loadActiveEventTypes(req.prisma);
-        const planningFilter = planningScopeWhere(req.user);
+        // Chaque utilisateur ne voit que SES propres événements (réunions,
+        // missions, événements de planning). Les admins privilégiés voient tout.
+        const isAdminViewer = isPrivilegedAdmin(req.user.role);
+        const meetingOwnScope = isAdminViewer ? {} : (ownMeetingScope(req.user) || { id: '__none__' });
+        const missionOwnScope = isAdminViewer ? {} : (ownMissionScope(req.user) || { id: '__none__' });
+        const planningOwnScope = isAdminViewer ? {} : { userId: req.user.id };
         const reunionType = eventTypeCategories.find((t) => t.code === 'REUNION');
         const missionType = eventTypeCategories.find((t) => t.code === 'MISSION');
 
@@ -186,6 +192,7 @@ router.get('/unified', async (req, res) => {
             req.prisma.meeting.findMany({
                 where: {
                     ...publishedMeetingStatusFilter(),
+                    ...meetingOwnScope,
                     ...(from || to ? { startTime: { ...(from ? { gte: from } : {}), ...(to ? { lte: to } : {}) } } : {}),
                     ...(directionId ? { directionId } : {}),
                     ...(projectId ? { projectId } : {}),
@@ -203,7 +210,7 @@ router.get('/unified', async (req, res) => {
             }),
             req.prisma.mission.findMany({
                 where: {
-                    ...missionScopeWhere(req.user),
+                    ...missionOwnScope,
                     ...(from || to ? { startTime: { ...(from ? { gte: from } : {}), ...(to ? { lte: to } : {}) } } : {}),
                     status: 'CONFIRMED',
                     ...(directionId ? { directionId } : {}),
@@ -221,7 +228,7 @@ router.get('/unified', async (req, res) => {
             req.prisma.planningEvent.findMany({
                 where: {
                     ...(from || to ? { startTime: { ...(from ? { gte: from } : {}), ...(to ? { lte: to } : {}) } } : {}),
-                    planning: { status: 'VALIDATED' },
+                    planning: { status: 'VALIDATED', ...planningOwnScope },
                     ...(directionId ? { directionId } : {}),
                     ...(projectId ? { projectId } : {}),
                 },

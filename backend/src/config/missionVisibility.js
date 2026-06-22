@@ -32,10 +32,34 @@ function coordinatorDraftMissionFilter(user) {
 }
 
 function consolidatorPendingMissionFilter(user) {
-    if (!isGlobalConsolidatorRole(user)) return null;
+    if (!user?.id) return null;
+    const orClauses = [{ project: { consolidatorId: user.id } }];
+    if (user.directionId) {
+        orClauses.push({
+            directionId: user.directionId,
+            OR: [
+                { project: { is: null } },
+                { project: { consolidatorId: null } },
+            ],
+        });
+    }
+    if (isGlobalConsolidatorRole(user)) {
+        orClauses.push(
+            { project: { is: null }, directionId: null },
+            { project: { consolidatorId: null }, directionId: null },
+        );
+    }
+    if (orClauses.length === 1) {
+        return {
+            status: 'CONSOLIDATOR_PENDING',
+            createdBy: { role: ROLES.RESPONSABLE },
+            ...orClauses[0],
+        };
+    }
     return {
         status: 'CONSOLIDATOR_PENDING',
         createdBy: { role: ROLES.RESPONSABLE },
+        OR: orClauses,
     };
 }
 
@@ -52,24 +76,27 @@ function responsableMissionScope(user) {
     return { createdById: user.id };
 }
 
-function missionListWhereForUser(user) {
-    const ownOnly = responsableMissionScope(user);
-    if (ownOnly) return ownOnly;
-    if (isPrivilegedAdmin(user?.role)) {
-        return { status: { not: 'CANCELLED' } };
-    }
-    const draftAsCoordinator = coordinatorDraftMissionFilter(user);
-    const pendingConsolidator = consolidatorPendingMissionFilter(user);
-    const legacyPending = legacyCoordinatorPendingMissionFilter(user);
+/** Missions « personnelles » d'un utilisateur : créateur ou assigné. */
+function ownMissionScope(user) {
+    if (!user?.id) return null;
     return {
         OR: [
             { createdById: user.id },
             { assignments: { some: { userId: user.id } } },
-            ...(draftAsCoordinator ? [draftAsCoordinator] : []),
-            ...(pendingConsolidator ? [pendingConsolidator] : []),
-            ...(legacyPending ? [legacyPending] : []),
         ],
     };
+}
+
+/**
+ * Page « Missions » : chaque utilisateur ne voit QUE ses propres missions
+ * (créateur ou assigné). Les missions à valider sont accessibles uniquement
+ * via la page « À valider ». Les admins privilégiés voient tout.
+ */
+function missionListWhereForUser(user) {
+    if (isPrivilegedAdmin(user?.role)) {
+        return { status: { not: 'CANCELLED' } };
+    }
+    return ownMissionScope(user) || { createdById: '__none__' };
 }
 
 function requiresConsolidatorApproval(creatorRole) {
@@ -121,8 +148,6 @@ function canEditMission(mission, user) {
 
 function canViewMissionForUser(mission, user) {
     if (!mission || !user?.id) return false;
-    const ownOnly = responsableMissionScope(user);
-    if (ownOnly) return mission.createdById === user.id;
     if (isPrivilegedAdmin(user.role)) return true;
     if (
         mission.status === 'DRAFT'
@@ -133,8 +158,7 @@ function canViewMissionForUser(mission, user) {
     }
     if (
         isPendingConsolidatorValidation(mission.status)
-        && isGlobalConsolidatorRole(user)
-        && mission.createdBy?.role === ROLES.RESPONSABLE
+        && canConsolidatePendingMission(mission, user)
     ) {
         return true;
     }
@@ -164,4 +188,5 @@ module.exports = {
     canEditMission,
     canViewMissionForUser,
     responsableMissionScope,
+    ownMissionScope,
 };

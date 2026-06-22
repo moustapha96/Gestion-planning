@@ -473,7 +473,7 @@ export default function AppLayout() {
             icon: <ScheduleOutlined />,
             label: 'Planning',
         },
-        ...(validationCanSeeMenu && validationCounts.total > 0 ? [{
+        ...(validationCanSeeMenu ? [{
             key: '/a-valider',
             icon: (
                 <Badge count={validationCounts.total} size="small" offset={[-2, 2]} color="#fa541c">

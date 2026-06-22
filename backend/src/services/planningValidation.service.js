@@ -7,6 +7,7 @@ const {
     canUserCoordinatePlanning,
     coordinatorApproveBlockingReason,
 } = require('./projectCoordinator.service');
+const { buildPlanningValidationWorkflow } = require('./validationWorkflow.service');
 
 /** Plus de double rôle consolidateur/coordinateur sur le même palier. */
 function isSameActorConsolidatorAndCoordinator(_project) {
@@ -82,8 +83,11 @@ async function buildPlanningValidationContext(prisma, planning, user) {
 }
 
 async function enrichPlanningForUser(prisma, planning, user) {
-    const validation = await buildPlanningValidationContext(prisma, planning, user);
-    return { ...planning, validation };
+    const [validation, workflow] = await Promise.all([
+        buildPlanningValidationContext(prisma, planning, user),
+        buildPlanningValidationWorkflow(prisma, planning),
+    ]);
+    return { ...planning, validation: { ...validation, workflow } };
 }
 
 async function enrichPlanningsForUser(prisma, plannings, user) {

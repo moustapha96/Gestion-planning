@@ -34,7 +34,7 @@ import {
     CheckCircleOutlined,
 } from '@ant-design/icons';
 import dayjs from 'dayjs';
-import api, { API_BASE } from '../api/client';
+import ValidationWorkflowBanner from '../components/ValidationWorkflowBanner';
 import { useAuth } from '../context/AuthContext';
 import { isPrivilegedAdmin, canManageMission, canEditMission, canPrivilegedForceDelete } from '../utils/roles';
 import {
@@ -320,7 +320,9 @@ export default function MissionDetail() {
                 )}
             </Space>
 
-            {needsCoordinator && (
+            <ValidationWorkflowBanner workflow={mission.validation?.workflow} />
+
+            {!mission.validation?.workflow?.inWorkflow && needsCoordinator && (
                 <Alert
                     type="warning"
                     showIcon
@@ -332,7 +334,7 @@ export default function MissionDetail() {
                     }
                 />
             )}
-            {needsConsolidator && (
+            {!mission.validation?.workflow?.inWorkflow && needsConsolidator && (
                 <Alert
                     type="warning"
                     showIcon

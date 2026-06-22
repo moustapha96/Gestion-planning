@@ -107,7 +107,12 @@ function userDisplayName(userOrName, fallback = 'Utilisateur') {
 }
 
 function appUrl(path = '') {
-    const base = String(process.env.FRONTEND_URL || 'http://localhost:9000').replace(/\/$/, '');
+    // FRONTEND_URL peut contenir plusieurs origines (CORS) séparées par des
+    // virgules : on ne garde que la première pour construire des liens valides.
+    const firstOrigin = String(process.env.FRONTEND_URL || 'http://localhost:9000')
+        .split(',')[0]
+        .trim();
+    const base = firstOrigin.replace(/\/$/, '');
     if (!path) return base;
     return `${base}${path.startsWith('/') ? path : `/${path}`}`;
 }
@@ -152,8 +157,21 @@ function meetingPlace(meeting, room) {
     return room?.name || (meeting?.meetingLink ? 'Visioconférence' : 'À définir');
 }
 
+function coordinatorValidatorLabel(context = {}) {
+    return context.isFallbackRole
+        ? 'consolidateur (rôle global — coordinateur non désigné)'
+        : 'coordinateur du projet';
+}
+
+function consolidatorValidatorLabel(context = {}) {
+    if (context.scope === 'project') return 'consolidateur du projet';
+    if (context.scope === 'direction') return 'consolidateur de la direction';
+    return 'consolidateur (rôle global)';
+}
+
+/** @deprecated */
 function finalValidatorLabel(context = {}) {
-    return context.isFallbackRole ? 'consolidateur (rôle dédié)' : 'coordinateur du projet';
+    return coordinatorValidatorLabel(context);
 }
 
 function buildMeetingPublishedEmail(organizer, meeting, room, approver) {
@@ -200,19 +218,21 @@ const emailTemplates = {
     `,
     }),
 
-    /** Consolidateur : planning soumis — étape 1 (consolidation). */
-    PLANNING_PENDING_CONSOLIDATION: (consolidator, ownerName, planningId, weekLabel, projectName) => {
+    /** Consolidateur : planning — étape 2 (après validation coordinateur). */
+    PLANNING_PENDING_CONSOLIDATION: (consolidator, ownerName, planningId, weekLabel, projectName, context = {}) => {
         const url = appUrl(`/plannings/${planningId}`);
         const weekLine = weekLabel ? ` pour la semaine du <strong>${weekLabel}</strong>` : '';
         const projectLine = projectName ? ` (projet « ${projectName} »)` : '';
+        const roleLabel = consolidatorValidatorLabel(context);
         return {
-            subject: '📋 Planning à consolider (étape 1/2)',
+            subject: '📋 Planning à consolider (étape 2/2)',
             html: emailFrame(`
           <p>Bonjour ${userDisplayName(consolidator)},</p>
           <p><strong>${userDisplayName(ownerName, 'Un responsable')}</strong> a soumis un planning hebdomadaire${weekLine}${projectLine}.</p>
+          <p>Le <strong>coordinateur du projet</strong> l'a validé au 1er palier.</p>
           ${emailInfoBox(`
-            <p style="margin: 0 0 8px 0;"><strong>Étape 1 — Consolidation</strong></p>
-            <p style="margin: 0;">Examinez le planning puis consolidez-le. Il sera ensuite transmis au coordinateur du projet (ou au rôle dédié) pour validation finale avant publication.</p>
+            <p style="margin: 0 0 8px 0;"><strong>Étape 2/2 — Consolidation</strong></p>
+            <p style="margin: 0;">En tant que <strong>${roleLabel}</strong>, consolidez ce planning pour le publier sur le calendrier.</p>
           `)}
           ${emailCta(appUrl('/a-valider'), 'Ouvrir la file de validation')}
           ${emailCta(url, 'Voir le planning')}
@@ -220,20 +240,20 @@ const emailTemplates = {
         };
     },
 
-    /** Validation finale planning — étape 2 (coordinateur ou rôle dédié). */
+    /** Coordinateur : planning soumis — étape 1. */
     PLANNING_PENDING_COORDINATOR: (recipient, ownerName, planningId, weekLabel, projectName, context = {}) => {
         const url = appUrl(`/plannings/${planningId}`);
         const weekLine = weekLabel ? ` (semaine du ${weekLabel})` : '';
         const projectLine = projectName ? ` — projet « ${projectName} »` : '';
-        const roleLabel = finalValidatorLabel(context);
+        const roleLabel = coordinatorValidatorLabel(context);
         return {
-            subject: '✅ Planning à valider définitivement (étape 2/2)',
+            subject: '📋 Planning à valider (étape 1/2)',
             html: emailFrame(`
           <p>Bonjour ${userDisplayName(recipient)},</p>
-          <p>Le planning de <strong>${userDisplayName(ownerName, 'un responsable')}</strong>${weekLine}${projectLine} a été <strong>consolidé</strong>.</p>
+          <p><strong>${userDisplayName(ownerName, 'un responsable')}</strong> a soumis un planning${weekLine}${projectLine}.</p>
           ${emailInfoBox(`
-            <p style="margin: 0 0 8px 0;"><strong>Étape 2 — Validation finale</strong></p>
-            <p style="margin: 0;">En tant que <strong>${roleLabel}</strong>, validez ce planning pour le publier officiellement.</p>
+            <p style="margin: 0 0 8px 0;"><strong>Étape 1/2 — Validation coordinateur</strong></p>
+            <p style="margin: 0;">En tant que <strong>${roleLabel}</strong>, validez ce planning avant transmission au consolidateur (2e palier).</p>
           `, '#e3f2fd', '#2196f3')}
           ${emailCta(appUrl('/a-valider'), 'Valider depuis « À valider »')}
           ${emailCta(url, 'Examiner le planning')}
@@ -241,23 +261,36 @@ const emailTemplates = {
         };
     },
 
-    /** Responsable : planning consolidé, en attente de l'étape 2. */
-    PLANNING_CONSOLIDATED: (user, planningId, weekLabel, projectName, consolidator) => {
+    /** Responsable : planning validé par le coordinateur, en attente consolidation. */
+    PLANNING_COORDINATED: (user, planningId, weekLabel, projectName, coordinator) => {
         const url = appUrl(`/plannings/${planningId}`);
         const weekLine = weekLabel ? ` (semaine du ${weekLabel})` : '';
         const projectLine = projectName ? ` — projet « ${projectName} »` : '';
         return {
-            subject: '📋 Votre planning a été consolidé',
+            subject: '📋 Votre planning a été validé (étape 1/2)',
             html: emailFrame(`
           <p>Bonjour ${userDisplayName(user)},</p>
-          <p>Votre planning${weekLine}${projectLine} a été <strong>consolidé</strong> par <strong>${userDisplayName(consolidator)}</strong>.</p>
+          <p>Votre planning${weekLine}${projectLine} a été <strong>validé</strong> par <strong>${userDisplayName(coordinator)}</strong> (coordinateur).</p>
           ${emailInfoBox(`
-            <p style="margin: 0;"><strong>Prochaine étape :</strong> validation finale par le coordinateur du projet ou le rôle dédié. Vous serez notifié dès publication.</p>
+            <p style="margin: 0;"><strong>Prochaine étape (2/2) :</strong> consolidation par le consolidateur du projet, de la direction ou le rôle Consolidateur global. Vous serez notifié dès publication.</p>
           `)}
           ${emailCta(url, 'Suivre mon planning')}
         `),
         };
     },
+
+    /** @deprecated alias — utiliser PLANNING_COORDINATED */
+    PLANNING_CONSOLIDATED: (user, planningId, weekLabel, projectName, coordinator) => ({
+        subject: '📋 Votre planning a été validé (étape 1/2)',
+        html: emailFrame(`
+          <p>Bonjour ${userDisplayName(user)},</p>
+          <p>Votre planning${weekLabel ? ` (semaine du ${weekLabel})` : ''}${projectName ? ` — projet « ${projectName} »` : ''} a été <strong>validé</strong> par <strong>${userDisplayName(coordinator)}</strong> (coordinateur).</p>
+          ${emailInfoBox(`
+            <p style="margin: 0;"><strong>Prochaine étape (2/2) :</strong> consolidation par le consolidateur. Vous serez notifié dès publication.</p>
+          `)}
+          ${emailCta(appUrl(`/plannings/${planningId}`), 'Suivre mon planning')}
+        `),
+    }),
 
     PLANNING_SUBMITTED: (user, planningId, statusMessage, weekLabel) => {
         const url = appUrl(`/plannings/${planningId}`);
@@ -450,22 +483,23 @@ const emailTemplates = {
         };
     },
 
-    /** Consolidateur : réunion en brouillon — étape 1 (consolidation). */
-    MEETING_PENDING_APPROVAL: (consolidator, meeting, organizer, room) => {
+    /** Consolidateur : réunion — étape 2 (après validation coordinateur). */
+    MEETING_PENDING_APPROVAL: (consolidator, meeting, organizer, room, context = {}) => {
         const { startDate, startTime, endTime } = formatMeetingWhen(meeting);
         const url = appUrl(`/meetings/${meeting.id}`);
         const lieu = meetingPlace(meeting, room);
+        const roleLabel = consolidatorValidatorLabel(context);
         return {
-            subject: `📋 Réunion à consolider (étape 1/2) : ${meeting.title}`,
+            subject: `📋 Réunion à consolider (étape 2/2) : ${meeting.title}`,
             html: emailFrame(`
           <p>Bonjour ${userDisplayName(consolidator)},</p>
-          <p><strong>${userDisplayName(organizer)}</strong> a soumis une réunion en brouillon.</p>
+          <p><strong>${userDisplayName(organizer)}</strong> a soumis une réunion. Le coordinateur du projet l'a validée au 1er palier.</p>
           ${emailInfoBox(`
             <h3 style="margin: 0 0 10px 0;">${meeting.title}</h3>
             <p style="margin: 4px 0;"><strong>📅 Date :</strong> ${startDate}</p>
             <p style="margin: 4px 0;"><strong>🕐 Horaire :</strong> ${startTime} – ${endTime}</p>
             <p style="margin: 4px 0;"><strong>📍 Lieu :</strong> ${lieu}</p>
-            <p style="margin: 8px 0 0;"><strong>Étape 1 :</strong> consolidez la réunion. Elle sera ensuite transmise pour validation finale avant publication.</p>
+            <p style="margin: 8px 0 0;"><strong>Étape 2/2 :</strong> en tant que <strong>${roleLabel}</strong>, consolidez pour publier sur le calendrier et envoyer les convocations.</p>
           `)}
           ${emailCta(appUrl('/a-valider'), 'Consolider depuis « À valider »')}
           ${emailCta(url, 'Voir la réunion')}
@@ -473,49 +507,62 @@ const emailTemplates = {
         };
     },
 
-    /** Validation finale réunion — étape 2 (coordinateur ou rôle dédié). */
+    /** Coordinateur : réunion en brouillon — étape 1. */
     MEETING_PENDING_COORDINATOR: (recipient, meeting, organizer, room, projectName, context = {}) => {
         const { startDate, startTime, endTime } = formatMeetingWhen(meeting);
         const url = appUrl(`/meetings/${meeting.id}`);
         const lieu = meetingPlace(meeting, room);
         const projectLine = projectName ? ` (projet « ${projectName} »)` : '';
-        const roleLabel = finalValidatorLabel(context);
+        const roleLabel = coordinatorValidatorLabel(context);
         return {
-            subject: `✅ Réunion à publier (étape 2/2) : ${meeting.title}`,
+            subject: `📋 Réunion à valider (étape 1/2) : ${meeting.title}`,
             html: emailFrame(`
           <p>Bonjour ${userDisplayName(recipient)},</p>
-          <p>La réunion <strong>« ${meeting.title} »</strong>${projectLine} de <strong>${userDisplayName(organizer)}</strong> a été <strong>consolidée</strong>.</p>
+          <p><strong>${userDisplayName(organizer)}</strong> a soumis une réunion en brouillon${projectLine}.</p>
           ${emailInfoBox(`
             <p style="margin: 4px 0;"><strong>📅 Date :</strong> ${startDate}</p>
             <p style="margin: 4px 0;"><strong>🕐 Horaire :</strong> ${startTime} – ${endTime}</p>
             <p style="margin: 4px 0;"><strong>📍 Lieu :</strong> ${lieu}</p>
-            <p style="margin: 8px 0 0;"><strong>Étape 2 :</strong> en tant que <strong>${roleLabel}</strong>, validez pour publier sur le calendrier et envoyer les convocations.</p>
+            <p style="margin: 8px 0 0;"><strong>Étape 1/2 :</strong> en tant que <strong>${roleLabel}</strong>, validez avant transmission au consolidateur (2e palier).</p>
           `, '#e3f2fd', '#2196f3')}
-          ${emailCta(appUrl('/a-valider'), 'Valider et publier')}
+          ${emailCta(appUrl('/a-valider'), 'Valider (coordinateur)')}
           ${emailCta(url, 'Voir la réunion')}
         `),
         };
     },
 
-    /** Organisateur : réunion consolidée, pas encore publiée. */
-    MEETING_CONSOLIDATED: (organizer, meeting, room, consolidator) => {
+    /** Organisateur : réunion validée par le coordinateur, en attente consolidation. */
+    MEETING_COORDINATED: (organizer, meeting, room, coordinator) => {
         const { startDate, startTime, endTime } = formatMeetingWhen(meeting);
         const url = appUrl(`/meetings/${meeting.id}`);
         return {
-            subject: `📋 Réunion consolidée : ${meeting.title}`,
+            subject: `📋 Réunion validée (étape 1/2) : ${meeting.title}`,
             html: emailFrame(`
           <p>Bonjour ${userDisplayName(organizer)},</p>
-          <p>Votre réunion <strong>« ${meeting.title} »</strong> a été <strong>consolidée</strong> par <strong>${userDisplayName(consolidator)}</strong>.</p>
+          <p>Votre réunion <strong>« ${meeting.title} »</strong> a été <strong>validée</strong> par <strong>${userDisplayName(coordinator)}</strong> (coordinateur).</p>
           ${emailInfoBox(`
             <p style="margin: 4px 0;"><strong>📅 Date :</strong> ${startDate}</p>
             <p style="margin: 4px 0;"><strong>🕐 Horaire :</strong> ${startTime} – ${endTime}</p>
             <p style="margin: 4px 0;"><strong>📍 Lieu :</strong> ${meetingPlace(meeting, room)}</p>
-            <p style="margin: 8px 0 0;"><strong>Prochaine étape :</strong> validation finale par le coordinateur ou le rôle dédié. Les convocations partiront après cette validation.</p>
+            <p style="margin: 8px 0 0;"><strong>Prochaine étape (2/2) :</strong> consolidation par le consolidateur (projet, direction ou rôle global). Les convocations partiront après cette étape.</p>
           `)}
           ${emailCta(url, 'Suivre la réunion')}
         `),
         };
     },
+
+    /** @deprecated alias */
+    MEETING_CONSOLIDATED: (organizer, meeting, room, actor) => ({
+        subject: `📋 Réunion validée (étape 1/2) : ${meeting.title}`,
+        html: emailFrame(`
+          <p>Bonjour ${userDisplayName(organizer)},</p>
+          <p>Votre réunion <strong>« ${meeting.title} »</strong> a été <strong>validée</strong> par <strong>${userDisplayName(actor)}</strong>.</p>
+          ${emailInfoBox(`
+            <p style="margin: 0;"><strong>Prochaine étape (2/2) :</strong> consolidation par le consolidateur avant publication.</p>
+          `)}
+          ${emailCta(appUrl(`/meetings/${meeting.id}`), 'Suivre la réunion')}
+        `),
+    }),
 
     /** Organisateur : réunion publiée (validation finale). */
     MEETING_PUBLISHED: buildMeetingPublishedEmail,
@@ -523,22 +570,23 @@ const emailTemplates = {
     /** Alias historique */
     MEETING_APPROVED: buildMeetingPublishedEmail,
 
-    /** Consolidateur : mission en brouillon — étape 1 (consolidation). */
-    MISSION_PENDING_APPROVAL: (consolidator, mission, creator) => {
+    /** Consolidateur : mission — étape 2 (après validation coordinateur). */
+    MISSION_PENDING_APPROVAL: (consolidator, mission, creator, context = {}) => {
         const startStr = formatFrDateTime(mission.startTime, { dateStyle: 'full', timeStyle: 'short' });
         const endStr = new Date(mission.endTime).toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' });
         const url = appUrl(`/missions/${mission.id}`);
+        const roleLabel = consolidatorValidatorLabel(context);
         return {
-            subject: `📋 Mission à consolider (étape 1/2) : ${mission.title}`,
+            subject: `📋 Mission à consolider (étape 2/2) : ${mission.title}`,
             html: emailFrame(`
           <p>Bonjour ${userDisplayName(consolidator)},</p>
-          <p><strong>${userDisplayName(creator)}</strong> a soumis une mission en brouillon.</p>
+          <p><strong>${userDisplayName(creator)}</strong> a soumis une mission. Le coordinateur du projet l'a validée au 1er palier.</p>
           ${emailInfoBox(`
             <h3 style="margin: 0 0 10px 0;">${mission.title}</h3>
             <p style="margin: 4px 0;"><strong>📅 Début :</strong> ${startStr}</p>
             <p style="margin: 4px 0;"><strong>🕐 Fin :</strong> ${endStr}</p>
             <p style="margin: 4px 0;"><strong>📍 Lieu :</strong> ${mission.location || '—'}</p>
-            <p style="margin: 8px 0 0;"><strong>Étape 1 :</strong> consolidez la mission. Elle sera ensuite transmise pour validation finale avant confirmation.</p>
+            <p style="margin: 8px 0 0;"><strong>Étape 2/2 :</strong> en tant que <strong>${roleLabel}</strong>, consolidez pour confirmer la mission sur le calendrier.</p>
           `)}
           ${emailCta(appUrl('/a-valider'), 'Consolider depuis « À valider »')}
           ${emailCta(url, 'Voir la mission')}
@@ -546,50 +594,63 @@ const emailTemplates = {
         };
     },
 
-    /** Validation finale mission — étape 2 (coordinateur ou rôle dédié). */
+    /** Coordinateur : mission en brouillon — étape 1. */
     MISSION_PENDING_COORDINATOR: (recipient, mission, creator, projectName, context = {}) => {
         const startStr = formatFrDateTime(mission.startTime, { dateStyle: 'full', timeStyle: 'short' });
         const endStr = new Date(mission.endTime).toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' });
         const url = appUrl(`/missions/${mission.id}`);
         const projectLine = projectName ? ` (projet « ${projectName} »)` : '';
-        const roleLabel = finalValidatorLabel(context);
+        const roleLabel = coordinatorValidatorLabel(context);
         return {
-            subject: `✅ Mission à confirmer (étape 2/2) : ${mission.title}`,
+            subject: `📋 Mission à valider (étape 1/2) : ${mission.title}`,
             html: emailFrame(`
           <p>Bonjour ${userDisplayName(recipient)},</p>
-          <p>La mission <strong>« ${mission.title} »</strong>${projectLine} de <strong>${userDisplayName(creator)}</strong> a été <strong>consolidée</strong>.</p>
+          <p><strong>${userDisplayName(creator)}</strong> a soumis une mission en brouillon${projectLine}.</p>
           ${emailInfoBox(`
             <p style="margin: 4px 0;"><strong>📅 Début :</strong> ${startStr}</p>
             <p style="margin: 4px 0;"><strong>🕐 Fin :</strong> ${endStr}</p>
             <p style="margin: 4px 0;"><strong>📍 Lieu :</strong> ${mission.location || '—'}</p>
-            <p style="margin: 8px 0 0;"><strong>Étape 2 :</strong> en tant que <strong>${roleLabel}</strong>, validez pour confirmer la mission et notifier les intervenants.</p>
+            <p style="margin: 8px 0 0;"><strong>Étape 1/2 :</strong> en tant que <strong>${roleLabel}</strong>, validez avant transmission au consolidateur (2e palier).</p>
           `, '#e3f2fd', '#2196f3')}
-          ${emailCta(appUrl('/a-valider'), 'Valider et confirmer')}
+          ${emailCta(appUrl('/a-valider'), 'Valider (coordinateur)')}
           ${emailCta(url, 'Voir la mission')}
         `),
         };
     },
 
-    /** Créateur : mission consolidée, pas encore confirmée. */
-    MISSION_CONSOLIDATED: (creator, mission, consolidator) => {
+    /** Créateur : mission validée par le coordinateur, en attente consolidation. */
+    MISSION_COORDINATED: (creator, mission, coordinator) => {
         const startStr = formatFrDateTime(mission.startTime, { dateStyle: 'full', timeStyle: 'short' });
         const endStr = new Date(mission.endTime).toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' });
         const url = appUrl(`/missions/${mission.id}`);
         return {
-            subject: `📋 Mission consolidée : ${mission.title}`,
+            subject: `📋 Mission validée (étape 1/2) : ${mission.title}`,
             html: emailFrame(`
           <p>Bonjour ${userDisplayName(creator)},</p>
-          <p>Votre mission <strong>« ${mission.title} »</strong> a été <strong>consolidée</strong> par <strong>${userDisplayName(consolidator)}</strong>.</p>
+          <p>Votre mission <strong>« ${mission.title} »</strong> a été <strong>validée</strong> par <strong>${userDisplayName(coordinator)}</strong> (coordinateur).</p>
           ${emailInfoBox(`
             <p style="margin: 4px 0;"><strong>📅 Début :</strong> ${startStr}</p>
             <p style="margin: 4px 0;"><strong>🕐 Fin :</strong> ${endStr}</p>
             <p style="margin: 4px 0;"><strong>📍 Lieu :</strong> ${mission.location || '—'}</p>
-            <p style="margin: 8px 0 0;"><strong>Prochaine étape :</strong> validation finale par le coordinateur ou le rôle dédié. Les intervenants seront notifiés après cette validation.</p>
+            <p style="margin: 8px 0 0;"><strong>Prochaine étape (2/2) :</strong> consolidation par le consolidateur avant confirmation sur le calendrier.</p>
           `)}
           ${emailCta(url, 'Suivre la mission')}
         `),
         };
     },
+
+    /** @deprecated alias */
+    MISSION_CONSOLIDATED: (creator, mission, actor) => ({
+        subject: `📋 Mission validée (étape 1/2) : ${mission.title}`,
+        html: emailFrame(`
+          <p>Bonjour ${userDisplayName(creator)},</p>
+          <p>Votre mission <strong>« ${mission.title} »</strong> a été <strong>validée</strong> par <strong>${userDisplayName(actor)}</strong>.</p>
+          ${emailInfoBox(`
+            <p style="margin: 0;"><strong>Prochaine étape (2/2) :</strong> consolidation par le consolidateur.</p>
+          `)}
+          ${emailCta(appUrl(`/missions/${mission.id}`), 'Suivre la mission')}
+        `),
+    }),
 
     /** Créateur : mission confirmée (validation finale). */
     MISSION_CONFIRMED: (creator, mission, validator) => {
