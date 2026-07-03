@@ -5,26 +5,18 @@ const { meetingListWhereForUser } = require('../config/meetingVisibility');
 const { getPendingValidations } = require('./validationQueue.service');
 const { getProjectForResponsible } = require('./projectResponsible.service');
 const { userCanSeeValidationMenu } = require('./validationPolicy.service');
+const { utcDayBounds, utcWeekBounds } = require('../utils/dateUtc');
 
 function startOfDay(d) {
-    const x = new Date(d);
-    x.setHours(0, 0, 0, 0);
-    return x;
+    return utcDayBounds(d).start;
 }
 
 function endOfDay(d) {
-    const x = new Date(d);
-    x.setHours(23, 59, 59, 999);
-    return x;
+    return utcDayBounds(d).end;
 }
 
 function startOfWeekMonday(d) {
-    const date = new Date(d);
-    date.setHours(0, 0, 0, 0);
-    const jsDay = date.getDay();
-    const offset = jsDay === 0 ? -6 : 1 - jsDay;
-    date.setDate(date.getDate() + offset);
-    return date;
+    return utcWeekBounds(d).start;
 }
 
 function overlapsRange(startTime, endTime, rangeStart, rangeEnd) {

@@ -125,6 +125,20 @@ async function getOwnedResponsibleProjects(prisma, userId) {
     });
 }
 
+/** Projets sur lesquels l'utilisateur peut agir (créer réunion/mission) : responsable OU coordinateur désigné. */
+async function getOwnedOrCoordinatedProjects(prisma, userId) {
+    if (!userId) return [];
+    return prisma.project.findMany({
+        where: {
+            OR: [{ responsibleId: userId }, { coordinatorId: userId }],
+            isActive: true,
+            status: 'ACTIVE',
+        },
+        select: { id: true, name: true, code: true, responsibleId: true, coordinatorId: true },
+        orderBy: { name: 'asc' },
+    });
+}
+
 /** @deprecated Préférer getOwnedResponsibleProjects — renvoie le premier projet actif. */
 async function getOwnedResponsibleProject(prisma, userId) {
     const list = await getOwnedResponsibleProjects(prisma, userId);
@@ -140,7 +154,7 @@ async function validateActiveProjectId(prisma, projectId) {
     if (!projectId) return { ok: true, value: null };
     const project = await prisma.project.findUnique({
         where: { id: projectId },
-        select: { id: true, isActive: true, status: true, responsibleId: true },
+        select: { id: true, isActive: true, status: true, responsibleId: true, coordinatorId: true },
     });
     if (!project) return { ok: false, error: 'Projet introuvable.' };
     if (!project.isActive || project.status !== 'ACTIVE') {
@@ -151,7 +165,8 @@ async function validateActiveProjectId(prisma, projectId) {
 
 /**
  * Vérifie qu'un utilisateur peut rattacher une action (mission, réunion, événement) à un projet.
- * Les responsables ne peuvent agir que sur le projet dont ils sont désignés responsables.
+ * Les responsables ne peuvent agir que sur un projet dont ils sont désignés responsables
+ * OU coordinateur (le coordinateur bénéficie des mêmes droits de création que le responsable).
  */
 async function validateProjectForUserAction(prisma, user, projectId, options = {}) {
     const { requiredForResponsable = true } = options;
@@ -162,13 +177,13 @@ async function validateProjectForUserAction(prisma, user, projectId, options = {
 
     if (isResponsable(user?.role)) {
         let pid = projectId;
-        const owned = await getOwnedResponsibleProjects(prisma, user.id);
+        const owned = await getOwnedOrCoordinatedProjects(prisma, user.id);
         if (!pid) {
             if (!requiredForResponsable) {
                 return { ok: true, value: null };
             }
             if (!owned.length) {
-                return { ok: false, error: 'Aucun projet actif ne vous est assigné comme responsable.' };
+                return { ok: false, error: 'Aucun projet actif ne vous est assigné comme responsable ou coordinateur.' };
             }
             if (owned.length === 1) {
                 pid = owned[0].id;
@@ -181,10 +196,10 @@ async function validateProjectForUserAction(prisma, user, projectId, options = {
         }
         const check = await validateActiveProjectId(prisma, pid);
         if (!check.ok) return check;
-        if (check.project.responsibleId !== user.id) {
+        if (check.project.responsibleId !== user.id && check.project.coordinatorId !== user.id) {
             return {
                 ok: false,
-                error: 'Vous ne pouvez agir que sur un projet dont vous êtes responsable.',
+                error: 'Vous ne pouvez agir que sur un projet dont vous êtes responsable ou coordinateur.',
             };
         }
         return { ok: true, value: pid };
@@ -196,7 +211,7 @@ async function validateProjectForUserAction(prisma, user, projectId, options = {
 /** Filtre Prisma pour limiter les projets listés (taxonomy, sélecteurs). */
 function projectsFilterWhereForUser(user) {
     if (isPrivilegedAdmin(user?.role)) return {};
-    if (isResponsable(user?.role)) return { responsibleId: user.id };
+    if (isResponsable(user?.role)) return { OR: [{ responsibleId: user.id }, { coordinatorId: user.id }] };
     return {};
 }
 
@@ -218,6 +233,7 @@ module.exports = {
     syncResponsibleProjectMembership,
     getProjectForResponsible,
     getOwnedResponsibleProjects,
+    getOwnedOrCoordinatedProjects,
     getOwnedResponsibleProject,
     isUserResponsibleOfProject,
     validateActiveProjectId,

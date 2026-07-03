@@ -38,6 +38,7 @@ const {
     ensureWeekPlanningsForResponsibles,
     ensurePlanningForResponsible,
 } = require('../services/planningAggregation.service');
+const { parseUtcDate, utcMondayOfWeek } = require('../utils/dateUtc');
 
 /** N'interrompt pas le workflow si l'e-mail ou la notification échoue. */
 async function safeNotify(label, fn) {
@@ -98,12 +99,9 @@ const PLANNING_EVENT_INCLUDE = {
  *       401:
  *         $ref: '#/components/responses/Unauthorized'
  */
-// Retourne le lundi 00:00:00 de la semaine contenant la date (dimanche = semaine suivante, comme en GET)
+// Retourne le lundi 00:00:00 UTC de la semaine contenant la date
 function getMondayOfWeek(date) {
-    const d = new Date(date);
-    d.setDate(d.getDate() - d.getDay() + 1);
-    d.setHours(0, 0, 0, 0);
-    return d;
+    return utcMondayOfWeek(date);
 }
 
 function planningWeekLabel(dateValue) {
@@ -116,7 +114,7 @@ function planningWeekLabel(dateValue) {
 
 router.get('/week/:date', async (req, res) => {
     try {
-        const date = new Date(req.params.date);
+        const date = parseUtcDate(req.params.date);
         const weekStart = getMondayOfWeek(date);
         const weekEnd = new Date(weekStart.getTime() + 7 * 24 * 60 * 60 * 1000);
 
@@ -1157,8 +1155,8 @@ router.post('/:id/events', async (req, res) => {
                 title,
                 type: typeFields.type,
                 eventTypeId: typeFields.eventTypeId,
-                startTime: new Date(req.body.startTime),
-                endTime: new Date(req.body.endTime),
+                startTime: parseUtcDate(req.body.startTime),
+                endTime: parseUtcDate(req.body.endTime),
                 roomId: req.body.roomId || null,
                 directionId: req.body.directionId || null,
                 projectId: eventProjectId,
@@ -1200,8 +1198,8 @@ router.put('/:id/events/:eventId', async (req, res) => {
 
         const clean = {
             ...(req.body.title !== undefined && { title: req.body.title }),
-            ...(req.body.startTime && { startTime: new Date(req.body.startTime) }),
-            ...(req.body.endTime && { endTime: new Date(req.body.endTime) }),
+            ...(req.body.startTime && { startTime: parseUtcDate(req.body.startTime) }),
+            ...(req.body.endTime && { endTime: parseUtcDate(req.body.endTime) }),
             ...(req.body.roomId !== undefined && { roomId: req.body.roomId || null }),
             ...(req.body.directionId !== undefined && { directionId: req.body.directionId || null }),
             ...(req.body.projectId !== undefined && { projectId: req.body.projectId || null }),

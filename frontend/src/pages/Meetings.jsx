@@ -2,8 +2,8 @@ import { useEffect, useState } from 'react';
 import { Table, Tag, Button, Card, Typography, Space, Modal, Form, Input, Select, DatePicker, App, Row, Col, Alert } from 'antd';
 import { PlusOutlined, StopOutlined, CheckCircleOutlined, RollbackOutlined, VideoCameraOutlined, DeleteOutlined, EditOutlined } from '@ant-design/icons';
 import { useNavigate, useSearchParams } from 'react-router-dom';
-import dayjs from 'dayjs';
 import api from '../api/client';
+import { appYmd, toUtcIso } from '../utils/datetime';
 import { useAuth } from '../context/AuthContext';
 import {
     canManageMeeting,
@@ -108,15 +108,15 @@ export default function Meetings() {
             setAvailableRooms([]);
             return;
         }
-        const start = startTime.toDate ? startTime.toDate() : new Date(startTime);
-        const end = endTime.toDate ? endTime.toDate() : new Date(endTime);
-        if (start >= end) {
+        const startIso = toUtcIso(startTime);
+        const endIso = toUtcIso(endTime);
+        if (!startIso || !endIso || startIso >= endIso) {
             setAvailableRooms([]);
             return;
         }
         setLoadingRooms(true);
         api.get('/rooms/available', {
-            params: { startTime: start.toISOString(), endTime: end.toISOString() },
+            params: { startTime: startIso, endTime: endIso },
         })
             .then((res) => {
                 const list = res.data || [];
@@ -136,8 +136,7 @@ export default function Meetings() {
             setBookedSlots([]);
             return;
         }
-        const start = startTime.toDate ? startTime.toDate() : new Date(startTime);
-        const dateStr = start.toISOString().split('T')[0];
+        const dateStr = appYmd(startTime);
         api.get(`/rooms/${roomId}/bookings`, { params: { date: dateStr } })
             .then((res) => setBookedSlots(res.data?.bookings || []))
             .catch(() => setBookedSlots([]));
@@ -187,10 +186,10 @@ export default function Meetings() {
             message.warning("Vous n'êtes responsable d'aucun projet actif.");
             return;
         }
-        const start = values.startTime?.toDate?.() ?? values.startTime;
-        const end = values.endTime?.toDate?.() ?? values.endTime;
+        const startIso = toUtcIso(values.startTime);
+        const endIso = toUtcIso(values.endTime);
         const link = String(values.meetingLink || '').trim();
-        if (!start || !end || start >= end) {
+        if (!startIso || !endIso || startIso >= endIso) {
             message.error('Choisissez un créneau valide (fin après le début)');
             return;
         }
@@ -227,8 +226,8 @@ export default function Meetings() {
                 projectId: values.projectId || defaultProjectId || undefined,
                 eventTypeId: values.eventTypeId || undefined,
                 meetingLink: link || undefined,
-                startTime: (start && start.toISOString) ? start.toISOString() : new Date(start).toISOString(),
-                endTime: (end && end.toISOString) ? end.toISOString() : new Date(end).toISOString(),
+                startTime: startIso,
+                endTime: endIso,
                 participants: values.participantIds || [],
             });
             message.success('Réunion créée');

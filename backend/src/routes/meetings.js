@@ -10,6 +10,8 @@ const { logger } = require('../utils/logger');
 const { isRoomAvailableForSlot, isRoomActive } = require('../utils/availability');
 const { formatAppTimeHm } = require('../utils/roomBooking');
 const { appDayBoundsFromYmd, toAppYmd } = require('../utils/calendarEvents');
+const { parseUtcDate } = require('../utils/dateUtc');
+const { formatFrDate } = require('../config/timezone');
 const { createAuditLog } = require('../utils/audit');
 const { ROLES, isPrivilegedAdmin, isSuperAdmin, isResponsable } = require('../config/roles');
 const { MEETING_PENDING_FINAL } = require('../config/meetingWorkflow');
@@ -18,14 +20,11 @@ const {
     canPublishMeeting,
     canEditMeeting,
     canManageMeeting,
-    requiresConsolidatorApproval,
     meetingListWhereForUser,
     canViewMeetingForUser,
 } = require('../config/meetingVisibility');
 const {
     canCoordinateDraftMeeting,
-    canConsolidatePendingMeeting,
-    canApproveDraftMeeting,
     canFinalizePendingMeeting,
 } = require('../services/validationPolicy.service');
 const { canUserConsolidateEntity } = require('../services/consolidatorResolution.service');
@@ -275,8 +274,8 @@ router.get('/', async (req, res) => {
         const directionId = String(req.query.directionId || '').trim() || null;
         const projectId = String(req.query.projectId || '').trim() || null;
         const status = String(req.query.status || '').trim() || null;
-        const from = req.query.from ? new Date(req.query.from) : null;
-        const to = req.query.to ? new Date(req.query.to) : null;
+        const from = req.query.from ? parseUtcDate(req.query.from) : null;
+        const to = req.query.to ? parseUtcDate(req.query.to) : null;
         const limit = Math.min(200, Math.max(1, parseInt(req.query.limit, 10) || 50));
         const page = Math.max(1, parseInt(req.query.page, 10) || 1);
         const skip = (page - 1) * limit;
@@ -691,8 +690,8 @@ router.put('/:id', async (req, res) => {
         }
 
         const { title, agenda, roomId, meetingLink, startTime, endTime, directionId, projectId, eventTypeId } = req.body;
-        const newStart = startTime ? new Date(startTime) : meeting.startTime;
-        const newEnd = endTime ? new Date(endTime) : meeting.endTime;
+        const newStart = startTime ? parseUtcDate(startTime) : meeting.startTime;
+        const newEnd = endTime ? parseUtcDate(endTime) : meeting.endTime;
         const hasMeetingLinkInPayload = meetingLink !== undefined;
         const normalizedMeetingLink = hasMeetingLinkInPayload ? normalizeMeetingLink(meetingLink) : meeting.meetingLink;
 
@@ -865,7 +864,7 @@ router.put('/:id', async (req, res) => {
                     || timeOrRoomChanged
                     || meetingLinkChanged
                     || projectId !== undefined;
-                if (contentChanged && requiresConsolidatorApproval(organizer?.role)) {
+                if (contentChanged) {
                     await startMeetingValidation(req.prisma, updated, organizer);
                 }
             } else if (isPendingConsolidatorValidation(updated.status)) {
@@ -878,7 +877,7 @@ router.put('/:id', async (req, res) => {
                     || timeOrRoomChanged
                     || meetingLinkChanged
                     || projectId !== undefined;
-                if (contentChanged && requiresConsolidatorApproval(organizer?.role)) {
+                if (contentChanged) {
                     await notifyConsolidatorsPendingMeeting(req.prisma, updated, organizer);
                 }
             }
@@ -955,8 +954,8 @@ router.post('/', async (req, res) => {
         const participantList = [...new Set(participantListRaw.filter(Boolean))];
         const normalizedMeetingLink = normalizeMeetingLink(meetingLink);
 
-        const start = new Date(startTime);
-        const end = new Date(endTime);
+        const start = parseUtcDate(startTime);
+        const end = parseUtcDate(endTime);
         if (start >= end) {
             return res.status(400).json({ error: 'L\'heure de fin doit être après l\'heure de début' });
         }
@@ -1015,10 +1014,7 @@ router.post('/', async (req, res) => {
                 || await resolveProjectIdForConsolidation(req.prisma, null, req.user.id);
         }
 
-        const needsApproval = requiresConsolidatorApproval(req.user?.role);
-        const initialStatus = needsApproval
-            ? await resolveInitialResponsibleStatus(req.prisma, effectiveProjectId)
-            : 'DRAFT';
+        const initialStatus = await resolveInitialResponsibleStatus(req.prisma, effectiveProjectId);
 
         const meeting = await req.prisma.meeting.create({
             data: {
@@ -1056,19 +1052,15 @@ router.post('/', async (req, res) => {
             const room = roomId
                 ? await req.prisma.room.findUnique({ where: { id: roomId }, select: { name: true } })
                 : null;
-            if (requiresConsolidatorApproval(organizer?.role)) {
-                if (meeting.status === 'DRAFT') {
-                    await notifyMeetingPendingCoordinatorReview(req.prisma, meeting, organizer);
-                } else {
-                    await notifyConsolidatorsPendingMeeting(req.prisma, meeting, organizer);
-                }
+            if (meeting.status === 'DRAFT') {
+                await notifyMeetingPendingCoordinatorReview(req.prisma, meeting, organizer);
+            } else {
+                await notifyConsolidatorsPendingMeeting(req.prisma, meeting, organizer);
             }
             if (organizer?.email) {
-                const pendingMsg = requiresConsolidatorApproval(organizer.role)
-                    ? (meeting.status === 'DRAFT'
-                        ? 'Statut : en attente du coordinateur du projet (étape 1/2).'
-                        : 'Statut : en attente de consolidation (étape 2/2) — coordinateur non désigné sur le projet.')
-                    : 'Statut : brouillon — pensez à envoyer les convocations depuis la fiche réunion.';
+                const pendingMsg = meeting.status === 'DRAFT'
+                    ? 'Statut : en attente du coordinateur du projet (étape 1/2).'
+                    : 'Statut : en attente de consolidation (étape 2/2) — coordinateur non désigné sur le projet.';
                 await notificationService.sendFullNotification(
                     req.prisma,
                     organizer.id,
@@ -1135,12 +1127,9 @@ router.put('/:id/send', async (req, res) => {
             return res.status(400).json({ error: 'Réunion finalisée : publication impossible.' });
         }
         if (!canPublishMeeting(meeting, req.user)) {
-            if (requiresConsolidatorApproval(meeting.organizer?.role)) {
-                return res.status(403).json({
-                    error: 'Cette réunion doit être validée par le coordinateur du projet puis par le rôle Consolidateur avant d\'apparaître sur le calendrier.',
-                });
-            }
-            return res.status(403).json({ error: 'Seul l\'organisateur peut envoyer les convocations.' });
+            return res.status(403).json({
+                error: 'Cette réunion doit être validée par le coordinateur du projet puis par le consolidateur avant d\'apparaître sur le calendrier.',
+            });
         }
 
         const updated = await publishMeeting(req, meeting);
@@ -1182,7 +1171,7 @@ async function notifyOrganizerMeetingProgress(req, meeting, stage) {
     }
 }
 
-/** 2e palier : consolidation (rôle Consolidateur) ou validation directe admin. */
+/** 2e palier : consolidation (consolidateur projet → direction → global). */
 router.put('/:id/approve', async (req, res) => {
     try {
         const meeting = await req.prisma.meeting.findUnique({
@@ -1199,16 +1188,6 @@ router.put('/:id/approve', async (req, res) => {
             return res.status(404).json({ error: 'Réunion introuvable' });
         }
 
-        if (isPrivilegedAdmin(req.user.role)) {
-            if (meeting.status === 'DRAFT' || isPendingConsolidatorValidation(meeting.status) || isPendingCoordinatorValidation(meeting.status)) {
-                const updated = await publishMeeting(req, meeting);
-                await notifyOrganizerMeetingProgress(req, meeting, 'published');
-                await createAuditLog(req, 'MEETING_APPROVED', 'Meeting', meeting.id, `Réunion « ${meeting.title} » publiée (admin)`);
-                return res.json(updated);
-            }
-            return res.status(400).json({ error: 'Cette réunion ne peut pas être validée à cette étape.' });
-        }
-
         if (isPendingConsolidatorValidation(meeting.status)) {
             if (!await canUserConsolidateEntity(req.prisma, req.user, meeting, 'meeting')) {
                 return res.status(403).json({ error: 'Vous n\'êtes pas autorisé à consolider cette réunion.' });
@@ -1222,16 +1201,6 @@ router.put('/:id/approve', async (req, res) => {
                 meeting.id,
                 `Réunion « ${meeting.title} » consolidée et publiée`,
             );
-            return res.json(updated);
-        }
-
-        if (meeting.status === 'DRAFT') {
-            if (!canApproveDraftMeeting(meeting, req.user)) {
-                return res.status(403).json({ error: 'Vous n\'êtes pas autorisé à valider cette réunion.' });
-            }
-            const updated = await publishMeeting(req, meeting);
-            await notifyOrganizerMeetingProgress(req, meeting, 'published');
-            await createAuditLog(req, 'MEETING_APPROVED', 'Meeting', meeting.id, `Réunion « ${meeting.title} » validée et publiée`);
             return res.json(updated);
         }
 
@@ -1263,12 +1232,6 @@ router.put('/:id/approve-coordinator', async (req, res) => {
         }
 
         if (meeting.status === 'DRAFT') {
-            if (isPrivilegedAdmin(req.user.role)) {
-                const updated = await publishMeeting(req, meeting);
-                await notifyOrganizerMeetingProgress(req, meeting, 'published');
-                await createAuditLog(req, 'MEETING_APPROVED', 'Meeting', meeting.id, `Réunion « ${meeting.title} » publiée (admin)`);
-                return res.json(updated);
-            }
             if (!canCoordinateDraftMeeting(meeting, req.user)) {
                 return res.status(403).json({ error: 'Vous n\'êtes pas autorisé à valider cette réunion à ce palier.' });
             }
@@ -1289,7 +1252,7 @@ router.put('/:id/approve-coordinator', async (req, res) => {
         }
 
         if (isPendingCoordinatorValidation(meeting.status)) {
-            if (!canFinalizePendingMeeting(meeting, req.user) && !isPrivilegedAdmin(req.user.role)) {
+            if (!canFinalizePendingMeeting(meeting, req.user)) {
                 return res.status(403).json({ error: 'Vous n\'êtes pas autorisé à valider définitivement cette réunion.' });
             }
             const updated = await publishMeeting(req, meeting);

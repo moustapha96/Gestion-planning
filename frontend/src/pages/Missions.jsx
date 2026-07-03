@@ -20,7 +20,7 @@ import api from '../api/client';
 import { useAuth } from '../context/AuthContext';
 import {
     canManageMission, canEditMission, canPrivilegedForceDelete, canCreateMission,
-    canConsolidateMission, canFinalizeMission, canApproveMission,
+    canConsolidateMission, canFinalizeMission, canCoordinateMission,
 } from '../utils/roles';
 import { forceDeleteDescription, forceDeleteTitle } from '../utils/deleteConfirm';
 import ForceDeletePopconfirm from '../components/ForceDeletePopconfirm';
@@ -201,71 +201,71 @@ export default function Missions() {
                     >
                         Détail
                     </Button>
+                    {canCoordinateMission(record, user) && (
+                        <Button
+                            type="link"
+                            size="small"
+                            onClick={async () => {
+                                setActionLoadingId(record.id);
+                                try {
+                                    await api.put(`/missions/${record.id}/approve-coordinator`);
+                                    message.success('Mission validée par le coordinateur');
+                                    fetchMissions();
+                                } catch (err) {
+                                    message.error(err.response?.data?.error || 'Erreur');
+                                } finally {
+                                    setActionLoadingId(null);
+                                }
+                            }}
+                            loading={actionLoadingId === record.id}
+                        >
+                            Valider (coordinateur)
+                        </Button>
+                    )}
+                    {canConsolidateMission(record, user) && (
+                        <Button
+                            type="link"
+                            size="small"
+                            onClick={async () => {
+                                setActionLoadingId(record.id);
+                                try {
+                                    await api.put(`/missions/${record.id}/approve`);
+                                    message.success('Mission consolidée');
+                                    fetchMissions();
+                                } catch (err) {
+                                    message.error(err.response?.data?.error || 'Erreur');
+                                } finally {
+                                    setActionLoadingId(null);
+                                }
+                            }}
+                            loading={actionLoadingId === record.id}
+                        >
+                            Consolider
+                        </Button>
+                    )}
+                    {canFinalizeMission(record, user) && (
+                        <Button
+                            type="link"
+                            size="small"
+                            onClick={async () => {
+                                setActionLoadingId(record.id);
+                                try {
+                                    await api.put(`/missions/${record.id}/approve-coordinator`);
+                                    message.success('Mission validée définitivement');
+                                    fetchMissions();
+                                } catch (err) {
+                                    message.error(err.response?.data?.error || 'Erreur');
+                                } finally {
+                                    setActionLoadingId(null);
+                                }
+                            }}
+                            loading={actionLoadingId === record.id}
+                        >
+                            Valider (legacy)
+                        </Button>
+                    )}
                     {canManageMission(record, user) && (
                         <>
-                            {canConsolidateMission(record, user) && (
-                                <Button
-                                    type="link"
-                                    size="small"
-                                    onClick={async () => {
-                                        setActionLoadingId(record.id);
-                                        try {
-                                            await api.put(`/missions/${record.id}/approve`);
-                                            message.success('Mission consolidée');
-                                            fetchMissions();
-                                        } catch (err) {
-                                            message.error(err.response?.data?.error || 'Erreur');
-                                        } finally {
-                                            setActionLoadingId(null);
-                                        }
-                                    }}
-                                    loading={actionLoadingId === record.id}
-                                >
-                                    Consolider
-                                </Button>
-                            )}
-                            {canFinalizeMission(record, user) && (
-                                <Button
-                                    type="link"
-                                    size="small"
-                                    onClick={async () => {
-                                        setActionLoadingId(record.id);
-                                        try {
-                                            await api.put(`/missions/${record.id}/approve-coordinator`);
-                                            message.success('Mission validée définitivement');
-                                            fetchMissions();
-                                        } catch (err) {
-                                            message.error(err.response?.data?.error || 'Erreur');
-                                        } finally {
-                                            setActionLoadingId(null);
-                                        }
-                                    }}
-                                    loading={actionLoadingId === record.id}
-                                >
-                                    Valider
-                                </Button>
-                            )}
-                            {canApproveMission(record, user) && record.status === 'DRAFT' && !canConsolidateMission(record, user) && (
-                                <Button
-                                    type="link"
-                                    size="small"
-                                    onClick={async () => {
-                                        setActionLoadingId(record.id);
-                                        try {
-                                            await api.put(`/missions/${record.id}/approve`);
-                                            message.success('Mission validée');
-                                            fetchMissions();
-                                        } catch (err) {
-                                            message.error(err.response?.data?.error || 'Erreur');
-                                        } finally {
-                                            setActionLoadingId(null);
-                                        }
-                                    }}
-                                    loading={actionLoadingId === record.id}
-                                >
-                                    Valider
-                                </Button>
-                            )}
                             {canEditMission(record, user) && (
                                 <Button
                                     type="link"

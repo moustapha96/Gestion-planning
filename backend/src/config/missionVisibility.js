@@ -26,7 +26,6 @@ function coordinatorDraftMissionFilter(user) {
     if (!user?.id) return null;
     return {
         status: 'DRAFT',
-        createdBy: { role: ROLES.RESPONSABLE },
         project: { coordinatorId: user.id },
     };
 }
@@ -65,13 +64,11 @@ function consolidatorPendingMissionFilter(user) {
     if (orClauses.length === 1) {
         return {
             status: 'CONSOLIDATOR_PENDING',
-            createdBy: { role: ROLES.RESPONSABLE },
             ...orClauses[0],
         };
     }
     return {
         status: 'CONSOLIDATOR_PENDING',
-        createdBy: { role: ROLES.RESPONSABLE },
         OR: orClauses,
     };
 }
@@ -112,8 +109,9 @@ function missionListWhereForUser(user) {
     return ownMissionScope(user) || { createdById: '__none__' };
 }
 
-function requiresConsolidatorApproval(creatorRole) {
-    return creatorRole === ROLES.RESPONSABLE;
+/** Toute mission doit passer par le circuit coordinateur → consolidateur, sans exception. */
+function requiresConsolidatorApproval() {
+    return true;
 }
 
 function canConfirmMission(mission, user) {
@@ -129,12 +127,10 @@ function canConfirmMission(mission, user) {
     if (isPendingCoordinatorValidation(mission.status)) {
         return canFinalizePendingMission(mission, user);
     }
-    if (mission.status !== 'DRAFT') return false;
-    const creatorRole = mission.createdBy?.role;
-    if (requiresConsolidatorApproval(creatorRole)) {
-        return canApproveDraftMission(mission, user);
+    if (mission.status === 'DRAFT') {
+        return canCoordinateDraftMission(mission, user);
     }
-    return mission.createdById === user.id;
+    return false;
 }
 
 function canConsolidateMission(mission, user) {
@@ -164,7 +160,6 @@ function canViewMissionForUser(mission, user) {
     if (isPrivilegedAdmin(user.role)) return true;
     if (
         mission.status === 'DRAFT'
-        && mission.createdBy?.role === ROLES.RESPONSABLE
         && mission.project?.coordinatorId === user.id
     ) {
         return true;

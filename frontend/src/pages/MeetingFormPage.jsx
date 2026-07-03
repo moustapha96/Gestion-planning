@@ -6,6 +6,7 @@ import {
 import { ArrowLeftOutlined, TeamOutlined } from '@ant-design/icons';
 import dayjs from 'dayjs';
 import api from '../api/client';
+import { toUtcIso } from '../utils/datetime';
 import { useAuth } from '../context/AuthContext';
 import ResponsibleProjectField, { ResponsibleProjectBanner } from '../components/ResponsibleProjectField';
 import { applyDefaultProjectToForm, useResponsibleProjectScope } from '../hooks/useResponsibleProjectScope';
@@ -239,17 +240,17 @@ export default function MeetingFormPage() {
             setAvailableRooms([]);
             return;
         }
-        const start = startTime.toDate ? startTime.toDate() : new Date(startTime);
-        const end = endTime.toDate ? endTime.toDate() : new Date(endTime);
-        if (start >= end) {
+        const startIso = toUtcIso(startTime);
+        const endIso = toUtcIso(endTime);
+        if (!startIso || !endIso) {
             setAvailableRooms([]);
             return;
         }
         setLoadingRooms(true);
         api.get('/rooms/available', {
             params: {
-                startTime: start.toISOString(),
-                endTime: end.toISOString(),
+                startTime: startIso,
+                endTime: endIso,
                 excludeMeetingId: isEdit ? id : undefined,
             },
         })
@@ -263,11 +264,11 @@ export default function MeetingFormPage() {
             setSubmitError("Vous n'êtes responsable d'aucun projet actif. Contactez l'administration.");
             return;
         }
-        const start = values.startTime?.toDate?.() ?? values.startTime;
-        const end = values.endTime?.toDate?.() ?? values.endTime;
+        const startIso = toUtcIso(values.startTime);
+        const endIso = toUtcIso(values.endTime);
         const link = String(values.meetingLink || '').trim();
         setSubmitError('');
-        if (!start || !end || start >= end) {
+        if (!startIso || !endIso || new Date(startIso) >= new Date(endIso)) {
             setSubmitError('Choisissez un créneau valide (fin après le début).');
             return;
         }
@@ -295,8 +296,8 @@ export default function MeetingFormPage() {
                     projectId: values.projectId || null,
                     eventTypeId: values.eventTypeId || null,
                     meetingLink: link || null,
-                    startTime: start.toISOString(),
-                    endTime: end.toISOString(),
+                    startTime: startIso,
+                    endTime: endIso,
                 });
                 message.success('Réunion modifiée');
                 navigate(`/meetings/${id}`);
@@ -311,8 +312,8 @@ export default function MeetingFormPage() {
                 projectId: values.projectId || defaultProjectId || undefined,
                 eventTypeId: values.eventTypeId || undefined,
                 meetingLink: link || undefined,
-                startTime: start.toISOString(),
-                endTime: end.toISOString(),
+                startTime: startIso,
+                endTime: endIso,
                 participants: values.participantIds || [],
             });
             message.success('Réunion créée');

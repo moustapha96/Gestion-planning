@@ -5,15 +5,12 @@
  */
 const { notificationService } = require('../services/notification.service');
 const { logger } = require('../utils/logger');
+const { utcDayBounds, utcAddDays } = require('../utils/dateUtc');
 
 async function runMeetingReminders(prisma) {
     const now = new Date();
-    const tomorrowStart = new Date(now);
-    tomorrowStart.setDate(now.getDate() + 1);
-    tomorrowStart.setHours(0, 0, 0, 0);
-
-    const tomorrowEnd = new Date(tomorrowStart);
-    tomorrowEnd.setHours(23, 59, 59, 999);
+    const tomorrow = utcAddDays(now, 1);
+    const { start: tomorrowStart, end: tomorrowEnd } = utcDayBounds(tomorrow);
 
     logger.info('CRON_REMINDERS_START', 'Démarrage envoi rappels réunions J-1', {
         window: `${tomorrowStart.toISOString()} → ${tomorrowEnd.toISOString()}`,

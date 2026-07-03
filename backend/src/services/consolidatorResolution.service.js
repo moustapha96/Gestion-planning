@@ -240,9 +240,7 @@ async function resolveEntityConsolidationContext(prisma, entity, kind, cache) {
 async function canUserConsolidateEntity(prisma, user, entity, kind, cache) {
     if (!entity || !user) return false;
     if (!isPendingConsolidatorValidation(entity.status)) return false;
-
-    const organizerRole = entity.organizer?.role || entity.createdBy?.role;
-    if (organizerRole && organizerRole !== ROLES.RESPONSABLE) return false;
+    if (isPrivilegedAdmin(user.role)) return true;
 
     const ctx = await resolveEntityConsolidationContext(prisma, entity, kind, cache);
     return canConsolidateInContext(user, ctx);

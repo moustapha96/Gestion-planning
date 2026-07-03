@@ -35,7 +35,7 @@ Créer `frontend/.env.production` avant `npm run build` :
 
 ```env
 VITE_API_URL=https://back-gp.tech-xuma.com
-VITE_APP_TIMEZONE=Africa/Dakar
+VITE_APP_TIMEZONE=UTC
 ```
 
 Modèle : `deploy/env/frontend.env.production.example`

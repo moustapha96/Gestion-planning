@@ -44,8 +44,8 @@ fi
 cd "$GPADM_ROOT/backend"
 
 export PM2_APP_NAME="${PM2_APP_NAME:-backend}"
-export TZ="${TZ:-Africa/Dakar}"
-export APP_TIMEZONE="${APP_TIMEZONE:-Africa/Dakar}"
+export TZ="${TZ:-UTC}"
+export APP_TIMEZONE="${APP_TIMEZONE:-UTC}"
 
 if [[ ! -f .env ]]; then
     if [[ -f .env.production ]]; then

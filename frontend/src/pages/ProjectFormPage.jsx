@@ -45,6 +45,7 @@ export default function ProjectFormPage({ adminContext = false }) {
     const [logoUploading, setLogoUploading] = useState(false);
     const [fileUploading, setFileUploading] = useState(false);
     const [pendingLogoFile, setPendingLogoFile] = useState(null);
+    const [pendingLogoPreview, setPendingLogoPreview] = useState(null);
     const [allUsers, setAllUsers] = useState([]);
     const [project, setProject] = useState(null);
     const [initialStatus, setInitialStatus] = useState('ACTIVE');
@@ -54,7 +55,10 @@ export default function ProjectFormPage({ adminContext = false }) {
     const isResponsibleUser = isResponsable(user?.role);
     const logoUrl = Form.useWatch('logoUrl', form);
 
-    const logoPreview = useMemo(() => resolveImageSrc(logoUrl), [logoUrl]);
+    const logoPreview = useMemo(() => {
+        if (pendingLogoPreview) return pendingLogoPreview;
+        return resolveImageSrc(logoUrl);
+    }, [logoUrl, pendingLogoPreview]);
 
     useEffect(() => {
         if (canManage || !user) return;
@@ -99,6 +103,12 @@ export default function ProjectFormPage({ adminContext = false }) {
 
     useEffect(() => { loadProject(); }, [loadProject]);
 
+    useEffect(() => () => {
+        if (pendingLogoPreview?.startsWith('blob:')) {
+            URL.revokeObjectURL(pendingLogoPreview);
+        }
+    }, [pendingLogoPreview]);
+
     const handleLogoPick = async ({ file, onSuccess, onError }) => {
         if (!file.type?.startsWith('image/')) {
             message.error('Veuillez choisir une image.');
@@ -124,9 +134,11 @@ export default function ProjectFormPage({ adminContext = false }) {
                 setLogoUploading(false);
             }
         } else {
+            if (pendingLogoPreview?.startsWith('blob:')) {
+                URL.revokeObjectURL(pendingLogoPreview);
+            }
             setPendingLogoFile(file);
-            const preview = URL.createObjectURL(file);
-            form.setFieldsValue({ logoUrl: preview });
+            setPendingLogoPreview(URL.createObjectURL(file));
             message.success('Logo sera envoyé à la création du projet');
             onSuccess?.('ok');
         }
@@ -198,7 +210,7 @@ export default function ProjectFormPage({ adminContext = false }) {
                 navigate(`${listPath}`);
             } else {
                 const trimmedLogo = String(logoUrlVal || '').trim();
-                if (trimmedLogo && !trimmedLogo.startsWith('blob:')) {
+                if (trimmedLogo) {
                     payload.logoUrl = trimmedLogo;
                 }
                 const { data: created } = await api.post('/projects', payload);
@@ -339,8 +351,8 @@ export default function ProjectFormPage({ adminContext = false }) {
                                 description={(
                                     <ul style={{ margin: '8px 0 0', paddingLeft: 18 }}>
                                         <li>Le <strong>responsable</strong> porte le planning hebdomadaire consolidé (un même responsable peut gérer plusieurs projets).</li>
-                                        <li>Le <strong>consolidateur</strong> valide les réunions en brouillon.</li>
-                                        <li>Le <strong>coordinateur</strong> valide définitivement réunions et missions.</li>
+                                        <li>Le <strong>coordinateur</strong> valide toutes les réunions et missions en brouillon (étape 1/2).</li>
+                                        <li>Le <strong>consolidateur</strong> valide définitivement réunions et missions (étape 2/2) avant publication calendrier.</li>
                                     </ul>
                                 )}
                             />
@@ -361,10 +373,11 @@ export default function ProjectFormPage({ adminContext = false }) {
                                         />
                                     </Form.Item>
                                 </Col>
+                               
                                 <Col xs={24} md={8}>
                                     <Form.Item
-                                        name="consolidatorId"
-                                        label="Consolidateur"
+                                        name="coordinatorId"
+                                        label="Coordinateur"
                                         extra="Valide les réunions en brouillon."
                                     >
                                         <Select
@@ -376,11 +389,12 @@ export default function ProjectFormPage({ adminContext = false }) {
                                         />
                                     </Form.Item>
                                 </Col>
+
                                 <Col xs={24} md={8}>
                                     <Form.Item
-                                        name="coordinatorId"
-                                        label="Coordinateur"
-                                        extra="Valide définitivement réunions et missions."
+                                        name="consolidatorId"
+                                        label="Consolidateur"
+                                        extra="Valide définitivement les réunions et missions."
                                     >
                                         <Select
                                             allowClear
@@ -483,7 +497,7 @@ export default function ProjectFormPage({ adminContext = false }) {
                             <Form.Item
                                 name="logoUrl"
                                 label="URL du logo (optionnel)"
-                                extra="https://… ou /uploads/… — laissez vide pour le logo par défaut."
+                                extra="https://… ou /uploads/… — laissez vide pour le logo par défaut, ou importez une image ci-dessous."
                                 rules={[
                                     {
                                         validator: (_, v) => (isValidOptionalLogoUrl(v)

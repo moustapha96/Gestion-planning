@@ -1,9 +1,9 @@
 const { publishedMeetingStatusFilter } = require('../config/meetingVisibility');
 const { getOwnedResponsibleProjects } = require('./projectResponsible.service');
+const { utcMondayOfWeek } = require('../utils/dateUtc');
 
 function weekBounds(weekStart) {
-    const start = new Date(weekStart);
-    start.setHours(0, 0, 0, 0);
+    const start = utcMondayOfWeek(weekStart);
     const end = new Date(start.getTime() + 7 * 24 * 60 * 60 * 1000);
     return { start, end };
 }
@@ -191,8 +191,7 @@ async function enrichPlanningsWithAggregation(prisma, plannings) {
 
 /** Crée ou récupère le planning hebdomadaire d'un responsable. */
 async function ensurePlanningForResponsible(prisma, userId, weekStart) {
-    const monday = new Date(weekStart);
-    monday.setHours(0, 0, 0, 0);
+    const monday = utcMondayOfWeek(weekStart);
 
     const existing = await prisma.planning.findUnique({
         where: { userId_weekStart: { userId, weekStart: monday } },
@@ -211,8 +210,7 @@ async function ensurePlanningForResponsible(prisma, userId, weekStart) {
 
 /** Assure un planning par responsable de projet actif pour la semaine. */
 async function ensureWeekPlanningsForResponsibles(prisma, weekStart) {
-    const monday = new Date(weekStart);
-    monday.setHours(0, 0, 0, 0);
+    const monday = utcMondayOfWeek(weekStart);
 
     const projects = await prisma.project.findMany({
         where: {

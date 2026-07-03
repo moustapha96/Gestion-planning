@@ -332,19 +332,19 @@ httpServer.listen(PORT, HOST, () => {
 
     const cronTz = cronTimezoneOptions();
 
-    // Cron : rapport hebdomadaire chaque lundi à 8h00 heure de Dakar (CDC §3.10)
+    // Cron : rapport hebdomadaire chaque lundi à 8h00 GMT+0 (CDC §3.10)
     cron.schedule('0 8 * * 1', () => {
         runWeeklyReport(prisma).catch((err) => {
             logger.error('CRON_WEEKLY_REPORT', err.message, { stack: err.stack });
         });
     }, cronTz);
-    // Cron : rappels réunions J-1 chaque jour à 8h00 heure de Dakar (CDC §3.3.2)
+    // Cron : rappels réunions J-1 chaque jour à 8h00 GMT+0 (CDC §3.3.2)
     cron.schedule('0 8 * * *', () => {
         runMeetingReminders(prisma).catch((err) => {
             logger.error('CRON_MEETING_REMINDERS', err.message, { stack: err.stack });
         });
     }, cronTz);
-    // Cron : digest notifications (toutes les heures, heure de Dakar)
+    // Cron : digest notifications (toutes les heures, GMT+0)
     cron.schedule('0 * * * *', () => {
         runDailyDigest(prisma).catch((err) => {
             logger.error('CRON_DAILY_DIGEST', err.message, { stack: err.stack });

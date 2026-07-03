@@ -5,6 +5,9 @@ const {
 } = require('../config/roles');
 const { meetingListWhereForUser } = require('../config/meetingVisibility');
 const { buildUserTodayStats, buildUserWeekStats } = require('../services/dashboardUserScope.service');
+const {
+    parseUtcDate, utcMonthBounds, utcNowParts, utcDayBounds, utcAddDays,
+} = require('../utils/dateUtc');
 
 const router = express.Router();
 
@@ -16,11 +19,11 @@ router.get('/admin-stats', roleMiddleware(ADMIN_ROUTE_ROLES), async (req, res) =
         }
 
         const now = new Date();
-        const monthStart = new Date(now.getFullYear(), now.getMonth(), 1);
-        const monthEnd = new Date(now.getFullYear(), now.getMonth() + 1, 0, 23, 59, 59, 999);
-        const sevenDaysAgo = new Date(now);
-        sevenDaysAgo.setDate(now.getDate() - 6);
-        sevenDaysAgo.setHours(0, 0, 0, 0);
+        const nowParts = utcNowParts();
+        const { start: monthStart, end: monthEnd } = utcMonthBounds(nowParts.year, nowParts.month);
+        const sevenDaysAgo = utcAddDays(now, -6);
+        const { start: sevenDaysStart } = utcDayBounds(sevenDaysAgo);
+        const { end: todayEnd } = utcDayBounds(now);
 
         const [
             allUsers,
@@ -45,7 +48,7 @@ router.get('/admin-stats', roleMiddleware(ADMIN_ROUTE_ROLES), async (req, res) =
             req.prisma.room.count({ where: { status: 'ACTIVE' } }),
             // Réservations confirmées sur les 7 derniers jours
             req.prisma.roomBooking.findMany({
-                where: { status: 'CONFIRMED', date: { gte: sevenDaysAgo, lte: new Date(now.getFullYear(), now.getMonth(), now.getDate(), 23, 59, 59, 999) } },
+                where: { status: 'CONFIRMED', date: { gte: sevenDaysStart, lte: todayEnd } },
                 select: { startTime: true, endTime: true },
             }),
             req.prisma.user.groupBy({ by: ['role'], _count: { id: true }, where: { isDeleted: false } }),
@@ -113,15 +116,11 @@ router.get('/admin-stats', roleMiddleware(ADMIN_ROUTE_ROLES), async (req, res) =
 });
 
 function startOfDay(d) {
-    const x = new Date(d);
-    x.setHours(0, 0, 0, 0);
-    return x;
+    return utcDayBounds(d).start;
 }
 
 function endOfDay(d) {
-    const x = new Date(d);
-    x.setHours(23, 59, 59, 999);
-    return x;
+    return utcDayBounds(d).end;
 }
 
 // GET /api/dashboard/today - Indicateurs personnels du jour (utilisateur connecté)
@@ -370,8 +369,10 @@ router.get('/search-global', async (req, res) => {
 router.get('/advanced', roleMiddleware(ADMIN_ROUTE_ROLES), async (req, res) => {
     try {
         const now = new Date();
-        const from = req.query.from ? new Date(req.query.from) : new Date(now.getFullYear(), now.getMonth(), 1);
-        const to = req.query.to ? new Date(req.query.to) : now;
+        const nowParts = utcNowParts();
+        const { start: defaultFrom } = utcMonthBounds(nowParts.year, nowParts.month);
+        const from = req.query.from ? parseUtcDate(req.query.from) : defaultFrom;
+        const to = req.query.to ? parseUtcDate(req.query.to) : now;
 
         const [users, meetings, missions, invitationsAgg, assignmentsAgg, invitationsByUser, planningCount] = await Promise.all([
             req.prisma.user.findMany({
@@ -453,8 +454,10 @@ router.get('/advanced', roleMiddleware(ADMIN_ROUTE_ROLES), async (req, res) => {
 router.get('/advanced/export', roleMiddleware(ADMIN_ROUTE_ROLES), async (req, res) => {
     try {
         const now = new Date();
-        const from = req.query.from ? new Date(req.query.from) : new Date(now.getFullYear(), now.getMonth(), 1);
-        const to = req.query.to ? new Date(req.query.to) : now;
+        const nowParts = utcNowParts();
+        const { start: defaultFrom } = utcMonthBounds(nowParts.year, nowParts.month);
+        const from = req.query.from ? parseUtcDate(req.query.from) : defaultFrom;
+        const to = req.query.to ? parseUtcDate(req.query.to) : now;
         const users = await req.prisma.user.findMany({
             where: { isDeleted: false, isActive: true },
             select: { id: true, name: true, email: true, role: true },

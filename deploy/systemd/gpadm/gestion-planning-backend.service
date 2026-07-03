@@ -12,8 +12,8 @@ User=www-data
 Group=www-data
 WorkingDirectory=/var/www/gpadm/backend
 Environment=PATH=/usr/bin:/bin
-Environment=TZ=Africa/Dakar
-Environment=APP_TIMEZONE=Africa/Dakar
+Environment=TZ=UTC
+Environment=APP_TIMEZONE=UTC
 Environment=HOST=127.0.0.1
 Environment=PORT=3001
 ExecStart=/usr/bin/node server.js

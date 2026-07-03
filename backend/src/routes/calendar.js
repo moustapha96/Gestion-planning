@@ -1,5 +1,6 @@
 const express = require('express');
 const { logger } = require('../utils/logger');
+const { APP_TIMEZONE } = require('../config/timezone');
 const { meetingCalendarWhereForUser } = require('../config/meetingVisibility');
 const {
   toAppYmd,
@@ -7,16 +8,13 @@ const {
   mapMissionToCalendarEvent,
   mapMeetingToCalendarEvent,
 } = require('../utils/calendarEvents');
-
-/** Lundi 00:00:00 (semaine ISO / calendrier app) pour la date donnée */
-function startOfWeekMonday(d) {
-  const date = new Date(d);
-  date.setHours(0, 0, 0, 0);
-  const jsDay = date.getDay();
-  const offset = jsDay === 0 ? -6 : 1 - jsDay;
-  date.setDate(date.getDate() + offset);
-  return date;
-}
+const {
+  parseUtcDate,
+  utcMonthBounds,
+  utcNowParts,
+  utcWeekBounds,
+  utcDayBounds,
+} = require('../utils/dateUtc');
 
 /**
  * Handler GET /api/calendar/month - Récupérer tous les événements du mois
@@ -26,11 +24,11 @@ async function monthHandler(req, res) {
     if (!req.user || !req.prisma) {
       return res.status(401).json({ error: 'Non authentifié' });
     }
-    const month = parseInt(req.query.month, 10) || new Date().getMonth() + 1;
-    const year = parseInt(req.query.year, 10) || new Date().getFullYear();
+    const nowParts = utcNowParts();
+    const month = parseInt(req.query.month, 10) || nowParts.month;
+    const year = parseInt(req.query.year, 10) || nowParts.year;
 
-    const startDate = new Date(year, month - 1, 1);
-    const endDate = new Date(year, month, 0, 23, 59, 59, 999);
+    const { start: startDate, end: endDate } = utcMonthBounds(year, month);
 
     const planningsQuery = {
       weekStart: {
@@ -134,11 +132,8 @@ router.get('/month', monthHandler);
  */
 router.get('/week', async (req, res) => {
   try {
-    const date = req.query.date ? new Date(req.query.date) : new Date();
-    const weekStart = startOfWeekMonday(date);
-    const weekEnd = new Date(weekStart);
-    weekEnd.setDate(weekStart.getDate() + 6);
-    weekEnd.setHours(23, 59, 59, 999);
+    const date = req.query.date ? parseUtcDate(req.query.date) : new Date();
+    const { start: weekStart, end: weekEnd } = utcWeekBounds(date);
 
     const plannings = await req.prisma.planning.findMany({
       where: {
@@ -178,6 +173,7 @@ router.get('/week', async (req, res) => {
     });
 
     const events = [];
+    const timeFmt = { hour: '2-digit', minute: '2-digit', timeZone: APP_TIMEZONE };
 
     plannings.forEach((planning) => {
       planning.events.forEach((event) => {
@@ -186,7 +182,7 @@ router.get('/week', async (req, res) => {
           type: 'planning-event',
           title: event.title,
           date: toAppYmd(event.startTime),
-          time: new Date(event.startTime).toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' }),
+          time: new Date(event.startTime).toLocaleTimeString('fr-FR', timeFmt),
           startTime: event.startTime,
           endTime: event.endTime,
           eventType: event.type,
@@ -198,22 +194,14 @@ router.get('/week', async (req, res) => {
     meetings.forEach((meeting) => {
       events.push({
         ...mapMeetingToCalendarEvent(meeting),
-        time: new Date(meeting.startTime).toLocaleTimeString('fr-FR', {
-          hour: '2-digit',
-          minute: '2-digit',
-          timeZone: 'Africa/Dakar',
-        }),
+        time: new Date(meeting.startTime).toLocaleTimeString('fr-FR', timeFmt),
       });
     });
 
     missions.forEach((mission) => {
       events.push({
         ...mapMissionToCalendarEvent(mission),
-        time: new Date(mission.startTime).toLocaleTimeString('fr-FR', {
-          hour: '2-digit',
-          minute: '2-digit',
-          timeZone: 'Africa/Dakar',
-        }),
+        time: new Date(mission.startTime).toLocaleTimeString('fr-FR', timeFmt),
       });
     });
 
@@ -229,11 +217,8 @@ router.get('/week', async (req, res) => {
  */
 router.get('/day', async (req, res) => {
   try {
-    const date = req.query.date ? new Date(req.query.date) : new Date();
-    const dayStart = new Date(date);
-    dayStart.setHours(0, 0, 0, 0);
-    const dayEnd = new Date(date);
-    dayEnd.setHours(23, 59, 59, 999);
+    const date = req.query.date ? parseUtcDate(req.query.date) : new Date();
+    const { start: dayStart, end: dayEnd } = utcDayBounds(date);
 
     const meetings = await req.prisma.meeting.findMany({
       where: {

@@ -1,5 +1,7 @@
 const { notificationService } = require('../services/notification.service');
 const { logger } = require('../utils/logger');
+const { utcAddDays } = require('../utils/dateUtc');
+const { formatFrDate } = require('../config/timezone');
 
 function digestKey(userId) {
     return `notif_pref:${userId}:digest`;
@@ -22,9 +24,8 @@ async function runDailyDigest(prisma, now = new Date()) {
         const keys = users.map((u) => digestKey(u.id));
         const prefRows = await prisma.appSetting.findMany({ where: { key: { in: keys } } });
         const prefMap = new Map(prefRows.map((r) => [r.key, r.value]));
-        const oneDayAgo = new Date(now);
-        oneDayAgo.setDate(oneDayAgo.getDate() - 1);
-        const currentHour = now.getHours();
+        const oneDayAgo = utcAddDays(now, -1);
+        const currentHour = now.getUTCHours();
 
         for (const u of users) {
             let digestPref = { enabled: false, time: '08:00' };
@@ -55,7 +56,7 @@ async function runDailyDigest(prisma, now = new Date()) {
                   <ul style="padding-left:18px;">${rows}</ul>
                 </div>
             `;
-            const subject = `Digest quotidien notifications (${now.toLocaleDateString('fr-FR')})`;
+            const subject = `Digest quotidien notifications (${formatFrDate(now)})`;
             await notificationService.sendRawEmail(u.email, subject, html);
         }
     } catch (error) {

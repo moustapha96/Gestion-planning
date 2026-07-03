@@ -11,8 +11,8 @@ import {
     InfoCircleOutlined, StopOutlined, ShareAltOutlined, CopyOutlined,
     TeamOutlined,
 } from '@ant-design/icons';
-import dayjs from 'dayjs';
 import api from '../api/client';
+import { appDayjs, appYmd, formatDateTime, formatDateTimeLocale, toUtcIso } from '../utils/datetime';
 import { useAuth } from '../context/AuthContext';
 import {
     isPrivilegedAdmin, canSuperAdminForceDelete,
@@ -35,16 +35,13 @@ const EVENT_STYLES = {
 
 // ── Grille hebdomadaire ──────────────────────────────────────────
 function WeekGrid({ events, weekStart, canEdit, onEdit, onDelete, onView, resolveEventStyle }) {
-    const monday = new Date(weekStart);
-    const days   = Array.from({ length: 7 }, (_, i) => {
-        const d = new Date(monday);
-        d.setDate(monday.getDate() + i);
-        return d;
-    });
+    const monday = appDayjs(weekStart).startOf('day');
+    const days = Array.from({ length: 7 }, (_, i) => monday.add(i, 'day'));
+    const todayKey = appYmd();
 
     const eventsByDay = {};
     (events || []).forEach((ev) => {
-        const key = new Date(ev.startTime).toISOString().split('T')[0];
+        const key = appYmd(ev.startTime);
         if (!eventsByDay[key]) eventsByDay[key] = [];
         eventsByDay[key].push(ev);
     });
@@ -58,12 +55,12 @@ function WeekGrid({ events, weekStart, canEdit, onEdit, onDelete, onView, resolv
                 minWidth: 700,
             }}>
                 {days.map((day) => {
-                    const dayKey   = day.toISOString().split('T')[0];
-                    const dayEvs   = (eventsByDay[dayKey] || []).sort(
+                    const dayKey = day.format('YYYY-MM-DD');
+                    const dayEvs = (eventsByDay[dayKey] || []).sort(
                         (a, b) => new Date(a.startTime) - new Date(b.startTime)
                     );
-                    const isWeekend = day.getDay() === 0 || day.getDay() === 6;
-                    const isToday   = new Date().toDateString() === day.toDateString();
+                    const isWeekend = day.day() === 0 || day.day() === 6;
+                    const isToday = dayKey === todayKey;
 
                     return (
                         <div
@@ -90,7 +87,7 @@ function WeekGrid({ events, weekStart, canEdit, onEdit, onDelete, onView, resolv
                                         color: isToday ? '#1565C0' : isWeekend ? '#bfbfbf' : '#595959',
                                     }}
                                 >
-                                    {day.toLocaleDateString('fr-FR', { weekday: 'short', day: 'numeric' })}
+                                    {day.format('ddd D')}
                                 </Text>
                                 {dayEvs.length > 0 && (
                                     <Badge
@@ -107,12 +104,8 @@ function WeekGrid({ events, weekStart, canEdit, onEdit, onDelete, onView, resolv
                                     const s = resolveEventStyle
                                         ? resolveEventStyle(ev)
                                         : (EVENT_STYLES[ev.type] || EVENT_STYLES.AUTRE);
-                                    const startStr = new Date(ev.startTime).toLocaleTimeString('fr-FR', {
-                                        hour: '2-digit', minute: '2-digit',
-                                    });
-                                    const endStr = new Date(ev.endTime).toLocaleTimeString('fr-FR', {
-                                        hour: '2-digit', minute: '2-digit',
-                                    });
+                                    const startStr = formatDateTime(ev.startTime, 'HH:mm');
+                                    const endStr = formatDateTime(ev.endTime, 'HH:mm');
                                     return (
                                         <div
                                             key={ev.id}
@@ -286,8 +279,8 @@ export default function PlanningDetail() {
             eventForm.setFieldsValue({
                 title:       event.title,
                 eventTypeId: event.eventTypeId || event.eventType?.id || undefined,
-                startTime:   event.startTime ? dayjs(event.startTime) : null,
-                endTime:     event.endTime   ? dayjs(event.endTime)   : null,
+                startTime:   event.startTime ? appDayjs(event.startTime) : null,
+                endTime:     event.endTime   ? appDayjs(event.endTime)   : null,
                 roomId:      event.roomId    || undefined,
                 directionId: event.directionId || undefined,
                 projectId:   event.projectId || undefined,
@@ -301,7 +294,7 @@ export default function PlanningDetail() {
                 || eventTypes.find((t) => t.code === 'FORMATION')?.id
                 || eventTypes[0]?.id;
             if (planning?.weekStart) {
-                const monday = dayjs(planning.weekStart).hour(9).minute(0).second(0);
+                const monday = appDayjs(planning.weekStart).hour(9).minute(0).second(0);
                 eventForm.setFieldsValue({
                     startTime: monday,
                     endTime:   monday.hour(10),
@@ -334,8 +327,8 @@ export default function PlanningDetail() {
         }
         try {
             const values = await eventForm.validateFields();
-            const startTime = values.startTime?.toISOString?.() ?? values.startTime;
-            const endTime   = values.endTime?.toISOString?.()   ?? values.endTime;
+            const startTime = toUtcIso(values.startTime);
+            const endTime = toUtcIso(values.endTime);
             if (!startTime || !endTime || new Date(startTime) >= new Date(endTime)) {
                 message.error('La fin doit être après le début.');
                 return;
@@ -425,20 +418,11 @@ export default function PlanningDetail() {
         we.setDate(ws.getDate() + 6);
         const wLabel = `${ws.toLocaleDateString('fr-FR', { day: 'numeric', month: 'long' })} – ${we.toLocaleDateString('fr-FR', { day: 'numeric', month: 'long', year: 'numeric' })}`;
 
-        const fmtTime = (iso) => {
-            if (!iso) return '';
-            try { return new Date(iso).toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' }); }
-            catch { return ''; }
-        };
+        const fmtTime = (iso) => formatDateTime(iso, 'HH:mm');
 
-        const fmtDay = (iso) => {
-            if (!iso) return '';
-            try {
-                return new Date(iso).toLocaleDateString('fr-FR', {
-                    weekday: 'long', day: 'numeric', month: 'long', year: 'numeric',
-                });
-            } catch { return iso; }
-        };
+        const fmtDay = (iso) => formatDateTimeLocale(iso, {
+            weekday: 'long', day: 'numeric', month: 'long', year: 'numeric',
+        });
 
         const TYPE_LABELS = {
             REUNION: 'Réunion', MISSION: 'Mission',
@@ -462,7 +446,7 @@ export default function PlanningDetail() {
             // Regrouper par jour
             const byDay = {};
             events.forEach((ev) => {
-                const day = new Date(ev.startTime).toISOString().split('T')[0];
+                const day = appYmd(ev.startTime);
                 if (!byDay[day]) byDay[day] = [];
                 byDay[day].push(ev);
             });
@@ -789,7 +773,7 @@ export default function PlanningDetail() {
                                             <div style={{ flex: 1 }}>
                                                 <Text strong>{m.title}</Text>
                                                 <Text type="secondary" style={{ display: 'block', fontSize: 12 }}>
-                                                    {new Date(m.startTime).toLocaleString('fr-FR', { dateStyle: 'short', timeStyle: 'short' })}
+                                                    {formatDateTimeLocale(m.startTime, { dateStyle: 'short', timeStyle: 'short' })}
                                                 </Text>
                                             </div>
                                             <Tag color="blue">Réunion</Tag>
@@ -831,8 +815,8 @@ export default function PlanningDetail() {
                                                 {m.startTime && (
                                                     <Text type="secondary" style={{ fontSize: 12 }}>
                                                         <ClockCircleOutlined style={{ marginRight: 3 }} />
-                                                        {new Date(m.startTime).toLocaleString('fr-FR', { dateStyle: 'short', timeStyle: 'short' })}
-                                                        {m.endTime && ` → ${new Date(m.endTime).toLocaleString('fr-FR', { dateStyle: 'short', timeStyle: 'short' })}`}
+                                                        {formatDateTimeLocale(m.startTime, { dateStyle: 'short', timeStyle: 'short' })}
+                                                        {m.endTime && ` → ${formatDateTimeLocale(m.endTime, { dateStyle: 'short', timeStyle: 'short' })}`}
                                                     </Text>
                                                 )}
                                                 {m.assignments?.length > 0 && (
@@ -951,7 +935,7 @@ export default function PlanningDetail() {
                         </Col>
                     </Row>
 
-                    <Form.Item name="destination" label="Destination / Lieu externe (optionnel)">
+                    <Form.Item name="destination" label="Lieu (optionnel)">
                         <Input placeholder="Ex. Site client, adresse..." />
                     </Form.Item>
 
@@ -977,15 +961,15 @@ export default function PlanningDetail() {
                                 {eventDetails.eventType?.name || eventDetails.type || '-'}
                             </Descriptions.Item>
                             <Descriptions.Item label="Début">
-                                {eventDetails.startTime ? new Date(eventDetails.startTime).toLocaleString('fr-FR') : '-'}
+                                {eventDetails.startTime ? formatDateTimeLocale(eventDetails.startTime) : '-'}
                             </Descriptions.Item>
                             <Descriptions.Item label="Fin">
-                                {eventDetails.endTime ? new Date(eventDetails.endTime).toLocaleString('fr-FR') : '-'}
+                                {eventDetails.endTime ? formatDateTimeLocale(eventDetails.endTime) : '-'}
                             </Descriptions.Item>
                             <Descriptions.Item label="Salle">{eventDetails.room?.name || '-'}</Descriptions.Item>
                             <Descriptions.Item label="Direction">{eventDetails.direction?.name || '-'}</Descriptions.Item>
                             <Descriptions.Item label="Projet">{eventDetails.project?.name || '-'}</Descriptions.Item>
-                            <Descriptions.Item label="Destination">{eventDetails.destination || '-'}</Descriptions.Item>
+                            <Descriptions.Item label="Lieu">{eventDetails.destination || '-'}</Descriptions.Item>
                             <Descriptions.Item label="Description">{eventDetails.description || '-'}</Descriptions.Item>
                         </Descriptions>
                         <Space style={{ marginTop: 16 }}>

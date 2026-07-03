@@ -23,7 +23,7 @@ import { useAuth } from '../context/AuthContext';
 import { PDF_ACCEPT, isAcceptedPdfFile } from '../utils/pdfAttachment';
 import { resolveImageSrc } from '../utils/mediaUrl';
 import { canManageProjects, isResponsable } from '../utils/roles';
-import { isUserProjectResponsible } from '../utils/projectScope';
+import { isUserProjectResponsible, isUserProjectResponsibleOrCoordinator } from '../utils/projectScope';
 import { useResponsibleProjectScope } from '../hooks/useResponsibleProjectScope';
 
 const { Title, Text } = Typography;
@@ -42,7 +42,8 @@ export default function ProjectDetail() {
 
     const canManage = canManageProjects(user?.role);
     const isResponsible = isUserProjectResponsible(user, project);
-    const canCreateOnProject = isResponsible && project?.status === 'ACTIVE';
+    const isResponsibleOrCoordinator = isUserProjectResponsibleOrCoordinator(user, project);
+    const canCreateOnProject = isResponsibleOrCoordinator && project?.status === 'ACTIVE';
     const { hasMultipleProjects } = useResponsibleProjectScope(user, { enabled: isResponsable(user?.role) });
 
     const load = async () => {
@@ -228,7 +229,7 @@ export default function ProjectDetail() {
                 )}
             </Space>
 
-            {isResponsible && hasMultipleProjects && (
+            {isResponsibleOrCoordinator && hasMultipleProjects && (
                 <Alert
                     type="info"
                     showIcon

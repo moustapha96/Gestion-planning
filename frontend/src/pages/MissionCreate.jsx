@@ -15,6 +15,7 @@ import {
 import { ArrowLeftOutlined, FlagOutlined } from '@ant-design/icons';
 import dayjs from 'dayjs';
 import api from '../api/client';
+import { appDayjs, toUtcIso } from '../utils/datetime';
 import { useAuth } from '../context/AuthContext';
 import { isResponsable } from '../utils/roles';
 import ResponsibleProjectField, { ResponsibleProjectBanner } from '../components/ResponsibleProjectField';
@@ -57,7 +58,7 @@ export default function MissionCreate() {
     useEffect(() => {
         const dateParam = searchParams.get('date');
         if (!dateParam || !/^\d{4}-\d{2}-\d{2}$/.test(dateParam)) return;
-        const d = dayjs(dateParam);
+        const d = appDayjs(dateParam);
         form.setFieldsValue({
             startTime: d.hour(9).minute(0).second(0),
             endTime: d.hour(12).minute(0).second(0),
@@ -75,8 +76,8 @@ export default function MissionCreate() {
             message.warning("Vous n'êtes responsable d'aucun projet actif.");
             return;
         }
-        const start = values.startTime?.toISOString?.() ?? values.startTime;
-        const end = values.endTime?.toISOString?.() ?? values.endTime;
+        const start = toUtcIso(values.startTime);
+        const end = toUtcIso(values.endTime);
         if (!start || !end || new Date(start) >= new Date(end)) {
             message.error('La fin doit être après le début.');
             return;

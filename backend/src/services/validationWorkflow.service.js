@@ -1,4 +1,3 @@
-const { ROLES } = require('../config/roles');
 const {
     isPendingConsolidatorValidation,
     isPendingCoordinatorValidation,
@@ -92,8 +91,6 @@ function idleWorkflow() {
 
 async function buildMeetingValidationWorkflow(prisma, meeting) {
     if (!meeting) return idleWorkflow();
-    const organizerRole = meeting.organizer?.role;
-    if (organizerRole !== ROLES.RESPONSABLE) return idleWorkflow();
 
     const projectId = meeting.projectId || meeting.project?.id || null;
     const directionId = meeting.directionId || null;
@@ -137,8 +134,6 @@ async function buildMeetingValidationWorkflow(prisma, meeting) {
 
 async function buildMissionValidationWorkflow(prisma, mission) {
     if (!mission) return idleWorkflow();
-    const creatorRole = mission.createdBy?.role;
-    if (creatorRole !== ROLES.RESPONSABLE) return idleWorkflow();
 
     const projectId = mission.projectId || mission.project?.id || null;
     const directionId = mission.directionId || null;

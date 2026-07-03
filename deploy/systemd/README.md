@@ -62,10 +62,10 @@ Mot de passe par défaut : `Test@2026 !` — surcharge : `SIDE_ACCOUNTS_PASSWORD
 
 ## Fuseau horaire (Dakar)
 
-L’application utilise **`Africa/Dakar`** (GMT, pas de changement d’heure été/hiver) :
+L’application utilise **`UTC`** (GMT, pas de changement d’heure été/hiver) :
 
-- Variables dans `backend/.env` : `APP_TIMEZONE=Africa/Dakar`, `TZ=Africa/Dakar`, `BACKUP_CRON_TIMEZONE=Africa/Dakar`
-- Services systemd : `Environment=TZ=Africa/Dakar` (templates `.in`)
+- Variables dans `backend/.env` : `APP_TIMEZONE=UTC`, `TZ=UTC`, `BACKUP_CRON_TIMEZONE=UTC`
+- Services systemd : `Environment=TZ=UTC` (templates `.in`)
 - Crons (rapport lundi 8h, rappels J-1, etc.) déclenchés à **8h heure de Dakar**, même si le serveur est en UTC ou Europe/Paris
 
 Après modification des unités systemd :
@@ -76,7 +76,7 @@ sudo systemctl daemon-reload
 sudo systemctl restart gestion-planning-backend gestion-planning-frontend
 ```
 
-Optionnel sur la VM (système) : `sudo timedatectl set-timezone Africa/Dakar` — l’app ne dépend pas du fuseau OS grâce à `TZ` dans les services.
+Optionnel sur la VM (système) : `sudo timedatectl set-timezone UTC` — l’app ne dépend pas du fuseau OS grâce à `TZ` dans les services.
 
 ## Mises à jour (utilisateur `gpadm`)
 

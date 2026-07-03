@@ -71,23 +71,13 @@ function projectNeedsGlobalConsolidatorFallback(project) {
     return !projectHasConsolidator(project);
 }
 
-function meetingOrganizerNeedsApproval(meeting) {
-    const role = meeting.organizer?.role;
-    return role === ROLES.RESPONSABLE;
-}
-
-function missionCreatorNeedsApproval(mission) {
-    const role = mission.createdBy?.role;
-    return role === ROLES.RESPONSABLE;
-}
-
 /**
  * 1er palier réunion (DRAFT) : coordinateur du projet.
  * Passe en CONSOLIDATOR_PENDING — pas de publication calendrier.
+ * Toute réunion doit passer par ce circuit, quel que soit le rôle de l'organisateur (pas d'exception).
  */
 function canCoordinateDraftMeeting(meeting, user) {
     if (!meeting || meeting.status !== 'DRAFT' || !user) return false;
-    if (!meetingOrganizerNeedsApproval(meeting)) return false;
     if (isPrivilegedAdmin(user.role)) return true;
     const project = meeting.project || null;
     return projectHasCoordinator(project) && isUserProjectCoordinator(user, project);
@@ -99,7 +89,7 @@ function canCoordinateDraftMeeting(meeting, user) {
  */
 function canConsolidatePendingMeeting(meeting, user) {
     if (!meeting || !isPendingConsolidatorValidation(meeting.status) || !user) return false;
-    if (!meetingOrganizerNeedsApproval(meeting)) return false;
+    if (isPrivilegedAdmin(user.role)) return true;
     return canConsolidateInContext(user, {
         project: meeting.project || null,
         directionId: meeting.directionId || null,
@@ -107,13 +97,8 @@ function canConsolidatePendingMeeting(meeting, user) {
     });
 }
 
-/** Publication directe depuis DRAFT : uniquement si le créateur n'est pas responsable. */
-function canApproveDraftMeeting(meeting, user) {
-    if (!meeting || meeting.status !== 'DRAFT' || !user) return false;
-    if (isPrivilegedAdmin(user.role)) return true;
-    if (!meetingOrganizerNeedsApproval(meeting)) {
-        return meeting.organizerId === user.id;
-    }
+/** Publication directe depuis DRAFT interdite — circuit obligatoire pour tous. */
+function canApproveDraftMeeting() {
     return false;
 }
 
@@ -123,7 +108,6 @@ function canApproveDraftMeeting(meeting, user) {
 function canFinalizePendingMeeting(meeting, user) {
     if (!meeting || !isPendingCoordinatorValidation(meeting.status) || !user) return false;
     if (isPrivilegedAdmin(user.role)) return true;
-    if (!meetingOrganizerNeedsApproval(meeting)) return false;
     const project = meeting.project || null;
     return projectHasCoordinator(project) && isUserProjectCoordinator(user, project);
 }
@@ -133,9 +117,9 @@ function canConsolidateDraftMeeting(meeting, user) {
     return canConsolidatePendingMeeting(meeting, user);
 }
 
+/** Toute mission doit passer par ce circuit, quel que soit le rôle du créateur (pas d'exception). */
 function canCoordinateDraftMission(mission, user) {
     if (!mission || mission.status !== 'DRAFT' || !user) return false;
-    if (!missionCreatorNeedsApproval(mission)) return false;
     if (isPrivilegedAdmin(user.role)) return true;
     const project = mission.project || null;
     return projectHasCoordinator(project) && isUserProjectCoordinator(user, project);
@@ -143,7 +127,7 @@ function canCoordinateDraftMission(mission, user) {
 
 function canConsolidatePendingMission(mission, user) {
     if (!mission || !isPendingConsolidatorValidation(mission.status) || !user) return false;
-    if (!missionCreatorNeedsApproval(mission)) return false;
+    if (isPrivilegedAdmin(user.role)) return true;
     return canConsolidateInContext(user, {
         project: mission.project || null,
         directionId: mission.directionId || null,
@@ -151,19 +135,14 @@ function canConsolidatePendingMission(mission, user) {
     });
 }
 
-function canApproveDraftMission(mission, user) {
-    if (!mission || mission.status !== 'DRAFT' || !user) return false;
-    if (isPrivilegedAdmin(user.role)) return true;
-    if (!missionCreatorNeedsApproval(mission)) {
-        return mission.createdById === user.id;
-    }
+/** Publication directe depuis DRAFT interdite — circuit obligatoire pour tous. */
+function canApproveDraftMission() {
     return false;
 }
 
 function canFinalizePendingMission(mission, user) {
     if (!mission || !isPendingCoordinatorValidation(mission.status) || !user) return false;
     if (isPrivilegedAdmin(user.role)) return true;
-    if (!missionCreatorNeedsApproval(mission)) return false;
     const project = mission.project || null;
     return projectHasCoordinator(project) && isUserProjectCoordinator(user, project);
 }
@@ -174,14 +153,14 @@ function canConsolidateDraftMission(mission, user) {
 }
 
 function missionValidationAction(mission) {
-    if (mission.status === 'DRAFT' && missionCreatorNeedsApproval(mission)) return 'coordinate';
+    if (mission.status === 'DRAFT') return 'coordinate';
     if (isPendingConsolidatorValidation(mission.status)) return 'consolidate';
     if (isPendingCoordinatorValidation(mission.status)) return 'coordinate';
     return null;
 }
 
 function meetingValidationAction(meeting) {
-    if (meeting.status === 'DRAFT' && meetingOrganizerNeedsApproval(meeting)) return 'coordinate';
+    if (meeting.status === 'DRAFT') return 'coordinate';
     if (isPendingConsolidatorValidation(meeting.status)) return 'consolidate';
     if (isPendingCoordinatorValidation(meeting.status)) return 'coordinate';
     return null;
@@ -256,14 +235,12 @@ module.exports = {
     projectNeedsGlobalConsolidatorFallback,
     canConsolidateInContext,
     userCanSeeValidationMenu,
-    meetingOrganizerNeedsApproval,
     canCoordinateDraftMeeting,
     canConsolidatePendingMeeting,
     canConsolidateDraftMeeting,
     canApproveDraftMeeting,
     canFinalizePendingMeeting,
     meetingValidationAction,
-    missionCreatorNeedsApproval,
     canCoordinateDraftMission,
     canConsolidatePendingMission,
     canConsolidateDraftMission,

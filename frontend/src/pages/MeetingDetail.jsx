@@ -41,6 +41,7 @@ import {
 } from '@ant-design/icons';
 import dayjs from 'dayjs';
 import api, { API_BASE } from '../api/client';
+import { appDayjs, formatDateTime, formatDateTimeLocale, toUtcIso } from '../utils/datetime';
 import ValidationWorkflowBanner from '../components/ValidationWorkflowBanner';
 import { useAuth } from '../context/AuthContext';
 import { enqueueRealtimeTask } from '../realtime/socket';
@@ -48,7 +49,6 @@ import {
     isPrivilegedAdmin,
     canPrivilegedForceDelete,
     canSuperAdminForceDelete,
-    canApproveMeeting,
     canConsolidateMeeting,
     canCoordinateMeeting,
     canFinalizeMeeting,
@@ -95,7 +95,6 @@ export default function MeetingDetail() {
     const [addParticipantsError, setAddParticipantsError] = useState('');
     const [attachmentLoading, setAttachmentLoading] = useState(false);
     const [updateLoading, setUpdateLoading] = useState(false);
-    const [sendLoading, setSendLoading] = useState(false);
     const [approveLoading, setApproveLoading] = useState(false);
     const [cancelLoading, setCancelLoading] = useState(false);
     const [deleteLoading, setDeleteLoading] = useState(false);
@@ -266,8 +265,8 @@ export default function MeetingDetail() {
                     roomId: meeting.roomId || undefined,
                     eventTypeId: meeting.eventTypeId || meeting.eventType?.id || undefined,
                     meetingLink: meeting.meetingLink || '',
-                    startTime: meeting.startTime ? dayjs(meeting.startTime) : null,
-                    endTime: meeting.endTime ? dayjs(meeting.endTime) : null,
+                    startTime: meeting.startTime ? appDayjs(meeting.startTime) : null,
+                    endTime: meeting.endTime ? appDayjs(meeting.endTime) : null,
                 });
             }
         }
@@ -306,8 +305,8 @@ export default function MeetingDetail() {
                 roomId: v.roomId || null,
                 eventTypeId: v.eventTypeId || null,
                 meetingLink: link || null,
-                startTime: v.startTime?.toISOString?.() ?? v.startTime,
-                endTime: v.endTime?.toISOString?.() ?? v.endTime,
+                startTime: toUtcIso(v.startTime),
+                endTime: toUtcIso(v.endTime),
             });
             message.success('Réunion modifiée. Les participants seront notifiés par email en cas de changement d\'horaire.');
             setEditVisible(false);
@@ -317,19 +316,6 @@ export default function MeetingDetail() {
             message.error(err.response?.data?.error || 'Erreur');
         } finally {
             setUpdateLoading(false);
-        }
-    };
-
-    const handleSend = async () => {
-        setSendLoading(true);
-        try {
-            await api.put(`/meetings/${id}/send`);
-            message.success('Convocations envoyées');
-            fetchMeeting();
-        } catch (err) {
-            message.error(err.response?.data?.error || 'Erreur');
-        } finally {
-            setSendLoading(false);
         }
     };
 
@@ -686,9 +672,6 @@ export default function MeetingDetail() {
     const canCoordinate = canCoordinateMeeting(meeting, user);
     const canConsolidate = canConsolidateMeeting(meeting, user);
     const canFinalize = canFinalizeMeeting(meeting, user);
-    const canApproveDirect = canApproveMeeting(meeting, user) && needsCoordinator && !canCoordinate;
-    const canSend = canApproveMeeting(meeting, user) && !needsCoordinator && !needsConsolidator && !needsFinalApproval
-        && (isOrganizer || isPrivilegedAdmin(user?.role));
     const canComplete = canManage && meeting.status !== 'CANCELLED' && meeting.status !== 'COMPLETED';
     const canCancel = canManage && meeting.status !== 'CANCELLED' && meeting.status !== 'COMPLETED';
     const canReopen = meeting.status === 'COMPLETED' && (canManage || user?.role === 'RESPONSABLE');
@@ -722,16 +705,6 @@ export default function MeetingDetail() {
                 {canFinalize && (
                     <Button type="primary" icon={<CheckCircleOutlined />} onClick={() => handleApprove('finalize')} loading={approveLoading}>
                         Valider et publier
-                    </Button>
-                )}
-                {canApproveDirect && (
-                    <Button type="primary" icon={<CheckCircleOutlined />} onClick={() => handleApprove('approve')} loading={approveLoading}>
-                        Valider et publier
-                    </Button>
-                )}
-                {canSend && (
-                    <Button type="primary" icon={<SendOutlined />} onClick={handleSend} loading={sendLoading}>
-                        Envoyer les convocations
                     </Button>
                 )}
                 {canCancel && (
@@ -947,15 +920,12 @@ export default function MeetingDetail() {
                         ) : '—'}
                     </Descriptions.Item>
                     <Descriptions.Item label={<><CalendarOutlined /> Période</>}>
-                        {new Date(meeting.startTime).toLocaleString('fr-FR', {
+                        {formatDateTimeLocale(meeting.startTime, {
                             dateStyle: 'full',
                             timeStyle: 'short',
                         })}{' '}
                         →{' '}
-                        {new Date(meeting.endTime).toLocaleTimeString('fr-FR', {
-                            hour: '2-digit',
-                            minute: '2-digit',
-                        })}
+                        {formatDateTime(meeting.endTime, 'HH:mm')}
                     </Descriptions.Item>
                     {meeting.room && (
                         <Descriptions.Item label={<><EnvironmentOutlined /> Salle</>}>

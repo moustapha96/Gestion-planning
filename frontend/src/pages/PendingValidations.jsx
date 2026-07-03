@@ -10,6 +10,8 @@ import {
 import dayjs from 'dayjs';
 import api from '../api/client';
 import usePendingValidations, { notifyPendingValidationsRefresh } from '../hooks/usePendingValidations';
+import { useAuth } from '../context/AuthContext';
+import { isPrivilegedAdmin } from '../utils/roles';
 
 const { Title, Text } = Typography;
 
@@ -140,6 +142,7 @@ export default function PendingValidations() {
         loading, refresh, canSeeMenu, counts,
         meetings, missions,
     } = usePendingValidations(true);
+    const { user } = useAuth();
 
     const [actionId, setActionId] = useState(null);
 
@@ -204,6 +207,9 @@ export default function PendingValidations() {
     }
 
     const roleHints = [];
+    if (isPrivilegedAdmin(user?.role)) {
+        roleHints.push('administrateur — visibilité et validation sur tous les projets');
+    }
     if (meetings.some((m) => m.action === 'consolidate') || missions.some((m) => m.action === 'consolidate')) {
         roleHints.push('consolidateur de projet');
     }
@@ -326,7 +332,7 @@ export default function PendingValidations() {
                 showIcon
                 icon={<CalendarOutlined />}
                 title="Circuit de validation"
-                description="Étape 1/2 : coordinateur du projet. Étape 2/2 : consolidateur du projet, sinon consolidateur de la direction du projet, sinon consolidateur (rôle global). Sans coordinateur désigné, passage direct à l'étape 2. Publication calendrier uniquement après consolidation."
+                description="Étape 1/2 : coordinateur du projet. Étape 2/2 : consolidateur du projet, sinon consolidateur de la direction, sinon rôle Consolidateur global. Les administrateurs voient et peuvent valider tous les éléments en attente, même hors de leurs projets. Publication calendrier uniquement après consolidation."
                 style={{ marginBottom: 16 }}
             />
 

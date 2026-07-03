@@ -42,7 +42,6 @@ import {
     canConsolidateMission,
     canCoordinateMission,
     canFinalizeMission,
-    canApproveMission,
     isPendingCoordinatorStatus,
     isPendingConsolidatorStatus,
     missionNeedsConsolidatorApproval,
@@ -50,6 +49,7 @@ import {
 import { forceDeleteDescription, forceDeleteTitle } from '../utils/deleteConfirm';
 import ForceDeletePopconfirm from '../components/ForceDeletePopconfirm';
 import { missionStatusLabel } from '../utils/statusLabels';
+import { PDF_ACCEPT, isAcceptedPdfFile } from '../utils/pdfAttachment';
 
 const { Text } = Typography;
 const MAX_FILE_SIZE = 15 * 1024 * 1024;
@@ -104,7 +104,6 @@ export default function MissionDetail() {
     const canCoordinate = canCoordinateMission(mission, user);
     const canConsolidate = canConsolidateMission(mission, user);
     const canFinalize = canFinalizeMission(mission, user);
-    const canApproveDirect = canApproveMission(mission, user) && needsCoordinator && !canCoordinate;
     const isAdmin = isPrivilegedAdmin(user?.role);
     const canUpload = mission?.status !== 'CANCELLED' && (
         mission?.createdById === user?.id ||
@@ -284,11 +283,6 @@ export default function MissionDetail() {
                 )}
                 {canFinalize && (
                     <Button type="primary" icon={<CheckCircleOutlined />} onClick={() => handleApprove('finalize')} loading={approveLoading}>
-                        Valider et confirmer
-                    </Button>
-                )}
-                {canApproveDirect && (
-                    <Button type="primary" icon={<CheckCircleOutlined />} onClick={() => handleApprove('approve')} loading={approveLoading}>
                         Valider et confirmer
                     </Button>
                 )}

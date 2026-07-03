@@ -5,7 +5,7 @@
  *   node scripts/create-super-admin.js <email> <password> [nom]
  *
  * Exemple :
- *   node scripts/create-super-admin.js admin@example.com "MonMotDePasse" "Admin GP"
+ *   node scripts/create-super-admin.js admin@admin.com "password123" "Admin GP"
  */
 const path = require('path');
 require('dotenv').config({ path: path.join(__dirname, '../.env') });

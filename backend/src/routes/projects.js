@@ -87,7 +87,7 @@ router.get('/', async (req, res) => {
         if (active !== undefined) where.isActive = active === 'true';
         if (status && PROJECT_STATUSES.includes(String(status).toUpperCase())) where.status = String(status).toUpperCase();
         if (isResponsable(req.user?.role) && !isPrivilegedAdmin(req.user?.role)) {
-            where.responsibleId = req.user.id;
+            where.OR = [{ responsibleId: req.user.id }, { coordinatorId: req.user.id }];
         }
 
         const projects = await req.prisma.project.findMany({
@@ -105,14 +105,14 @@ router.get('/', async (req, res) => {
     }
 });
 
-/** Projets dont l'utilisateur connecté est responsable (création réunion / mission / événement). */
+/** Projets dont l'utilisateur connecté est responsable ou coordinateur (création réunion / mission / événement). */
 router.get('/my-responsible', async (req, res) => {
     try {
         if (!req.user?.id) return res.status(401).json({ error: 'Non authentifié' });
 
         const projects = await req.prisma.project.findMany({
             where: {
-                responsibleId: req.user.id,
+                OR: [{ responsibleId: req.user.id }, { coordinatorId: req.user.id }],
                 isActive: true,
                 status: 'ACTIVE',
             },
@@ -162,6 +162,7 @@ router.get('/:id', async (req, res) => {
             isResponsable(req.user?.role)
             && !isPrivilegedAdmin(req.user?.role)
             && project.responsibleId !== req.user.id
+            && project.coordinatorId !== req.user.id
         ) {
             return res.status(403).json({ error: 'Accès refusé à ce projet' });
         }

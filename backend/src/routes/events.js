@@ -19,6 +19,7 @@ const {
     syncResponsibleProjectMembership,
     projectsFilterWhereForUser,
 } = require('../services/projectResponsible.service');
+const { parseUtcDate, utcEndOfDay } = require('../utils/dateUtc');
 
 const PROJECT_TAXONOMY_INCLUDE = {
     ...PROJECT_RESPONSIBLE_INCLUDE,
@@ -60,10 +61,9 @@ function canManageDirections(role) {
 }
 
 function normalizeDate(value, endOfDay = false) {
-    if (!value) return null;
-    const d = new Date(value);
-    if (Number.isNaN(d.getTime())) return null;
-    if (endOfDay) d.setHours(23, 59, 59, 999);
+    const d = parseUtcDate(value);
+    if (!d) return null;
+    if (endOfDay) return utcEndOfDay(d);
     return d;
 }
 

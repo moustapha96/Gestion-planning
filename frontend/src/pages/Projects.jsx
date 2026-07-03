@@ -15,7 +15,7 @@ import { useAuth } from '../context/AuthContext';
 import { PDF_ACCEPT, isAcceptedPdfFile } from '../utils/pdfAttachment';
 import { resolveImageSrc } from '../utils/mediaUrl';
 import { canManageProjects, isResponsable } from '../utils/roles';
-import { isUserProjectResponsible } from '../utils/projectScope';
+import { isUserProjectResponsibleOrCoordinator } from '../utils/projectScope';
 
 const { Title, Text } = Typography;
 const { useBreakpoint } = Grid;
@@ -45,7 +45,7 @@ export default function Projects({ adminContext = false }) {
     const canManage = adminContext || canManageProjects(user?.role);
     const isResponsibleUser = isResponsable(user?.role) && !canManage;
     const myProjects = isResponsibleUser
-        ? projects.filter((p) => isUserProjectResponsible(user, p))
+        ? projects.filter((p) => isUserProjectResponsibleOrCoordinator(user, p))
         : projects;
 
     // ── Fetch ─────────────────────────────────────────────────────
@@ -224,7 +224,7 @@ export default function Projects({ adminContext = false }) {
     };
 
     const renderRowActions = (row, block = false) => {
-        const isMine = isUserProjectResponsible(user, row);
+        const isMine = isUserProjectResponsibleOrCoordinator(user, row);
         const canCreateOnRow = isMine && row.status === 'ACTIVE';
 
         if (!canManage) {
@@ -458,6 +458,8 @@ export default function Projects({ adminContext = false }) {
         {
             title: 'Nom',
             dataIndex: 'name',
+            width: 200,
+            ellipsis: true,
             sorter: (a, b) => a.name.localeCompare(b.name),
             render: (name, row) => (
                 <span style={{ fontWeight: 600, cursor: 'pointer', color: '#1565C0' }} onClick={() => openDetail(row)}>
@@ -468,6 +470,7 @@ export default function Projects({ adminContext = false }) {
         {
             title: 'Description',
             dataIndex: 'description',
+            width: 220,
             ellipsis: true,
             responsive: ['lg'],
             render: (d) => d || <Text type="secondary">—</Text>,
@@ -576,7 +579,7 @@ export default function Projects({ adminContext = false }) {
                     type="info"
                     showIcon
                     style={{ marginBottom: 16 }}
-                    message={`Vous êtes responsable de ${myProjects.length} projets actifs`}
+                    message={`Vous êtes responsable ou coordinateur de ${myProjects.length} projets actifs`}
                     description="Lors de la création d'une réunion, mission ou événement, choisissez le projet concerné. Vous pouvez aussi lancer une création directement depuis la fiche d'un projet."
                 />
             )}
@@ -587,7 +590,7 @@ export default function Projects({ adminContext = false }) {
                     showIcon
                     style={{ marginBottom: 16 }}
                     message="Aucun projet sous votre responsabilité"
-                    description="Contactez l'administration pour être désigné responsable d'un projet."
+                    description="Contactez l'administration pour être désigné responsable ou coordinateur d'un projet."
                 />
             )}
 
@@ -653,7 +656,7 @@ export default function Projects({ adminContext = false }) {
                         rowKey="id"
                         loading={loading}
                         size="middle"
-                        scroll={{ x: isCompact ? 960 : undefined }}
+                        scroll={{ x: 'max-content' }}
                         pagination={{
                             pageSize: 20,
                             showSizeChanger: true,

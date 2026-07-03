@@ -1,6 +1,7 @@
 const express = require('express');
 const roleMiddleware = require('../middlewares/role.middleware');
 const { ADMIN_ROUTE_ROLES } = require('../config/roles');
+const { parseUtcDate, utcEndOfDay } = require('../utils/dateUtc');
 
 const router = express.Router();
 
@@ -20,12 +21,8 @@ router.get('/', roleMiddleware(ADMIN_ROUTE_ROLES), async (req, res) => {
         if (entity && typeof entity === 'string') where.entity = entity;
         if (from || to) {
             where.createdAt = {};
-            if (from) where.createdAt.gte = new Date(from);
-            if (to) {
-                const end = new Date(to);
-                end.setHours(23, 59, 59, 999);
-                where.createdAt.lte = end;
-            }
+            if (from) where.createdAt.gte = parseUtcDate(from);
+            if (to) where.createdAt.lte = utcEndOfDay(parseUtcDate(to));
         }
 
         const [logs, total] = await Promise.all([
@@ -59,12 +56,8 @@ router.get('/export.csv', roleMiddleware(ADMIN_ROUTE_ROLES), async (req, res) =>
         if (entity) where.entity = entity;
         if (from || to) {
             where.createdAt = {};
-            if (from) where.createdAt.gte = new Date(from);
-            if (to) {
-                const end = new Date(to);
-                end.setHours(23, 59, 59, 999);
-                where.createdAt.lte = end;
-            }
+            if (from) where.createdAt.gte = parseUtcDate(from);
+            if (to) where.createdAt.lte = utcEndOfDay(parseUtcDate(to));
         }
 
         const logs = await req.prisma.auditLog.findMany({

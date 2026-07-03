@@ -1,15 +1,21 @@
 const { APP_TIMEZONE } = require('../config/timezone');
 
-/** Date civile YYYY-MM-DD en fuseau applicatif (évite le décalage UTC). */
+/** Date civile YYYY-MM-DD en fuseau applicatif (GMT+0 / UTC). */
 function toAppYmd(value) {
     const d = value instanceof Date ? value : new Date(value);
     if (Number.isNaN(d.getTime())) return '';
+    if (APP_TIMEZONE === 'UTC') {
+        const y = d.getUTCFullYear();
+        const m = String(d.getUTCMonth() + 1).padStart(2, '0');
+        const day = String(d.getUTCDate()).padStart(2, '0');
+        return `${y}-${m}-${day}`;
+    }
     return d.toLocaleDateString('en-CA', { timeZone: APP_TIMEZONE });
 }
 
 /**
  * Bornes du jour civil en APP_TIMEZONE.
- * Africa/Dakar = UTC+0 sans DST → minuit civil = minuit UTC pour ce YYYY-MM-DD.
+ * GMT+0 (UTC) → minuit civil = minuit UTC pour ce YYYY-MM-DD.
  */
 function appDayBounds(ref = new Date()) {
     const ymd = toAppYmd(ref);

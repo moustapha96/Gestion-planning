@@ -66,32 +66,22 @@ export function canConsolidateMission(mission, user) {
     return canConsolidateResponsibleEntity(mission, user, mission?.project, mission?.directionId);
 }
 
+/** Toute mission doit passer par le circuit coordinateur → consolidateur, quel que soit le rôle du créateur. */
 export function canCoordinateMission(mission, user) {
     if (!mission || mission.status !== 'DRAFT' || !user) return false;
     if (isPrivilegedAdmin(user.role)) return true;
-    const creatorRole = normalizeRole(mission.createdBy?.role);
-    if (creatorRole !== ROLES.RESPONSABLE) return false;
     return isProjectCoordinator(mission, user);
 }
 
-export function canApproveMission(mission, user) {
-    if (!mission || !user) return false;
-    if (isPrivilegedAdmin(user.role)) {
-        return mission.status === 'DRAFT'
-            || isPendingConsolidatorStatus(mission.status)
-            || isPendingCoordinatorStatus(mission.status);
-    }
-    const creatorRole = normalizeRole(mission.createdBy?.role);
-    if (creatorRole === ROLES.RESPONSABLE) return false;
-    return mission.status === 'DRAFT' && mission.createdById === user.id;
+/** Publication directe interdite — circuit obligatoire pour tous. */
+export function canApproveMission() {
+    return false;
 }
 
 export function canFinalizeMission(mission, user) {
     if (!mission || !user) return false;
     if (!isPendingCoordinatorStatus(mission.status)) return false;
     if (isPrivilegedAdmin(user.role)) return true;
-    const creatorRole = normalizeRole(mission.createdBy?.role);
-    if (creatorRole !== ROLES.RESPONSABLE) return false;
     return isProjectCoordinator(mission, user);
 }
 
@@ -179,10 +169,6 @@ export function canConsolidateForProject(user, project, directionId) {
 function canConsolidateResponsibleEntity(entity, user, project, directionId) {
     if (!entity || !user) return false;
     if (!isPendingConsolidatorStatus(entity.status)) return false;
-    const creatorOrOrganizerRole = normalizeRole(
-        entity.createdBy?.role ?? entity.organizer?.role,
-    );
-    if (creatorOrOrganizerRole !== ROLES.RESPONSABLE) return false;
     const dirId = directionId ?? entity.directionId ?? entity.direction?.id;
     return canConsolidateForProject(user, project ?? entity.project ?? entity.user?.project, dirId);
 }
@@ -261,32 +247,22 @@ export function canConsolidateMeeting(meeting, user) {
     return canConsolidateResponsibleEntity(meeting, user, meeting?.project, meeting?.directionId);
 }
 
+/** Toute réunion doit passer par le circuit coordinateur → consolidateur, quel que soit le rôle de l'organisateur. */
 export function canCoordinateMeeting(meeting, user) {
     if (!meeting || meeting.status !== 'DRAFT' || !user) return false;
     if (isPrivilegedAdmin(user.role)) return true;
-    const organizerRole = normalizeRole(meeting.organizer?.role);
-    if (organizerRole !== ROLES.RESPONSABLE) return false;
     return isProjectCoordinator(meeting, user);
 }
 
-export function canApproveMeeting(meeting, user) {
-    if (!meeting || !user) return false;
-    if (isPrivilegedAdmin(user.role)) {
-        return meeting.status === 'DRAFT'
-            || isPendingConsolidatorStatus(meeting.status)
-            || isPendingCoordinatorStatus(meeting.status);
-    }
-    const organizerRole = normalizeRole(meeting.organizer?.role);
-    if (organizerRole === ROLES.RESPONSABLE) return false;
-    return meeting.status === 'DRAFT' && meeting.organizerId === user.id;
+/** Publication directe interdite — circuit obligatoire pour tous. */
+export function canApproveMeeting() {
+    return false;
 }
 
 export function canFinalizeMeeting(meeting, user) {
     if (!meeting || !user) return false;
     if (!isPendingCoordinatorStatus(meeting.status)) return false;
     if (isPrivilegedAdmin(user.role)) return true;
-    const organizerRole = normalizeRole(meeting.organizer?.role);
-    if (organizerRole !== ROLES.RESPONSABLE) return false;
     return isProjectCoordinator(meeting, user);
 }
 
@@ -299,13 +275,11 @@ export function userCoordinatesAnyProject(projects, userId) {
 }
 
 export function meetingNeedsConsolidatorApproval(meeting) {
-    return (meeting?.status === 'DRAFT' || isPendingConsolidatorStatus(meeting?.status))
-        && normalizeRole(meeting?.organizer?.role) === ROLES.RESPONSABLE;
+    return meeting?.status === 'DRAFT' || isPendingConsolidatorStatus(meeting?.status);
 }
 
 export function missionNeedsConsolidatorApproval(mission) {
-    return (mission?.status === 'DRAFT' || isPendingConsolidatorStatus(mission?.status))
-        && normalizeRole(mission?.createdBy?.role) === ROLES.RESPONSABLE;
+    return mission?.status === 'DRAFT' || isPendingConsolidatorStatus(mission?.status);
 }
 
 /** Désigné consolidateur ou coordinateur sur au moins un projet (fiche projet). */

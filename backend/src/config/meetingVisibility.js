@@ -27,7 +27,6 @@ function coordinatorDraftMeetingFilter(user) {
     if (!user?.id) return null;
     return {
         status: 'DRAFT',
-        organizer: { role: ROLES.RESPONSABLE },
         project: { coordinatorId: user.id },
     };
 }
@@ -67,13 +66,11 @@ function consolidatorPendingMeetingFilter(user) {
     if (orClauses.length === 1) {
         return {
             status: 'CONSOLIDATOR_PENDING',
-            organizer: { role: ROLES.RESPONSABLE },
             ...orClauses[0],
         };
     }
     return {
         status: 'CONSOLIDATOR_PENDING',
-        organizer: { role: ROLES.RESPONSABLE },
         OR: orClauses,
     };
 }
@@ -120,8 +117,9 @@ function meetingListWhereForUser(user) {
     return ownMeetingScope(user) || { organizerId: '__none__' };
 }
 
-function requiresConsolidatorApproval(organizerRole) {
-    return organizerRole === ROLES.RESPONSABLE;
+/** Toute réunion doit passer par le circuit coordinateur → consolidateur, sans exception. */
+function requiresConsolidatorApproval() {
+    return true;
 }
 
 function canPublishMeeting(meeting, user) {
@@ -129,7 +127,8 @@ function canPublishMeeting(meeting, user) {
     if (isPrivilegedAdmin(user?.role)) {
         return meeting.status === 'DRAFT'
             || isPendingConsolidatorValidation(meeting.status)
-            || isPendingCoordinatorValidation(meeting.status);
+            || isPendingCoordinatorValidation(meeting.status)
+            || ['SENT', 'CONFIRMED'].includes(meeting.status);
     }
     if (isPendingConsolidatorValidation(meeting.status)) {
         return canConsolidatePendingMeeting(meeting, user);
@@ -137,12 +136,13 @@ function canPublishMeeting(meeting, user) {
     if (isPendingCoordinatorValidation(meeting.status)) {
         return canFinalizePendingMeeting(meeting, user);
     }
-    if (meeting.status !== 'DRAFT') return false;
-    const organizerRole = meeting.organizer?.role;
-    if (requiresConsolidatorApproval(organizerRole)) {
-        return canApproveDraftMeeting(meeting, user);
+    if (meeting.status === 'DRAFT') {
+        return canCoordinateDraftMeeting(meeting, user);
     }
-    return meeting.organizerId === user.id;
+    if (['SENT', 'CONFIRMED'].includes(meeting.status)) {
+        return meeting.organizerId === user.id;
+    }
+    return false;
 }
 
 function canConsolidateMeeting(meeting, user) {
@@ -172,7 +172,6 @@ function canViewMeetingForUser(meeting, user) {
     if (isPrivilegedAdmin(user.role)) return true;
     if (
         meeting.status === 'DRAFT'
-        && meeting.organizer?.role === ROLES.RESPONSABLE
         && meeting.project?.coordinatorId === user.id
     ) {
         return true;

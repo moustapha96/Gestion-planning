@@ -1,18 +1,22 @@
 /**
- * Fuseau horaire métier : Dakar (Sénégal).
- * Les serveurs peuvent être en UTC/Europe — on force TZ Node pour crons et « aujourd\'hui. ».
+ * Fuseau horaire métier : GMT+0 (UTC).
+ * Africa/Dakar est équivalent (UTC+0 sans DST) ; UTC est le défaut explicite.
+ * Les serveurs peuvent être en Europe — on force TZ Node pour crons et « aujourd'hui ».
  */
 
-const APP_TIMEZONE = process.env.APP_TIMEZONE || 'Africa/Dakar';
+const APP_TIMEZONE = process.env.APP_TIMEZONE || 'UTC';
 
 /** À appeler au démarrage (server.js), avant les jobs cron. */
 function applyProcessTimezone() {
     if (!process.env.TZ) {
         process.env.TZ = APP_TIMEZONE;
     }
+    if (!process.env.APP_TIMEZONE) {
+        process.env.APP_TIMEZONE = APP_TIMEZONE;
+    }
 }
 
-/** Options node-cron : exécuter à 8h « heure de Dakar », pas heure du serveur. */
+/** Options node-cron : exécuter à l'heure civile GMT+0, pas heure locale du serveur. */
 function cronTimezoneOptions() {
     return { timezone: process.env.APP_TIMEZONE || process.env.TZ || APP_TIMEZONE };
 }

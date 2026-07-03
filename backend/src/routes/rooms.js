@@ -2,7 +2,8 @@ const express = require('express');
 const roleMiddleware = require('../middlewares/role.middleware');
 const { getAvailableRoomIds } = require('../utils/availability');
 const { ADMIN_ROUTE_ROLES, isPrivilegedAdmin } = require('../config/roles');
-const { appDayBounds, timedEventOverlapsRange } = require('../utils/calendarEvents');
+const { appDayBounds, timedEventOverlapsRange, appDayBoundsFromYmd, toAppYmd } = require('../utils/calendarEvents');
+const { parseUtcDate } = require('../utils/dateUtc');
 const {
     buildRoomDaySlots,
     findCurrentBooking,
@@ -142,8 +143,8 @@ router.get('/status', async (req, res) => {
  */
 router.get('/available', async (req, res) => {
     try {
-        const startTime = req.query.startTime ? new Date(req.query.startTime) : null;
-        const endTime = req.query.endTime ? new Date(req.query.endTime) : null;
+        const startTime = req.query.startTime ? parseUtcDate(req.query.startTime) : null;
+        const endTime = req.query.endTime ? parseUtcDate(req.query.endTime) : null;
         if (!startTime || !endTime || startTime >= endTime) {
             return res.status(400).json({ error: 'startTime et endTime (ISO) requis, avec startTime < endTime' });
         }
@@ -178,9 +179,8 @@ router.get('/:id/bookings', async (req, res) => {
         if (!dateStr) {
             return res.status(400).json({ error: 'Paramètre date requis (YYYY-MM-DD)' });
         }
-        const d = new Date(dateStr);
-        const dayStart = new Date(d.getFullYear(), d.getMonth(), d.getDate(), 0, 0, 0, 0);
-        const dayEnd = new Date(d.getFullYear(), d.getMonth(), d.getDate(), 23, 59, 59, 999);
+        const ymd = /^\d{4}-\d{2}-\d{2}$/.test(dateStr) ? dateStr : toAppYmd(parseUtcDate(dateStr));
+        const { start: dayStart, end: dayEnd } = appDayBoundsFromYmd(ymd);
 
         const room = await req.prisma.room.findUnique({
             where: { id: req.params.id },

@@ -109,7 +109,7 @@ uses_pm2() {
 }
 
 log_timezone_hint() {
-    log "Fuseau applicatif : Africa/Dakar (vérifiez TZ et APP_TIMEZONE dans backend/.env)"
+    log "Fuseau applicatif : UTC (vérifiez TZ et APP_TIMEZONE dans backend/.env)"
 }
 
 restart_services() {
@@ -117,8 +117,8 @@ restart_services() {
 
     if [[ "$mode" == "pm2" ]] || { [[ "$mode" == "auto" ]] && uses_pm2; }; then
         log "Redémarrage PM2 ($PM2_APP_NAME)"
-        export TZ="${TZ:-Africa/Dakar}"
-        export APP_TIMEZONE="${APP_TIMEZONE:-Africa/Dakar}"
+        export TZ="${TZ:-UTC}"
+        export APP_TIMEZONE="${APP_TIMEZONE:-UTC}"
         export PM2_APP_NAME
         cd "$GPADM_ROOT/backend"
         if [[ ! -f .env ]] && [[ -f .env.production ]]; then

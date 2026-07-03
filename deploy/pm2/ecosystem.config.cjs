@@ -35,8 +35,8 @@ module.exports = {
             error_file: path.join(BACKEND_DIR, 'logs', 'pm2-error.log'),
             env: {
                 NODE_ENV: 'production',
-                TZ: 'Africa/Dakar',
-                APP_TIMEZONE: 'Africa/Dakar',
+                TZ: 'UTC',
+                APP_TIMEZONE: 'UTC',
             },
         },
     ],

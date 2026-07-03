@@ -8,7 +8,7 @@ function parseHm(timeStr) {
     return { h: parseInt(m[1], 10), m: parseInt(m[2], 10) };
 }
 
-/** HH:mm en fuseau applicatif (Dakar). */
+/** HH:mm en fuseau applicatif (GMT+0). */
 function formatAppTimeHm(value) {
     const d = value instanceof Date ? value : new Date(value);
     if (Number.isNaN(d.getTime())) return '';
@@ -26,7 +26,7 @@ function minutesFromTimeStr(timeStr) {
     return p.h * 60 + p.m;
 }
 
-/** Bornes Date d'une réservation sur un jour civil (Dakar = UTC+0). */
+/** Bornes Date d'une réservation sur un jour civil (GMT+0). */
 function bookingBoundsOnDay(booking, dayYmd) {
     const dk = dayYmd || toAppYmd(booking.date);
     const { start: dayStart } = appDayBoundsFromYmd(dk);

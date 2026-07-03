@@ -15,6 +15,7 @@ import {
 import { ArrowLeftOutlined, FlagOutlined } from '@ant-design/icons';
 import dayjs from 'dayjs';
 import api from '../api/client';
+import { appDayjs, toUtcIso } from '../utils/datetime';
 import { useAuth } from '../context/AuthContext';
 import ResponsibleProjectField, { ResponsibleProjectBanner } from '../components/ResponsibleProjectField';
 import { useResponsibleProjectScope } from '../hooks/useResponsibleProjectScope';
@@ -59,8 +60,8 @@ export default function MissionEdit() {
                     location: missionRes.data.location,
                     directionId: missionRes.data.directionId || undefined,
                     projectId: missionRes.data.projectId || undefined,
-                    startTime: missionRes.data.startTime ? dayjs(missionRes.data.startTime) : null,
-                    endTime: missionRes.data.endTime ? dayjs(missionRes.data.endTime) : null,
+                    startTime: missionRes.data.startTime ? appDayjs(missionRes.data.startTime) : null,
+                    endTime: missionRes.data.endTime ? appDayjs(missionRes.data.endTime) : null,
                     userIds: missionRes.data.assignments?.map((a) => a.userId) || [],
                 });
             })
@@ -83,8 +84,8 @@ export default function MissionEdit() {
             message.warning("Vous n'êtes responsable d'aucun projet actif.");
             return;
         }
-        const start = values.startTime?.toISOString?.() ?? values.startTime;
-        const end = values.endTime?.toISOString?.() ?? values.endTime;
+        const start = toUtcIso(values.startTime);
+        const end = toUtcIso(values.endTime);
         if (!start || !end || new Date(start) >= new Date(end)) {
             message.error('La fin doit être après le début.');
             return;

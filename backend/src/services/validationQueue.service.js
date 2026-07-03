@@ -1,4 +1,4 @@
-const { ROLES, isPrivilegedAdmin } = require('../config/roles');
+const { isPrivilegedAdmin } = require('../config/roles');
 const {
     LEGACY_PENDING_COORDINATOR_STATUSES,
     PENDING_CONSOLIDATOR_STATUSES,
@@ -14,11 +14,9 @@ const {
 const {
     userCanSeeValidationMenu,
     canCoordinateDraftMeeting,
-    canApproveDraftMeeting,
     canConsolidatePendingMeeting,
     canFinalizePendingMeeting,
     canCoordinateDraftMission,
-    canApproveDraftMission,
     canConsolidatePendingMission,
     canFinalizePendingMission,
     canCoordinateSubmittedPlanning,
@@ -67,28 +65,19 @@ const PLANNING_INCLUDE = {
 };
 
 function buildMeetingCoordinatorDraftWhere(user) {
-    const base = {
-        status: 'DRAFT',
-        organizer: { role: ROLES.RESPONSABLE },
-    };
+    const base = { status: 'DRAFT' };
     if (isPrivilegedAdmin(user.role)) return base;
     return { ...base, project: { coordinatorId: user.id } };
 }
 
 function buildMeetingConsolidatorPendingWhere(scope) {
-    const base = {
-        status: { in: PENDING_CONSOLIDATOR_STATUSES },
-        organizer: { role: ROLES.RESPONSABLE },
-    };
+    const base = { status: { in: PENDING_CONSOLIDATOR_STATUSES } };
     if (!scope) return base;
     return { ...base, ...scope };
 }
 
 function buildMissionConsolidatorPendingWhere(scope) {
-    const base = {
-        status: { in: PENDING_CONSOLIDATOR_STATUSES },
-        createdBy: { role: ROLES.RESPONSABLE },
-    };
+    const base = { status: { in: PENDING_CONSOLIDATOR_STATUSES } };
     if (!scope) return base;
     return { ...base, ...scope };
 }
@@ -100,25 +89,19 @@ function buildPlanningsToConsolidateWhere(scope) {
 }
 
 function buildMeetingLegacyCoordinatorWhere(user) {
-    const base = {
-        status: { in: LEGACY_PENDING_COORDINATOR_STATUSES },
-        organizer: { role: ROLES.RESPONSABLE },
-    };
+    const base = { status: { in: LEGACY_PENDING_COORDINATOR_STATUSES } };
     if (isPrivilegedAdmin(user.role)) return base;
     return { ...base, project: { coordinatorId: user.id } };
 }
 
 function buildMissionCoordinatorDraftWhere(user) {
-    const base = { status: 'DRAFT', createdBy: { role: ROLES.RESPONSABLE } };
+    const base = { status: 'DRAFT' };
     if (isPrivilegedAdmin(user.role)) return base;
     return { ...base, project: { coordinatorId: user.id } };
 }
 
 function buildMissionLegacyCoordinatorWhere(user) {
-    const base = {
-        status: { in: LEGACY_PENDING_COORDINATOR_STATUSES },
-        createdBy: { role: ROLES.RESPONSABLE },
-    };
+    const base = { status: { in: LEGACY_PENDING_COORDINATOR_STATUSES } };
     if (isPrivilegedAdmin(user.role)) return base;
     return { ...base, project: { coordinatorId: user.id } };
 }
@@ -368,7 +351,7 @@ async function getPendingValidations(prisma, user) {
     const meetingIds = new Set();
     const meetingCoordItems = meetingCoordDraftRaw
         .filter((m) => {
-            const ok = canCoordinateDraftMeeting(m, user) || canApproveDraftMeeting(m, user);
+            const ok = canCoordinateDraftMeeting(m, user);
             if (ok) meetingIds.add(m.id);
             return ok;
         })
@@ -394,7 +377,7 @@ async function getPendingValidations(prisma, user) {
     const missionIds = new Set();
     const missionCoordItems = missionCoordDraftRaw
         .filter((m) => {
-            const ok = canCoordinateDraftMission(m, user) || canApproveDraftMission(m, user);
+            const ok = canCoordinateDraftMission(m, user);
             if (ok) missionIds.add(m.id);
             return ok;
         })

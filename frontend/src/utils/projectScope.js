@@ -3,18 +3,24 @@ import { isPrivilegedAdmin, isResponsable } from './roles';
 export const NO_RESPONSIBLE_PROJECT_TITLE = 'Aucun projet assigné';
 
 export const NO_RESPONSIBLE_PROJECT_DESCRIPTION =
-    "Vous n'êtes responsable d'aucun projet actif. Contactez l'administration pour être désigné responsable d'un projet avant de créer des réunions, missions ou événements.";
+    "Vous n'êtes responsable ou coordinateur d'aucun projet actif. Contactez l'administration pour être désigné sur un projet avant de créer des réunions, missions ou événements.";
 
 export function isUserProjectResponsible(user, project) {
     if (!user?.id || !project) return false;
     return project.responsibleId === user.id;
 }
 
+/** Responsable OU coordinateur désigné sur le projet : mêmes droits de création. */
+export function isUserProjectResponsibleOrCoordinator(user, project) {
+    if (!user?.id || !project) return false;
+    return project.responsibleId === user.id || project.coordinatorId === user.id;
+}
+
 export function filterAssignableProjects(user, projects) {
     const list = projects || [];
     if (!user || isPrivilegedAdmin(user.role)) return list;
     if (isResponsable(user.role)) {
-        return list.filter((p) => p.responsibleId === user.id);
+        return list.filter((p) => p.responsibleId === user.id || p.coordinatorId === user.id);
     }
     return list;
 }

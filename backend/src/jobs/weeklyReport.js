@@ -104,7 +104,7 @@ async function runWeeklyReport(prisma) {
 </head>
 <body>
   <h1>📋 Rapport hebdomadaire — Gestion Planning</h1>
-  <p class="meta">Généré le ${require('../config/timezone').formatFrDateTime(now, { dateStyle: 'full', timeStyle: 'short' })} (heure de Dakar)</p>
+  <p class="meta">Généré le ${require('../config/timezone').formatFrDateTime(now, { dateStyle: 'full', timeStyle: 'short' })} (GMT+0)</p>
 
   <h2>👥 Utilisateurs</h2>
   <p><strong>Total actifs :</strong> ${usersCount}</p>
