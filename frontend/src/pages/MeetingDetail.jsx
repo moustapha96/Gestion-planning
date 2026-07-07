@@ -52,6 +52,7 @@ import {
     canConsolidateMeeting,
     canCoordinateMeeting,
     canFinalizeMeeting,
+    canApproveMeeting,
     canManageMeeting,
     canEditMeeting,
     meetingNeedsConsolidatorApproval,
@@ -672,6 +673,7 @@ export default function MeetingDetail() {
     const canCoordinate = canCoordinateMeeting(meeting, user);
     const canConsolidate = canConsolidateMeeting(meeting, user);
     const canFinalize = canFinalizeMeeting(meeting, user);
+    const canApproveDirect = canApproveMeeting(meeting, user);
     const canComplete = canManage && meeting.status !== 'CANCELLED' && meeting.status !== 'COMPLETED';
     const canCancel = canManage && meeting.status !== 'CANCELLED' && meeting.status !== 'COMPLETED';
     const canReopen = meeting.status === 'COMPLETED' && (canManage || user?.role === 'RESPONSABLE');
@@ -692,17 +694,22 @@ export default function MeetingDetail() {
                         Modifier la réunion
                     </Button>
                 )}
-                {canCoordinate && (
+                {canApproveDirect && (
+                    <Button type="primary" icon={<CheckCircleOutlined />} onClick={() => handleApprove('approve')} loading={approveLoading}>
+                        Valider et publier (admin)
+                    </Button>
+                )}
+                {!canApproveDirect && canCoordinate && (
                     <Button type="primary" icon={<CheckCircleOutlined />} onClick={() => handleApprove('coordinate')} loading={approveLoading}>
                         Valider (coordinateur)
                     </Button>
                 )}
-                {canConsolidate && (
+                {!canApproveDirect && canConsolidate && (
                     <Button type="primary" icon={<CheckCircleOutlined />} onClick={() => handleApprove('consolidate')} loading={approveLoading}>
                         Consolider et publier
                     </Button>
                 )}
-                {canFinalize && (
+                {!canApproveDirect && canFinalize && (
                     <Button type="primary" icon={<CheckCircleOutlined />} onClick={() => handleApprove('finalize')} loading={approveLoading}>
                         Valider et publier
                     </Button>

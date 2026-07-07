@@ -21,7 +21,8 @@ import {
 import api, { API_BASE } from '../api/client';
 import { useAuth } from '../context/AuthContext';
 import { PDF_ACCEPT, isAcceptedPdfFile } from '../utils/pdfAttachment';
-import { resolveImageSrc } from '../utils/mediaUrl';
+import ProjectLogo from '../components/ProjectLogo';
+import ProjectLogo from '../components/ProjectLogo';
 import { canManageProjects, isResponsable } from '../utils/roles';
 import { isUserProjectResponsible, isUserProjectResponsibleOrCoordinator } from '../utils/projectScope';
 import { useResponsibleProjectScope } from '../hooks/useResponsibleProjectScope';
@@ -240,36 +241,12 @@ export default function ProjectDetail() {
             )}
 
             <div style={{ display: 'flex', alignItems: 'center', gap: 16, marginBottom: 16, flexWrap: 'wrap' }}>
-                {resolveImageSrc(project.logoUrl) ? (
-                    <img
-                        src={resolveImageSrc(project.logoUrl) || ''}
-                        alt={`Logo ${project.name}`}
-                        style={{
-                            width: 64,
-                            height: 64,
-                            objectFit: 'contain',
-                            borderRadius: 12,
-                            border: '1px solid #f0f0f0',
-                            background: '#fafafa',
-                            flexShrink: 0,
-                        }}
-                    />
-                ) : (
-                    <div
-                        style={{
-                            width: 64,
-                            height: 64,
-                            borderRadius: 12,
-                            background: '#e6f4ff',
-                            display: 'flex',
-                            alignItems: 'center',
-                            justifyContent: 'center',
-                            flexShrink: 0,
-                        }}
-                    >
-                        <ProjectOutlined style={{ fontSize: 28, color: '#1565C0' }} />
-                    </div>
-                )}
+                <ProjectLogo
+                    logoUrl={project.logoUrl}
+                    size={72}
+                    alt={`Logo ${project.name}`}
+                    fit="contain"
+                />
                 <div>
                     <Title level={3} style={{ margin: 0 }}>
                         {project.name}

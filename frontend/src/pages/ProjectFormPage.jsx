@@ -11,7 +11,8 @@ import {
 import api, { API_BASE } from '../api/client';
 import { useAuth } from '../context/AuthContext';
 import { PDF_ACCEPT, isAcceptedPdfFile } from '../utils/pdfAttachment';
-import { resolveImageSrc } from '../utils/mediaUrl';
+import { resolveProjectLogoSrc } from '../utils/mediaUrl';
+import ProjectLogo from '../components/ProjectLogo';
 import { canManageProjects, isResponsable } from '../utils/roles';
 
 const { Title, Text, Paragraph } = Typography;
@@ -57,7 +58,7 @@ export default function ProjectFormPage({ adminContext = false }) {
 
     const logoPreview = useMemo(() => {
         if (pendingLogoPreview) return pendingLogoPreview;
-        return resolveImageSrc(logoUrl);
+        return resolveProjectLogoSrc(logoUrl);
     }, [logoUrl, pendingLogoPreview]);
 
     useEffect(() => {
@@ -478,15 +479,25 @@ export default function ProjectFormPage({ adminContext = false }) {
                                 }}
                             >
                                 {logoPreview ? (
-                                    <img
-                                        src={logoPreview}
-                                        alt="Aperçu logo"
-                                        style={{
-                                            maxWidth: '100%',
-                                            maxHeight: 120,
-                                            objectFit: 'contain',
-                                        }}
-                                    />
+                                    pendingLogoPreview ? (
+                                        <img
+                                            src={logoPreview}
+                                            alt="Aperçu logo"
+                                            style={{
+                                                width: 120,
+                                                height: 120,
+                                                objectFit: 'contain',
+                                                objectPosition: 'center',
+                                            }}
+                                        />
+                                    ) : (
+                                        <ProjectLogo
+                                            logoUrl={logoUrl}
+                                            size={120}
+                                            alt="Aperçu logo"
+                                            fit="contain"
+                                        />
+                                    )
                                 ) : (
                                     <Space direction="vertical" align="center">
                                         <ProjectOutlined style={{ fontSize: 36, color: '#bfbfbf' }} />

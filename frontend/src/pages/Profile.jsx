@@ -14,6 +14,7 @@ import {
 import { useAuth } from '../context/AuthContext';
 import UserAvatar from '../components/UserAvatar';
 import api from '../api/client';
+import ProjectLogo from '../components/ProjectLogo';
 import { resolveImageSrc } from '../utils/mediaUrl';
 
 const { Title, Text, Paragraph } = Typography;
@@ -689,21 +690,7 @@ export default function Profile() {
                                 >
                                     {user?.project?.name ? (
                                         <Space size={6} align="center">
-                                            {resolveImageSrc(user.project.logoUrl) ? (
-                                                <img
-                                                    src={resolveImageSrc(user.project.logoUrl) || ''}
-                                                    alt=""
-                                                    style={{
-                                                        width: 22,
-                                                        height: 22,
-                                                        borderRadius: 4,
-                                                        objectFit: 'cover',
-                                                        border: '1px solid #f0f0f0',
-                                                    }}
-                                                />
-                                            ) : (
-                                                <ProjectOutlined style={{ color: '#1565C0' }} />
-                                            )}
+                                            <ProjectLogo logoUrl={user.project.logoUrl} size={22} alt="" />
                                             <Text>
                                                 {user.project.name}
                                                 {user.project.code ? ` (${user.project.code})` : ''}

@@ -1188,6 +1188,24 @@ router.put('/:id/approve', async (req, res) => {
             return res.status(404).json({ error: 'Réunion introuvable' });
         }
 
+        if (isPrivilegedAdmin(req.user.role)) {
+            if (meeting.status === 'DRAFT'
+                || isPendingConsolidatorValidation(meeting.status)
+                || isPendingCoordinatorValidation(meeting.status)) {
+                const updated = await publishMeeting(req, meeting);
+                await notifyOrganizerMeetingProgress(req, meeting, 'published');
+                await createAuditLog(
+                    req,
+                    'MEETING_APPROVED',
+                    'Meeting',
+                    meeting.id,
+                    `Réunion « ${meeting.title} » publiée (admin)`,
+                );
+                return res.json(updated);
+            }
+            return res.status(400).json({ error: 'Cette réunion ne peut pas être validée à cette étape.' });
+        }
+
         if (isPendingConsolidatorValidation(meeting.status)) {
             if (!await canUserConsolidateEntity(req.prisma, req.user, meeting, 'meeting')) {
                 return res.status(403).json({ error: 'Vous n\'êtes pas autorisé à consolider cette réunion.' });

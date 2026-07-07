@@ -20,7 +20,7 @@ import api from '../api/client';
 import { useAuth } from '../context/AuthContext';
 import {
     canManageMission, canEditMission, canPrivilegedForceDelete, canCreateMission,
-    canConsolidateMission, canFinalizeMission, canCoordinateMission,
+    canConsolidateMission, canFinalizeMission, canCoordinateMission, canApproveMission,
 } from '../utils/roles';
 import { forceDeleteDescription, forceDeleteTitle } from '../utils/deleteConfirm';
 import ForceDeletePopconfirm from '../components/ForceDeletePopconfirm';
@@ -201,7 +201,28 @@ export default function Missions() {
                     >
                         Détail
                     </Button>
-                    {canCoordinateMission(record, user) && (
+                            {canApproveMission(record, user) && (
+                                <Button
+                                    type="link"
+                                    size="small"
+                                    onClick={async () => {
+                                        setActionLoadingId(record.id);
+                                        try {
+                                            await api.put(`/missions/${record.id}/approve`);
+                                            message.success('Mission validée et confirmée (admin)');
+                                            fetchMissions();
+                                        } catch (err) {
+                                            message.error(err.response?.data?.error || 'Erreur');
+                                        } finally {
+                                            setActionLoadingId(null);
+                                        }
+                                    }}
+                                    loading={actionLoadingId === record.id}
+                                >
+                                    Confirmer (admin)
+                                </Button>
+                            )}
+                            {!canApproveMission(record, user) && canCoordinateMission(record, user) && (
                         <Button
                             type="link"
                             size="small"
@@ -222,7 +243,7 @@ export default function Missions() {
                             Valider (coordinateur)
                         </Button>
                     )}
-                    {canConsolidateMission(record, user) && (
+                            {!canApproveMission(record, user) && canConsolidateMission(record, user) && (
                         <Button
                             type="link"
                             size="small"
@@ -243,7 +264,7 @@ export default function Missions() {
                             Consolider
                         </Button>
                     )}
-                    {canFinalizeMission(record, user) && (
+                            {!canApproveMission(record, user) && canFinalizeMission(record, user) && (
                         <Button
                             type="link"
                             size="small"

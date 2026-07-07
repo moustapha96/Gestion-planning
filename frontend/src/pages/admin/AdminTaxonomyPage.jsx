@@ -7,7 +7,7 @@ import { PlusOutlined, EditOutlined, DeleteOutlined, ApartmentOutlined, ProjectO
 import { Link } from 'react-router-dom';
 import api from '../../api/client';
 import { useAuth } from '../../context/AuthContext';
-import { resolveImageSrc } from '../../utils/mediaUrl';
+import ProjectLogo from '../../components/ProjectLogo';
 import { canSuperAdminForceDelete } from '../../utils/roles';
 import { forceDeleteDescription, forceDeleteTitle } from '../../utils/deleteConfirm';
 import ForceDeletePopconfirm from '../../components/ForceDeletePopconfirm';
@@ -81,20 +81,9 @@ export default function AdminTaxonomyPage({ variant }) {
         message.success('Logo uploadé avec succès.');
     };
 
-    const renderLogoPreview = (logoUrl, alt) => {
-        const src = resolveImageSrc(logoUrl);
-        if (!src) {
-            return <Text type="secondary">Saisissez une URL ou importez une image pour prévisualiser.</Text>;
-        }
-        return (
-            <img
-                src={src}
-                alt={alt}
-                style={{ width: 64, height: 64, borderRadius: 8, objectFit: 'cover', border: '1px solid #f0f0f0', background: '#fff' }}
-                onError={(e) => { e.currentTarget.style.opacity = '0.35'; }}
-            />
-        );
-    };
+    const renderLogoPreview = (logoUrl, alt) => (
+        <ProjectLogo logoUrl={logoUrl} size={64} alt={alt} fit="contain" />
+    );
 
     const load = useCallback(async () => {
         setLoading(true);
@@ -263,20 +252,11 @@ export default function AdminTaxonomyPage({ variant }) {
             dataIndex: 'logoUrl',
             key: 'logoUrl',
             width: 72,
-            render: (v) => {
-                const src = resolveImageSrc(v);
-                if (!src) return '—';
-                return (
-                    <Tooltip title={v}>
-                        <img
-                            src={src}
-                            alt={isDirections ? 'Logo direction' : 'Logo projet'}
-                            style={{ width: 36, height: 36, objectFit: 'cover', borderRadius: 6, border: '1px solid #eee', background: '#fff' }}
-                            onError={(e) => { e.currentTarget.style.opacity = '0.4'; }}
-                        />
-                    </Tooltip>
-                );
-            },
+            render: (v) => (
+                <Tooltip title={v}>
+                    <ProjectLogo logoUrl={v} size={36} alt={isDirections ? 'Logo direction' : 'Logo projet'} />
+                </Tooltip>
+            ),
         },
         {
             title: 'Code',
@@ -446,13 +426,12 @@ export default function AdminTaxonomyPage({ variant }) {
                                         {!!record.code && <Tag>{record.code}</Tag>}
                                     </Space>
                                     <Text type="secondary">{record.description || '—'}</Text>
-                                    {resolveImageSrc(record.logoUrl) && (
-                                        <img
-                                            src={resolveImageSrc(record.logoUrl)}
-                                            alt="Logo"
-                                            style={{ width: 44, height: 44, borderRadius: 8, objectFit: 'cover', border: '1px solid #f0f0f0' }}
-                                        />
-                                    )}
+                                    <ProjectLogo
+                                        logoUrl={record.logoUrl}
+                                        size={44}
+                                        alt="Logo"
+                                        style={{ marginTop: 4 }}
+                                    />
                                     <Space wrap>
                                         {isDirections && (
                                             <Button size="small" onClick={() => navigate(`/admin/directions/${record.id}`)}>

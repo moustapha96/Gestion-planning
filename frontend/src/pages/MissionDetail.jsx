@@ -42,6 +42,7 @@ import {
     canConsolidateMission,
     canCoordinateMission,
     canFinalizeMission,
+    canApproveMission,
     isPendingCoordinatorStatus,
     isPendingConsolidatorStatus,
     missionNeedsConsolidatorApproval,
@@ -104,6 +105,7 @@ export default function MissionDetail() {
     const canCoordinate = canCoordinateMission(mission, user);
     const canConsolidate = canConsolidateMission(mission, user);
     const canFinalize = canFinalizeMission(mission, user);
+    const canApproveDirect = canApproveMission(mission, user);
     const isAdmin = isPrivilegedAdmin(user?.role);
     const canUpload = mission?.status !== 'CANCELLED' && (
         mission?.createdById === user?.id ||
@@ -271,17 +273,22 @@ export default function MissionDetail() {
                         Modifier la mission
                     </Button>
                 )}
-                {canCoordinate && (
+                {canApproveDirect && (
+                    <Button type="primary" icon={<CheckCircleOutlined />} onClick={() => handleApprove('approve')} loading={approveLoading}>
+                        Valider et confirmer (admin)
+                    </Button>
+                )}
+                {!canApproveDirect && canCoordinate && (
                     <Button type="primary" icon={<CheckCircleOutlined />} onClick={() => handleApprove('coordinate')} loading={approveLoading}>
                         Valider (coordinateur)
                     </Button>
                 )}
-                {canConsolidate && (
+                {!canApproveDirect && canConsolidate && (
                     <Button type="primary" icon={<CheckCircleOutlined />} onClick={() => handleApprove('consolidate')} loading={approveLoading}>
                         Consolider et confirmer
                     </Button>
                 )}
-                {canFinalize && (
+                {!canApproveDirect && canFinalize && (
                     <Button type="primary" icon={<CheckCircleOutlined />} onClick={() => handleApprove('finalize')} loading={approveLoading}>
                         Valider et confirmer
                     </Button>

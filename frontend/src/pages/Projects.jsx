@@ -13,7 +13,8 @@ import { useNavigate } from 'react-router-dom';
 import api, { API_BASE } from '../api/client';
 import { useAuth } from '../context/AuthContext';
 import { PDF_ACCEPT, isAcceptedPdfFile } from '../utils/pdfAttachment';
-import { resolveImageSrc } from '../utils/mediaUrl';
+import ProjectLogo from '../components/ProjectLogo';
+import ProjectLogo from '../components/ProjectLogo';
 import { canManageProjects, isResponsable } from '../utils/roles';
 import { isUserProjectResponsibleOrCoordinator } from '../utils/projectScope';
 
@@ -337,7 +338,6 @@ export default function Projects({ adminContext = false }) {
     };
 
     const renderMobileProjectCard = (row) => {
-        const logoSrc = resolveImageSrc(row.logoUrl);
         return (
             <Card
                 size="small"
@@ -345,36 +345,7 @@ export default function Projects({ adminContext = false }) {
                 styles={{ body: { padding: isMobile ? 12 : 16 } }}
             >
                 <div style={{ display: 'flex', gap: 12, alignItems: 'flex-start' }}>
-                    {logoSrc ? (
-                        <img
-                            src={logoSrc}
-                            alt=""
-                            style={{
-                                width: 52,
-                                height: 52,
-                                objectFit: 'contain',
-                                borderRadius: 8,
-                                border: '1px solid #f0f0f0',
-                                background: '#fafafa',
-                                flexShrink: 0,
-                            }}
-                        />
-                    ) : (
-                        <div
-                            style={{
-                                width: 52,
-                                height: 52,
-                                borderRadius: 8,
-                                background: '#f5f5f5',
-                                display: 'flex',
-                                alignItems: 'center',
-                                justifyContent: 'center',
-                                flexShrink: 0,
-                            }}
-                        >
-                            <ProjectOutlined style={{ fontSize: 22, color: '#bfbfbf' }} />
-                        </div>
-                    )}
+                    <ProjectLogo logoUrl={row.logoUrl} size={52} alt={row.name} />
                     <div style={{ flex: 1, minWidth: 0 }}>
                         <Button
                             type="link"
@@ -428,26 +399,9 @@ export default function Projects({ adminContext = false }) {
             key: 'logo',
             width: 72,
             align: 'center',
-            render: (_, row) => {
-                const src = resolveImageSrc(row.logoUrl);
-                if (!src) return <Text type="secondary">—</Text>;
-                return (
-                    <img
-                        src={src}
-                        alt=""
-                        style={{
-                            width: 44,
-                            height: 44,
-                            objectFit: 'contain',
-                            borderRadius: 8,
-                            border: '1px solid #f0f0f0',
-                            background: '#fafafa',
-                            display: 'block',
-                            margin: '0 auto',
-                        }}
-                    />
-                );
-            },
+            render: (_, row) => (
+                <ProjectLogo logoUrl={row.logoUrl} size={44} alt={row.name} />
+            ),
         },
         {
             title: 'Code',
@@ -704,19 +658,8 @@ export default function Projects({ adminContext = false }) {
                 ) : null}
                 title={(
                     <span style={{ display: 'inline-flex', alignItems: 'center', gap: 10 }}>
-                        {drawerProject?.logoUrl ? (
-                            <img
-                                src={resolveImageSrc(drawerProject.logoUrl) || ''}
-                                alt=""
-                                style={{
-                                    width: 36,
-                                    height: 36,
-                                    objectFit: 'contain',
-                                    borderRadius: 8,
-                                    border: '1px solid #f0f0f0',
-                                    flexShrink: 0,
-                                }}
-                            />
+                        {drawerProject ? (
+                            <ProjectLogo logoUrl={drawerProject.logoUrl} size={36} alt={drawerProject.name} />
                         ) : null}
                         <ProjectOutlined style={{ marginRight: 4 }} />
                         <span style={{ wordBreak: 'break-word' }}>{drawerProject?.name}</span>
@@ -726,22 +669,15 @@ export default function Projects({ adminContext = false }) {
             >
                 {drawerProject && (
                     <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
-                        {drawerProject.logoUrl && resolveImageSrc(drawerProject.logoUrl) ? (
-                            <div style={{ textAlign: 'center', padding: '8px 0' }}>
-                                <img
-                                    src={resolveImageSrc(drawerProject.logoUrl) || ''}
-                                    alt={`Logo ${drawerProject.name}`}
-                                    style={{
-                                        maxWidth: '100%',
-                                        maxHeight: 120,
-                                        objectFit: 'contain',
-                                        borderRadius: 12,
-                                        border: '1px solid #f0f0f0',
-                                        background: '#fafafa',
-                                    }}
-                                />
-                            </div>
-                        ) : null}
+                        <div style={{ textAlign: 'center', padding: '8px 0' }}>
+                            <ProjectLogo
+                                logoUrl={drawerProject.logoUrl}
+                                size={120}
+                                alt={`Logo ${drawerProject.name}`}
+                                fit="contain"
+                                style={{ margin: '0 auto' }}
+                            />
+                        </div>
                         <Descriptions bordered size="small" column={1}>
                             <Descriptions.Item label="Code">
                                 {drawerProject.code ? <Tag>{drawerProject.code}</Tag> : '—'}

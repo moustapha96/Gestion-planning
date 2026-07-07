@@ -18,7 +18,7 @@ import { isPrivilegedAdmin, isSuperAdmin } from '../utils/roles';
 import {
     getSocket, getSocketStatusSnapshot, subscribeSocketStatus, getSocketStatusLabel, getSocketStatusDetail,
 } from '../realtime/socket';
-import { resolveImageSrc } from '../utils/mediaUrl';
+import ProjectLogo from '../components/ProjectLogo';
 
 dayjs.extend(isToday);
 dayjs.extend(isYesterday);
@@ -1217,11 +1217,13 @@ export default function Discussions() {
                                 }}
                             >
                                 <div style={{ width: 46, height: 46, borderRadius: '50%', background: ui.sidebarHeaderBg, display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#fff', overflow: 'hidden', flexShrink: 0 }}>
-                                    {hasProjectChannel && resolveImageSrc(projectChannel?.logoUrl) ? (
-                                        <img
-                                            src={resolveImageSrc(projectChannel.logoUrl) || ''}
+                                    {hasProjectChannel ? (
+                                        <ProjectLogo
+                                            logoUrl={projectChannel?.logoUrl}
+                                            size={46}
                                             alt=""
-                                            style={{ width: '100%', height: '100%', objectFit: 'cover' }}
+                                            fit="cover"
+                                            style={{ borderRadius: '50%', border: 'none' }}
                                         />
                                     ) : (
                                         <ProjectOutlined />
@@ -1452,11 +1454,13 @@ export default function Discussions() {
                                 </div>
                             ) : channelMode === 'project' ? (
                                 <div style={{ width: 38, height: 38, borderRadius: '50%', background: 'rgba(255,255,255,0.2)', color: '#fff', display: 'flex', alignItems: 'center', justifyContent: 'center', overflow: 'hidden', flexShrink: 0 }}>
-                                    {hasProjectChannel && resolveImageSrc(projectChannel?.logoUrl) ? (
-                                        <img
-                                            src={resolveImageSrc(projectChannel.logoUrl) || ''}
+                                    {hasProjectChannel ? (
+                                        <ProjectLogo
+                                            logoUrl={projectChannel?.logoUrl}
+                                            size={46}
                                             alt=""
-                                            style={{ width: '100%', height: '100%', objectFit: 'cover' }}
+                                            fit="cover"
+                                            style={{ borderRadius: '50%', border: 'none' }}
                                         />
                                     ) : (
                                         <ProjectOutlined />

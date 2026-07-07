@@ -2,6 +2,7 @@ const { isPrivilegedAdmin } = require('../config/roles');
 const {
     LEGACY_PENDING_COORDINATOR_STATUSES,
     PENDING_CONSOLIDATOR_STATUSES,
+    isPendingCoordinatorValidation,
 } = require('../config/planningWorkflow');
 const { formatPlanningWeekLabel, attachPlanningValidationProject } = require('./projectConsolidator.service');
 const { canAutoFinalizeAfterConsolidation } = require('./planningValidation.service');
@@ -200,6 +201,42 @@ function mapPlanningItem(planning, action, missionsCount = 0, user = null) {
     };
 }
 
+/** Action « À valider » pour un administrateur (tous paliers). */
+function mapAdminValidationAction(entity) {
+    if (entity.status === 'DRAFT' || isPendingCoordinatorValidation(entity.status)) {
+        return 'approve';
+    }
+    return 'consolidate';
+}
+
+function mapMeetingItemForUser(meeting, user) {
+    const item = mapMeetingItem(meeting);
+    if (isPrivilegedAdmin(user?.role)) {
+        item.action = mapAdminValidationAction(meeting);
+        item.validationPath = item.action === 'consolidate' ? 'consolidator' : 'admin';
+        item.statusLabel = item.action === 'approve' && meeting.status === 'DRAFT'
+            ? 'Étape 1/2 — coordinateur (admin)'
+            : item.action === 'approve'
+              ? 'Validation finale legacy (admin)'
+              : 'Étape 2/2 — consolidation (admin)';
+    }
+    return item;
+}
+
+function mapMissionItemForUser(mission, user) {
+    const item = mapMissionItem(mission);
+    if (isPrivilegedAdmin(user?.role)) {
+        item.action = mapAdminValidationAction(mission);
+        item.validationPath = item.action === 'consolidate' ? 'consolidator' : 'admin';
+        item.statusLabel = item.action === 'approve' && mission.status === 'DRAFT'
+            ? 'Étape 1/2 — coordinateur (admin)'
+            : item.action === 'approve'
+              ? 'Validation finale legacy (admin)'
+              : 'Étape 2/2 — consolidation (admin)';
+    }
+    return item;
+}
+
 function mapMissionItem(mission) {
     const action = missionValidationAction(mission) || 'approve';
     return {
@@ -279,6 +316,51 @@ async function fetchWeekMissionsForPlannings(prisma, plannings) {
     return missions;
 }
 
+const ADMIN_PENDING_STATUSES = [
+    'DRAFT',
+    ...PENDING_CONSOLIDATOR_STATUSES,
+    ...LEGACY_PENDING_COORDINATOR_STATUSES,
+];
+
+async function getAdminPendingValidations(prisma, user) {
+    const [meetingsRaw, missionsRaw] = await Promise.all([
+        prisma.meeting.findMany({
+            where: { status: { in: ADMIN_PENDING_STATUSES } },
+            include: MEETING_INCLUDE,
+            orderBy: { startTime: 'asc' },
+            take: 200,
+        }),
+        prisma.mission.findMany({
+            where: { status: { in: ADMIN_PENDING_STATUSES } },
+            include: MISSION_INCLUDE,
+            orderBy: { startTime: 'asc' },
+            take: 200,
+        }),
+    ]);
+
+    const meetings = meetingsRaw.map((m) => mapMeetingItemForUser(m, user));
+    const missions = missionsRaw.map((m) => mapMissionItemForUser(m, user));
+    const counts = {
+        meetings: meetings.length,
+        planningsConsolidate: 0,
+        planningsCoordinate: 0,
+        missions: missions.length,
+        events: 0,
+        total: meetings.length + missions.length,
+    };
+
+    return {
+        canSeeMenu: true,
+        hasAccess: true,
+        counts,
+        meetings,
+        planningsConsolidate: [],
+        planningsCoordinate: [],
+        missions,
+        planningEvents: [],
+    };
+}
+
 async function getPendingValidations(prisma, user) {
     const canSeeMenu = await userCanSeeValidationMenu(prisma, user);
     const emptyCounts = {
@@ -301,6 +383,10 @@ async function getPendingValidations(prisma, user) {
             missions: [],
             planningEvents: [],
         };
+    }
+
+    if (isPrivilegedAdmin(user.role)) {
+        return getAdminPendingValidations(prisma, user);
     }
 
     const consolidationCache = createConsolidationContextCache();
@@ -355,14 +441,14 @@ async function getPendingValidations(prisma, user) {
             if (ok) meetingIds.add(m.id);
             return ok;
         })
-        .map(mapMeetingItem);
+        .map((m) => mapMeetingItemForUser(m, user));
 
     const meetingConsolidatorItems = [];
     for (const m of meetingConsolidatorRaw) {
         if (meetingIds.has(m.id)) continue;
         if (await canUserConsolidateEntity(prisma, user, m, 'meeting', consolidationCache)) {
             meetingIds.add(m.id);
-            meetingConsolidatorItems.push(mapMeetingItem(m));
+            meetingConsolidatorItems.push(mapMeetingItemForUser(m, user));
         }
     }
 
@@ -371,7 +457,7 @@ async function getPendingValidations(prisma, user) {
         ...meetingConsolidatorItems,
         ...meetingLegacyRaw
             .filter((m) => canFinalizePendingMeeting(m, user) && !meetingIds.has(m.id))
-            .map(mapMeetingItem),
+            .map((m) => mapMeetingItemForUser(m, user)),
     ];
 
     const missionIds = new Set();
@@ -381,14 +467,14 @@ async function getPendingValidations(prisma, user) {
             if (ok) missionIds.add(m.id);
             return ok;
         })
-        .map(mapMissionItem);
+        .map((m) => mapMissionItemForUser(m, user));
 
     const missionConsolidatorItems = [];
     for (const m of missionConsolidatorRaw) {
         if (missionIds.has(m.id)) continue;
         if (await canUserConsolidateEntity(prisma, user, m, 'mission', consolidationCache)) {
             missionIds.add(m.id);
-            missionConsolidatorItems.push(mapMissionItem(m));
+            missionConsolidatorItems.push(mapMissionItemForUser(m, user));
         }
     }
 
@@ -397,7 +483,7 @@ async function getPendingValidations(prisma, user) {
         ...missionConsolidatorItems,
         ...missionLegacyRaw
             .filter((m) => canFinalizePendingMission(m, user) && !missionIds.has(m.id))
-            .map(mapMissionItem),
+            .map((m) => mapMissionItemForUser(m, user)),
     ];
 
     const counts = {

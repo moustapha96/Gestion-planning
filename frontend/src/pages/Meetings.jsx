@@ -9,6 +9,10 @@ import {
     canManageMeeting,
     canEditMeeting,
     canPrivilegedForceDelete,
+    canConsolidateMeeting,
+    canCoordinateMeeting,
+    canFinalizeMeeting,
+    canApproveMeeting,
 } from '../utils/roles';
 import { meetingStatusLabel } from '../utils/statusLabels';
 import { forceDeleteDescription, forceDeleteTitle } from '../utils/deleteConfirm';
@@ -44,6 +48,7 @@ export default function Meetings() {
     const [loadingRooms, setLoadingRooms] = useState(false);
     const [bookedSlots, setBookedSlots] = useState([]);
     const [pendingRoomId, setPendingRoomId] = useState(null);
+    const [actionLoadingId, setActionLoadingId] = useState(null);
     const [directions, setDirections] = useState([]);
     const [projects, setProjects] = useState([]);
     const [eventTypes, setEventTypes] = useState([]);
@@ -382,6 +387,90 @@ export default function Meetings() {
                             onClick={() => navigate(`/meetings/${record.id}/edit`)}
                         >
                             Modifier la réunion
+                        </Button>
+                    )}
+                    {canApproveMeeting(record, user) && (
+                        <Button
+                            size="small"
+                            type="link"
+                            loading={actionLoadingId === record.id}
+                            onClick={async () => {
+                                setActionLoadingId(record.id);
+                                try {
+                                    await api.put(`/meetings/${record.id}/approve`);
+                                    message.success('Réunion validée et publiée (admin)');
+                                    fetchMeetings();
+                                } catch (err) {
+                                    message.error(err.response?.data?.error || 'Erreur');
+                                } finally {
+                                    setActionLoadingId(null);
+                                }
+                            }}
+                        >
+                            Publier (admin)
+                        </Button>
+                    )}
+                    {!canApproveMeeting(record, user) && canCoordinateMeeting(record, user) && (
+                        <Button
+                            size="small"
+                            type="link"
+                            loading={actionLoadingId === record.id}
+                            onClick={async () => {
+                                setActionLoadingId(record.id);
+                                try {
+                                    await api.put(`/meetings/${record.id}/approve-coordinator`);
+                                    message.success('Réunion validée par le coordinateur');
+                                    fetchMeetings();
+                                } catch (err) {
+                                    message.error(err.response?.data?.error || 'Erreur');
+                                } finally {
+                                    setActionLoadingId(null);
+                                }
+                            }}
+                        >
+                            Valider (coordinateur)
+                        </Button>
+                    )}
+                    {!canApproveMeeting(record, user) && canConsolidateMeeting(record, user) && (
+                        <Button
+                            size="small"
+                            type="link"
+                            loading={actionLoadingId === record.id}
+                            onClick={async () => {
+                                setActionLoadingId(record.id);
+                                try {
+                                    await api.put(`/meetings/${record.id}/approve`);
+                                    message.success('Réunion consolidée et publiée');
+                                    fetchMeetings();
+                                } catch (err) {
+                                    message.error(err.response?.data?.error || 'Erreur');
+                                } finally {
+                                    setActionLoadingId(null);
+                                }
+                            }}
+                        >
+                            Consolider
+                        </Button>
+                    )}
+                    {!canApproveMeeting(record, user) && canFinalizeMeeting(record, user) && (
+                        <Button
+                            size="small"
+                            type="link"
+                            loading={actionLoadingId === record.id}
+                            onClick={async () => {
+                                setActionLoadingId(record.id);
+                                try {
+                                    await api.put(`/meetings/${record.id}/approve-coordinator`);
+                                    message.success('Réunion validée définitivement');
+                                    fetchMeetings();
+                                } catch (err) {
+                                    message.error(err.response?.data?.error || 'Erreur');
+                                } finally {
+                                    setActionLoadingId(null);
+                                }
+                            }}
+                        >
+                            Valider (legacy)
                         </Button>
                     )}
                     {record.status !== 'CANCELLED' && record.status !== 'COMPLETED' && canManageMeeting(record, user) && (

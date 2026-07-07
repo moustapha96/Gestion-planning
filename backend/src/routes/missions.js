@@ -655,6 +655,24 @@ router.put('/:id/approve', async (req, res) => {
         });
         if (!mission) return res.status(404).json({ error: 'Mission introuvable' });
 
+        if (isPrivilegedAdmin(req.user?.role)) {
+            if (mission.status === 'DRAFT'
+                || isPendingConsolidatorValidation(mission.status)
+                || isPendingCoordinatorValidation(mission.status)) {
+                const updated = await confirmMission(req, mission);
+                await notifyCreatorMissionProgress(req, mission, 'published');
+                await createAuditLog(
+                    req,
+                    'MISSION_APPROVED',
+                    'Mission',
+                    mission.id,
+                    `Mission « ${mission.title} » confirmée (admin)`,
+                );
+                return res.json(updated);
+            }
+            return res.status(400).json({ error: 'Cette mission ne peut pas être validée à cette étape.' });
+        }
+
         if (isPendingConsolidatorValidation(mission.status)) {
             if (!await canUserConsolidateEntity(req.prisma, req.user, mission, 'mission')) {
                 return res.status(403).json({ error: 'Vous n\'êtes pas autorisé à consolider cette mission.' });

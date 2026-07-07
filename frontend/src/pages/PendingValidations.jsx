@@ -37,16 +37,19 @@ function EventTypeTag({ eventType, fallback }) {
     );
 }
 
-function MeetingCard({ item, loading, onAction }) {
+function MeetingCard({ item, loading, onAction, isAdmin }) {
     const navigate = useNavigate();
     const isConsolidate = item.action === 'consolidate';
-    const actionLabel = isConsolidate
-        ? 'Consolider et publier'
-        : item.action === 'fallback'
-          ? 'Valider et publier (rôle dédié)'
-          : item.action === 'coordinate' && item.status === 'DRAFT'
-            ? 'Valider (coordinateur)'
-            : 'Valider et publier';
+    const isAdminDirect = isAdmin && item.action === 'approve';
+    const actionLabel = isAdminDirect
+        ? (item.status === 'DRAFT' ? 'Valider et publier (admin)' : 'Valider et publier (admin)')
+        : isConsolidate
+          ? (isAdmin ? 'Consolider et publier (admin)' : 'Consolider et publier')
+          : item.action === 'fallback'
+            ? 'Valider et publier (rôle dédié)'
+            : item.action === 'coordinate' && item.status === 'DRAFT'
+              ? 'Valider (coordinateur)'
+              : 'Valider et publier';
     const actionColor = isConsolidate ? '#722ed1' : item.action === 'fallback' ? '#fa541c' : '#52c41a';
 
     return (
@@ -87,16 +90,19 @@ function MeetingCard({ item, loading, onAction }) {
     );
 }
 
-function MissionCard({ item, loading, onAction }) {
+function MissionCard({ item, loading, onAction, isAdmin }) {
     const navigate = useNavigate();
     const isConsolidate = item.action === 'consolidate';
-    const actionLabel = isConsolidate
-        ? 'Consolider et confirmer'
-        : item.action === 'fallback'
-          ? 'Valider et confirmer (rôle dédié)'
-          : item.action === 'coordinate' && item.status === 'DRAFT'
-            ? 'Valider (coordinateur)'
-            : 'Valider et confirmer';
+    const isAdminDirect = isAdmin && item.action === 'approve';
+    const actionLabel = isAdminDirect
+        ? (item.status === 'DRAFT' ? 'Valider et confirmer (admin)' : 'Valider et confirmer (admin)')
+        : isConsolidate
+          ? (isAdmin ? 'Consolider et confirmer (admin)' : 'Consolider et confirmer')
+          : item.action === 'fallback'
+            ? 'Valider et confirmer (rôle dédié)'
+            : item.action === 'coordinate' && item.status === 'DRAFT'
+              ? 'Valider (coordinateur)'
+              : 'Valider et confirmer';
     const actionColor = isConsolidate ? '#722ed1' : item.action === 'fallback' ? '#fa541c' : '#52c41a';
 
     return (
@@ -145,15 +151,20 @@ export default function PendingValidations() {
     const { user } = useAuth();
 
     const [actionId, setActionId] = useState(null);
+    const isAdmin = isPrivilegedAdmin(user?.role);
 
     const runAction = async (item) => {
         const { id, action, kind: entityKind } = item;
         setActionId(id);
         try {
             if (entityKind === 'meeting') {
-                if (action === 'consolidate') {
+                if (action === 'consolidate' || (isAdmin && action === 'approve')) {
                     await api.put(`/meetings/${id}/approve`);
-                    message.success('Réunion consolidée et publiée sur le calendrier');
+                    message.success(
+                        isAdmin && item.status === 'DRAFT'
+                            ? 'Réunion validée et publiée (admin)'
+                            : 'Réunion consolidée et publiée sur le calendrier',
+                    );
                 } else if (action === 'coordinate' || action === 'fallback') {
                     await api.put(`/meetings/${id}/approve-coordinator`);
                     message.success(
@@ -166,9 +177,13 @@ export default function PendingValidations() {
                     message.success('Réunion validée et publiée');
                 }
             } else if (entityKind === 'mission') {
-                if (action === 'consolidate') {
+                if (action === 'consolidate' || (isAdmin && action === 'approve')) {
                     await api.put(`/missions/${id}/approve`);
-                    message.success('Mission consolidée et confirmée');
+                    message.success(
+                        isAdmin && item.status === 'DRAFT'
+                            ? 'Mission validée et confirmée (admin)'
+                            : 'Mission consolidée et confirmée',
+                    );
                 } else if (action === 'coordinate' || action === 'fallback') {
                     await api.put(`/missions/${id}/approve-coordinator`);
                     message.success(
@@ -240,6 +255,7 @@ export default function PendingValidations() {
                                             item={m}
                                             loading={actionId === m.id}
                                             onAction={runAction}
+                                            isAdmin={isAdmin}
                                         />
                                     ))}
                                 </>
@@ -253,6 +269,7 @@ export default function PendingValidations() {
                                             item={m}
                                             loading={actionId === m.id}
                                             onAction={runAction}
+                                            isAdmin={isAdmin}
                                         />
                                     ))}
                                 </>
@@ -275,6 +292,7 @@ export default function PendingValidations() {
                     item={m}
                     loading={actionId === m.id}
                     onAction={runAction}
+                    isAdmin={isAdmin}
                 />
             )) : <Empty description="Aucune réunion en attente" />,
         },
@@ -291,6 +309,7 @@ export default function PendingValidations() {
                     item={m}
                     loading={actionId === m.id}
                     onAction={runAction}
+                    isAdmin={isAdmin}
                 />
             )) : (
                 <Empty description="Aucune mission en attente" />

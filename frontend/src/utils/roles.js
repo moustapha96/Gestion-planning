@@ -73,9 +73,22 @@ export function canCoordinateMission(mission, user) {
     return isProjectCoordinator(mission, user);
 }
 
-/** Publication directe interdite — circuit obligatoire pour tous. */
-export function canApproveMission() {
-    return false;
+/** Admin : peut valider / publier à n'importe quel palier. */
+export function canApproveMeeting(meeting, user) {
+    if (!meeting || !user) return false;
+    if (!isPrivilegedAdmin(user.role)) return false;
+    return meeting.status === 'DRAFT'
+        || isPendingConsolidatorStatus(meeting.status)
+        || isPendingCoordinatorStatus(meeting.status);
+}
+
+/** Admin : peut confirmer à n'importe quel palier. */
+export function canApproveMission(mission, user) {
+    if (!mission || !user) return false;
+    if (!isPrivilegedAdmin(user.role)) return false;
+    return mission.status === 'DRAFT'
+        || isPendingConsolidatorStatus(mission.status)
+        || isPendingCoordinatorStatus(mission.status);
 }
 
 export function canFinalizeMission(mission, user) {
@@ -254,9 +267,13 @@ export function canCoordinateMeeting(meeting, user) {
     return isProjectCoordinator(meeting, user);
 }
 
-/** Publication directe interdite — circuit obligatoire pour tous. */
-export function canApproveMeeting() {
-    return false;
+/** Admin : peut valider / publier à n'importe quel palier. */
+export function canApproveMeeting(meeting, user) {
+    if (!meeting || !user) return false;
+    if (!isPrivilegedAdmin(user.role)) return false;
+    return meeting.status === 'DRAFT'
+        || isPendingConsolidatorStatus(meeting.status)
+        || isPendingCoordinatorStatus(meeting.status);
 }
 
 export function canFinalizeMeeting(meeting, user) {
