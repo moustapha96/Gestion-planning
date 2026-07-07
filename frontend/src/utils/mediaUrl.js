@@ -55,9 +55,11 @@ export function resolveProjectLogoSrc(logoUrl) {
 export function resolveAvatarSrc(avatarUrl, cacheKey) {
     const resolved = resolveImageSrc(avatarUrl);
     if (!resolved) return null;
-    if (cacheKey === undefined || cacheKey === null || cacheKey === '') return resolved;
+    const key = cacheKey === undefined || cacheKey === null ? '' : String(cacheKey).trim();
+    // Ne jamais utiliser un chemin complet comme clé de cache (?v=/uploads/...)
+    if (!key || key.includes('/')) return resolved;
     const separator = resolved.includes('?') ? '&' : '?';
-    return `${resolved}${separator}v=${encodeURIComponent(String(cacheKey))}`;
+    return `${resolved}${separator}v=${encodeURIComponent(key)}`;
 }
 
 export function isDefaultProjectLogo(logoUrl) {

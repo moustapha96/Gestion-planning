@@ -46,11 +46,16 @@ function initials(name) {
     return name[0].toUpperCase();
 }
 
+function avatarCacheKey(user) {
+    if (!user?.avatarUrl) return '';
+    if (user.updatedAt) return String(new Date(user.updatedAt).getTime());
+    const filename = String(user.avatarUrl).split('/').pop() || '';
+    return filename.includes('.') ? filename : '';
+}
+
 export default function UserAvatar({ user, size = 32, style = {}, className }) {
     const [imgFailed, setImgFailed] = useState(false);
-    const vKey = user?.updatedAt
-        ? new Date(user.updatedAt).getTime()
-        : (user?.avatarUrl || '');
+    const vKey = avatarCacheKey(user);
 
     useEffect(() => {
         setImgFailed(false);

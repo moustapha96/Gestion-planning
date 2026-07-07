@@ -73,9 +73,10 @@ const httpServer = http.createServer(app);
 const prisma = new PrismaClient();
 
 // Security — headers globaux (HSTS, X-Frame-Options, X-Content-Type-Options, etc.)
-// CSP gérée séparément ci-dessous pour exclure /api/docs
+// crossOriginResourcePolicy: cross-origin → avatars/logos chargés depuis le frontend (origine différente)
 app.use(helmet({
     contentSecurityPolicy: false,
+    crossOriginResourcePolicy: { policy: 'cross-origin' },
 }));
 
 // CSP activée sur toutes les routes SAUF /api/docs (Swagger UI nécessite des scripts/styles inline)
@@ -124,7 +125,11 @@ app.use(cors({
     credentials: true,
 }));
 app.use(express.json());
-app.use('/uploads', express.static(uploadsDir));
+app.use('/uploads', (req, res, next) => {
+    res.setHeader('Cross-Origin-Resource-Policy', 'cross-origin');
+    res.setHeader('Access-Control-Allow-Origin', '*');
+    next();
+}, express.static(uploadsDir));
 
 // Rate limiting – brute force protection (CDC §5.2)
 const loginLimiter = rateLimit({
