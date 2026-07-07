@@ -15,7 +15,7 @@ async function createAuditLog(req, action, entity, entityId, details = null) {
                 userId: req.user?.id || null,
                 action,
                 entity,
-                entityId,
+                entityId: String(entityId || req.auditRequestId || 'unknown'),
                 ipAddress: req.ip || null,
                 details: details || undefined,
             },
@@ -26,4 +26,45 @@ async function createAuditLog(req, action, entity, entityId, details = null) {
     }
 }
 
-module.exports = { createAuditLog };
+/**
+ * Journalise une requête HTTP dans les journaux d'audit (fichier + base).
+ */
+async function logApiRequest(req, {
+    action,
+    entity,
+    entityId,
+    details,
+    statusCode,
+    durationMs,
+    path,
+    method,
+}) {
+    const { auditLogger } = require('./logger');
+    auditLogger.info(action, details, {
+        userId: req.user?.id || null,
+        entityId,
+        statusCode,
+        durationMs,
+        path,
+        method,
+    });
+
+    if (!req.prisma) return;
+
+    try {
+        await req.prisma.auditLog.create({
+            data: {
+                userId: req.user?.id || null,
+                action,
+                entity,
+                entityId: String(entityId || req.auditRequestId || 'unknown'),
+                ipAddress: req.ip || null,
+                details,
+            },
+        });
+    } catch (err) {
+        require('./logger').logger.warn('AUDIT_LOG_DB_FAILED', err.message, { action, entityId, path });
+    }
+}
+
+module.exports = { createAuditLog, logApiRequest };

@@ -16,10 +16,10 @@ import {
     App,
     Tooltip,
     Typography,
-    Avatar,
 } from 'antd';
 import { PlusOutlined, StopOutlined, CheckOutlined, KeyOutlined, UserOutlined, EditOutlined, MailOutlined, DeleteOutlined } from '@ant-design/icons';
-import api, { API_BASE } from '../api/client';
+import UserAvatar from '../components/UserAvatar';
+import api from '../api/client';
 import { useAuth } from '../context/AuthContext';
 import { isPrivilegedAdmin } from '../utils/roles';
 
@@ -209,15 +209,7 @@ export default function Users() {
             title: '',
             key: 'avatar',
             width: 48,
-            render: (_, record) => (
-                <Avatar
-                    size="small"
-                    src={record.avatarUrl ? `${API_BASE}${record.avatarUrl}` : undefined}
-                    style={!record.avatarUrl ? { backgroundColor: '#1F5C8B' } : {}}
-                >
-                    {!record.avatarUrl && (record.name?.[0]?.toUpperCase() || '?')}
-                </Avatar>
-            ),
+            render: (_, record) => <UserAvatar user={record} size="small" />,
         },
         { title: 'Nom', dataIndex: 'name', key: 'name', width: 160 },
         { title: 'Email', dataIndex: 'email', key: 'email', ellipsis: true, width: 200 },

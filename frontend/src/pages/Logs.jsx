@@ -15,36 +15,26 @@ import {
     Button,
     Row,
     Col,
+    Input,
 } from 'antd';
-import { FileTextOutlined, FilterOutlined, ReloadOutlined, DownloadOutlined } from '@ant-design/icons';
+import { FileTextOutlined, ReloadOutlined, DownloadOutlined } from '@ant-design/icons';
 import api, { API_BASE } from '../api/client';
 import { useAuth } from '../context/AuthContext';
 import { isPrivilegedAdmin } from '../utils/roles';
-import dayjs from 'dayjs';
+import {
+    AUDIT_ACTIONS,
+    AUDIT_ENTITIES,
+    getAuditActionColor,
+    getAuditActionLabel,
+} from '../constants/auditLogFilters';
 
 const { Title, Text } = Typography;
 const { RangePicker } = DatePicker;
 
-const ACTIONS = [
-    { value: 'LOGIN', label: 'Connexion' },
-    { value: 'CREATE_USER', label: 'Création utilisateur' },
-    { value: 'DEACTIVATE_USER', label: 'Désactivation utilisateur' },
-    { value: 'ACTIVATE_USER', label: 'Réactivation utilisateur' },
-    { value: 'ADMIN_RESET_PASSWORD', label: 'Réinit. mot de passe' },
-    { value: 'MEETING_CREATED', label: 'Réunion créée' },
-    { value: 'MEETING_SENT', label: 'Convocations envoyées' },
-    { value: 'MEETING_UPDATED', label: 'Réunion modifiée' },
-    { value: 'MEETING_CANCELLED', label: 'Réunion annulée' },
-    { value: 'PLANNING_SUBMITTED', label: 'Planning soumis' },
-    { value: 'PLANNING_CONSOLIDATED', label: 'Planning consolidé' },
-    { value: 'PLANNING_VALIDATED', label: 'Planning validé' },
-    { value: 'PLANNING_RETURNED', label: 'Planning retourné' },
-];
-
-const ENTITIES = [
-    { value: 'User', label: 'Utilisateur' },
-    { value: 'Meeting', label: 'Réunion' },
-    { value: 'Planning', label: 'Planning' },
+const LOG_TYPE_OPTIONS = [
+    { value: 'all', label: 'Tous les journaux' },
+    { value: 'http', label: 'Requêtes HTTP uniquement' },
+    { value: 'business', label: 'Actions métier uniquement' },
 ];
 
 export default function Logs() {
@@ -57,19 +47,28 @@ export default function Logs() {
     const [loading, setLoading] = useState(true);
     const [actionFilter, setActionFilter] = useState(undefined);
     const [entityFilter, setEntityFilter] = useState(undefined);
+    const [logTypeFilter, setLogTypeFilter] = useState('all');
+    const [search, setSearch] = useState('');
     const [dateRange, setDateRange] = useState(null);
     const limit = 20;
+
+    const buildParams = () => {
+        const params = { page, limit };
+        if (actionFilter) params.action = actionFilter;
+        if (entityFilter) params.entity = entityFilter;
+        if (logTypeFilter === 'http') params.httpOnly = '1';
+        if (logTypeFilter === 'business') params.businessOnly = '1';
+        if (search.trim()) params.search = search.trim();
+        if (dateRange?.[0]) params.from = dateRange[0].startOf('day').toISOString();
+        if (dateRange?.[1]) params.to = dateRange[1].endOf('day').toISOString();
+        return params;
+    };
 
     const fetchLogs = async () => {
         if (!isPrivilegedAdmin(user?.role)) return;
         setLoading(true);
         try {
-            const params = { page, limit };
-            if (actionFilter) params.action = actionFilter;
-            if (entityFilter) params.entity = entityFilter;
-            if (dateRange?.[0]) params.from = dateRange[0].startOf('day').toISOString();
-            if (dateRange?.[1]) params.to = dateRange[1].endOf('day').toISOString();
-            const res = await api.get('/audit-logs', { params });
+            const res = await api.get('/audit-logs', { params: buildParams() });
             setLogs(res.data.logs || []);
             setTotal(res.data.total || 0);
         } catch {
@@ -85,7 +84,7 @@ export default function Logs() {
             return;
         }
         fetchLogs();
-    }, [user?.role, page, actionFilter, entityFilter, dateRange]);
+    }, [user?.role, page, actionFilter, entityFilter, logTypeFilter, search, dateRange]);
 
     if (!isPrivilegedAdmin(user?.role)) return null;
 
@@ -101,22 +100,31 @@ export default function Logs() {
             title: 'Action',
             dataIndex: 'action',
             key: 'action',
-            width: 180,
+            width: 200,
             ellipsis: true,
-            render: (a) => <Tag color="blue">{a}</Tag>,
+            render: (a) => (
+                <Tag color={getAuditActionColor(a)}>{getAuditActionLabel(a)}</Tag>
+            ),
         },
         {
             title: 'Entité',
             dataIndex: 'entity',
             key: 'entity',
-            width: 120,
+            width: 110,
         },
         {
             title: 'Détails',
             dataIndex: 'details',
             key: 'details',
             ellipsis: true,
-            render: (d) => d ? <Text type="secondary">{d}</Text> : '—',
+            render: (d) => (d ? <Text type="secondary">{d}</Text> : '—'),
+        },
+        {
+            title: 'IP',
+            dataIndex: 'ipAddress',
+            key: 'ipAddress',
+            width: 120,
+            render: (ip) => ip || '—',
         },
         {
             title: 'Utilisateur',
@@ -131,10 +139,30 @@ export default function Logs() {
                         </Text>
                     </Space>
                 ) : (
-                    <Text type="secondary">—</Text>
+                    <Text type="secondary">Anonyme</Text>
                 ),
         },
     ];
+
+    const exportCsv = () => {
+        const params = new URLSearchParams(buildParams());
+        params.delete('page');
+        params.delete('limit');
+        const token = localStorage.getItem('accessToken');
+        fetch(`${API_BASE}/api/audit-logs/export.csv?${params}`, {
+            headers: { Authorization: `Bearer ${token}` },
+        })
+            .then((r) => r.blob())
+            .then((blob) => {
+                const url = URL.createObjectURL(blob);
+                const a = document.createElement('a');
+                a.href = url;
+                a.download = `audit-logs-${new Date().toISOString().slice(0, 10)}.csv`;
+                a.click();
+                URL.revokeObjectURL(url);
+            })
+            .catch(() => message.error('Erreur lors de l\'export'));
+    };
 
     return (
         <div>
@@ -167,20 +195,37 @@ export default function Logs() {
             <Alert
                 type="info"
                 showIcon
-                title="Les journaux d'audit enregistrent les actions importantes (connexions, créations d'utilisateurs, plannings, réunions). Les logs détaillés du serveur sont dans backend/logs/."
+                title="Toutes les requêtes API sont journalisées (méthode, chemin, statut, durée, utilisateur, IP). Les actions métier importantes conservent aussi un libellé dédié (connexion, réunions, plannings, etc.)."
                 style={{ marginBottom: 16 }}
             />
 
             <Card style={{ marginBottom: 16 }}>
                 <Row gutter={[12, 12]} align="middle">
+                    <Col xs={24} sm={12} md={8} lg={6}>
+                        <Input.Search
+                            placeholder="Rechercher (chemin, action, entité…)"
+                            allowClear
+                            value={search}
+                            onChange={(e) => { setPage(1); setSearch(e.target.value); }}
+                        />
+                    </Col>
+                    <Col>
+                        <Select
+                            placeholder="Type"
+                            style={{ width: 220 }}
+                            options={LOG_TYPE_OPTIONS}
+                            value={logTypeFilter}
+                            onChange={(v) => { setPage(1); setLogTypeFilter(v); }}
+                        />
+                    </Col>
                     <Col>
                         <Select
                             placeholder="Action"
                             allowClear
                             style={{ width: 200 }}
-                            options={ACTIONS}
+                            options={AUDIT_ACTIONS}
                             value={actionFilter}
-                            onChange={setActionFilter}
+                            onChange={(v) => { setPage(1); setActionFilter(v); }}
                         />
                     </Col>
                     <Col>
@@ -188,51 +233,25 @@ export default function Logs() {
                             placeholder="Entité"
                             allowClear
                             style={{ width: 160 }}
-                            options={ENTITIES}
+                            options={AUDIT_ENTITIES}
                             value={entityFilter}
-                            onChange={setEntityFilter}
+                            onChange={(v) => { setPage(1); setEntityFilter(v); }}
                         />
                     </Col>
                     <Col>
                         <RangePicker
                             value={dateRange}
-                            onChange={setDateRange}
+                            onChange={(v) => { setPage(1); setDateRange(v); }}
                             placeholder={['Du', 'Au']}
                         />
                     </Col>
                     <Col>
-                        <Button
-                            icon={<ReloadOutlined />}
-                            onClick={() => { setPage(1); fetchLogs(); }}
-                        >
+                        <Button icon={<ReloadOutlined />} onClick={() => { setPage(1); fetchLogs(); }}>
                             Actualiser
                         </Button>
                     </Col>
                     <Col>
-                        {/* Export CSV — CDC §3.9.2 */}
-                        <Button
-                            icon={<DownloadOutlined />}
-                            onClick={() => {
-                                const params = new URLSearchParams();
-                                if (actionFilter) params.set('action', actionFilter);
-                                if (entityFilter) params.set('entity', entityFilter);
-                                if (dateRange?.[0]) params.set('from', dateRange[0].startOf('day').toISOString());
-                                if (dateRange?.[1]) params.set('to', dateRange[1].endOf('day').toISOString());
-                                const token = localStorage.getItem('accessToken');
-                                fetch(`${API_BASE}/api/audit-logs/export.csv?${params}`, {
-                                    headers: { Authorization: `Bearer ${token}` },
-                                })
-                                    .then((r) => r.blob())
-                                    .then((blob) => {
-                                        const url = URL.createObjectURL(blob);
-                                        const a = document.createElement('a');
-                                        a.href = url;
-                                        a.download = `audit-logs-${new Date().toISOString().slice(0, 10)}.csv`;
-                                        a.click();
-                                        URL.revokeObjectURL(url);
-                                    });
-                            }}
-                        >
+                        <Button icon={<DownloadOutlined />} onClick={exportCsv}>
                             Exporter CSV
                         </Button>
                     </Col>

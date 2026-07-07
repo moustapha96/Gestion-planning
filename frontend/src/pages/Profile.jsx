@@ -15,7 +15,6 @@ import { useAuth } from '../context/AuthContext';
 import UserAvatar from '../components/UserAvatar';
 import api from '../api/client';
 import ProjectLogo from '../components/ProjectLogo';
-import { resolveImageSrc } from '../utils/mediaUrl';
 
 const { Title, Text, Paragraph } = Typography;
 

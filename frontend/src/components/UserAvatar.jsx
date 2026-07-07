@@ -9,8 +9,9 @@
  *  - style      : styles supplémentaires
  *  - className  : classe CSS supplémentaire
  */
+import { useEffect, useState } from 'react';
 import { Avatar } from 'antd';
-import { API_BASE } from '../api/client';
+import { resolveAvatarSrc } from '../utils/mediaUrl';
 
 // Palette de 10 couleurs vives pour les initiales
 const PALETTE = [
@@ -46,15 +47,28 @@ function initials(name) {
 }
 
 export default function UserAvatar({ user, size = 32, style = {}, className }) {
-    // Cache-busting via updatedAt — se met à jour automatiquement après chaque modification
-    const vKey = user?.updatedAt ? new Date(user.updatedAt).getTime() : 0;
-    const src  = user?.avatarUrl ? `${API_BASE}${user.avatarUrl}?v=${vKey}` : undefined;
+    const [imgFailed, setImgFailed] = useState(false);
+    const vKey = user?.updatedAt
+        ? new Date(user.updatedAt).getTime()
+        : (user?.avatarUrl || '');
+
+    useEffect(() => {
+        setImgFailed(false);
+    }, [user?.avatarUrl, user?.updatedAt]);
+
+    const src = !imgFailed && user?.avatarUrl
+        ? resolveAvatarSrc(user.avatarUrl, vKey)
+        : undefined;
 
     return (
         <Avatar
             size={size}
             src={src}
             className={className}
+            onError={() => {
+                setImgFailed(true);
+                return true;
+            }}
             style={{
                 backgroundColor: src ? undefined : hashColor(user?.name),
                 fontWeight: 600,

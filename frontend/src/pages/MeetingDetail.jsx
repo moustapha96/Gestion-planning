@@ -15,7 +15,6 @@ import {
     Input,
     Select,
     DatePicker,
-    Avatar,
     Upload,
     Image,
     Popconfirm,
@@ -41,6 +40,7 @@ import {
 } from '@ant-design/icons';
 import dayjs from 'dayjs';
 import api, { API_BASE } from '../api/client';
+import UserAvatar from '../components/UserAvatar';
 import { appDayjs, formatDateTime, formatDateTimeLocale, toUtcIso } from '../utils/datetime';
 import ValidationWorkflowBanner from '../components/ValidationWorkflowBanner';
 import { useAuth } from '../context/AuthContext';
@@ -948,13 +948,7 @@ export default function MeetingDetail() {
                     )}
                     <Descriptions.Item label={<><TeamOutlined /> Organisateur</>}>
                         <Space>
-                            <Avatar
-                                size="small"
-                                src={meeting.organizer?.avatarUrl ? `${API_BASE}${meeting.organizer.avatarUrl}` : undefined}
-                                style={!meeting.organizer?.avatarUrl ? { backgroundColor: '#1F5C8B' } : {}}
-                            >
-                                {!meeting.organizer?.avatarUrl && (meeting.organizer?.name?.[0]?.toUpperCase() || 'O')}
-                            </Avatar>
+                            <UserAvatar user={meeting.organizer} size="small" />
                             {meeting.organizer?.name} ({meeting.organizer?.email})
                         </Space>
                     </Descriptions.Item>
@@ -1146,7 +1140,6 @@ export default function MeetingDetail() {
                         <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
                             {(meeting.messages || []).map((m) => {
                                 const mine = m.senderId === user?.id;
-                                const avatarSrc = m.sender?.avatarUrl ? `${API_BASE}${m.sender.avatarUrl}` : undefined;
                                 return (
                                     <div
                                         key={m.id}
@@ -1158,13 +1151,7 @@ export default function MeetingDetail() {
                                             flexDirection: mine ? 'row-reverse' : 'row',
                                         }}
                                     >
-                                        <Avatar
-                                            size="small"
-                                            src={avatarSrc}
-                                            style={!avatarSrc ? { backgroundColor: '#1F5C8B', flexShrink: 0 } : { flexShrink: 0 }}
-                                        >
-                                            {!avatarSrc && (m.sender?.name?.[0]?.toUpperCase() || '?')}
-                                        </Avatar>
+                                        <UserAvatar user={m.sender} size="small" />
                                         <div
                                             style={{
                                                 width: 'fit-content',
@@ -1311,15 +1298,7 @@ export default function MeetingDetail() {
                             }
                         >
                             <List.Item.Meta
-                                avatar={
-                                    <Avatar
-                                        size="small"
-                                        src={inv.user?.avatarUrl ? `${API_BASE}${inv.user.avatarUrl}` : undefined}
-                                        style={!inv.user?.avatarUrl ? { backgroundColor: '#1F5C8B' } : {}}
-                                    >
-                                        {!inv.user?.avatarUrl && (inv.user?.name?.[0]?.toUpperCase() || '?')}
-                                    </Avatar>
-                                }
+                                avatar={<UserAvatar user={inv.user} size="small" />}
                                 title={inv.user?.name || inv.userId}
                                 description={inv.user?.email}
                             />

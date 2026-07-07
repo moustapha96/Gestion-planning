@@ -51,6 +51,15 @@ export function resolveProjectLogoSrc(logoUrl) {
     return resolveImageSrc(u) || DEFAULT_PROJECT_LOGO;
 }
 
+/** Photo de profil utilisateur (uploads/avatars ou URL externe). */
+export function resolveAvatarSrc(avatarUrl, cacheKey) {
+    const resolved = resolveImageSrc(avatarUrl);
+    if (!resolved) return null;
+    if (cacheKey === undefined || cacheKey === null || cacheKey === '') return resolved;
+    const separator = resolved.includes('?') ? '&' : '?';
+    return `${resolved}${separator}v=${encodeURIComponent(String(cacheKey))}`;
+}
+
 export function isDefaultProjectLogo(logoUrl) {
     const u = normalizeMediaPath(logoUrl);
     return !u || u === DEFAULT_PROJECT_LOGO;

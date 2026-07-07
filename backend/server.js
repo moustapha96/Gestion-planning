@@ -35,6 +35,8 @@ const { runMeetingReminders } = require('./src/jobs/meetingReminders');
 const { runDailyDigest } = require('./src/jobs/dailyDigest');
 const { runMeetingAutoClose } = require('./src/jobs/meetingAutoClose');
 const swaggerSpec = require('./src/config/swagger');
+const optionalAuthMiddleware = require('./src/middlewares/optionalAuth.middleware');
+const auditRequestMiddleware = require('./src/middlewares/auditRequest.middleware');
 const authMiddleware = require('./src/middlewares/auth.middleware');
 const roleMiddleware = require('./src/middlewares/role.middleware');
 const swaggerAuth = require('./src/middlewares/swaggerAuth.middleware');
@@ -158,22 +160,15 @@ const generalLimiter = rateLimit({
 });
 app.use('/api/', generalLimiter);
 
-// Request logging middleware
-app.use((req, res, next) => {
-    const start = Date.now();
-    res.on('finish', () => {
-        const duration = Date.now() - start;
-        const userId = req.user?.id || null;
-        logger.logRequest(req.method, req.path, res.statusCode, duration, userId);
-    });
-    next();
-});
-
 // Expose Prisma to routes
 app.use((req, res, next) => {
     req.prisma = prisma;
     next();
 });
+
+// Journalisation : utilisateur optionnel + toutes les requêtes API dans les journaux
+app.use('/api', optionalAuthMiddleware);
+app.use('/api', auditRequestMiddleware);
 
 /**
  * @swagger
