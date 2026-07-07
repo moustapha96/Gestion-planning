@@ -267,15 +267,6 @@ export function canCoordinateMeeting(meeting, user) {
     return isProjectCoordinator(meeting, user);
 }
 
-/** Admin : peut valider / publier à n'importe quel palier. */
-export function canApproveMeeting(meeting, user) {
-    if (!meeting || !user) return false;
-    if (!isPrivilegedAdmin(user.role)) return false;
-    return meeting.status === 'DRAFT'
-        || isPendingConsolidatorStatus(meeting.status)
-        || isPendingCoordinatorStatus(meeting.status);
-}
-
 export function canFinalizeMeeting(meeting, user) {
     if (!meeting || !user) return false;
     if (!isPendingCoordinatorStatus(meeting.status)) return false;

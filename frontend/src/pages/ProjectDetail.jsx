@@ -22,7 +22,6 @@ import api, { API_BASE } from '../api/client';
 import { useAuth } from '../context/AuthContext';
 import { PDF_ACCEPT, isAcceptedPdfFile } from '../utils/pdfAttachment';
 import ProjectLogo from '../components/ProjectLogo';
-import ProjectLogo from '../components/ProjectLogo';
 import { canManageProjects, isResponsable } from '../utils/roles';
 import { isUserProjectResponsible, isUserProjectResponsibleOrCoordinator } from '../utils/projectScope';
 import { useResponsibleProjectScope } from '../hooks/useResponsibleProjectScope';
