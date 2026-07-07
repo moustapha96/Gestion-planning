@@ -2,6 +2,7 @@ const express = require('express');
 const { logger } = require('../utils/logger');
 const { APP_TIMEZONE } = require('../config/timezone');
 const { meetingCalendarWhereForUser } = require('../config/meetingVisibility');
+const { calendarMissionStatusFilter } = require('../config/missionVisibility');
 const {
   toAppYmd,
   timedEventOverlapsRange,
@@ -65,7 +66,7 @@ async function monthHandler(req, res) {
     const missions = await req.prisma.mission.findMany({
       where: {
         ...timedEventOverlapsRange(startDate, endDate),
-        status: 'CONFIRMED',
+        ...calendarMissionStatusFilter(),
       },
       include: {
         createdBy: { select: { name: true, email: true } },
@@ -167,7 +168,7 @@ router.get('/week', async (req, res) => {
     const missions = await req.prisma.mission.findMany({
       where: {
         ...timedEventOverlapsRange(weekStart, weekEnd),
-        status: 'CONFIRMED',
+        ...calendarMissionStatusFilter(),
       },
       include: { createdBy: { select: { name: true } } },
     });
@@ -235,7 +236,7 @@ router.get('/day', async (req, res) => {
     const missions = await req.prisma.mission.findMany({
       where: {
         ...timedEventOverlapsRange(dayStart, dayEnd),
-        status: 'CONFIRMED',
+        ...calendarMissionStatusFilter(),
       },
       include: { createdBy: { select: { name: true } } },
       orderBy: { startTime: 'asc' },

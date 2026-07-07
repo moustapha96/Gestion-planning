@@ -345,7 +345,7 @@ model Mission {
   directionId  String?
   projectId    String?
   createdById  String
-  status       String    @default("CONFIRMED")
+  status       String    @default("DRAFT")
   createdAt    DateTime  @default(now())
   updatedAt    DateTime  @updatedAt
 

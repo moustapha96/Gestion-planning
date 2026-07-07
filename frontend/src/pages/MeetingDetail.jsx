@@ -695,8 +695,8 @@ export default function MeetingDetail() {
                     </Button>
                 )}
                 {canApproveDirect && (
-                    <Button type="primary" icon={<CheckCircleOutlined />} onClick={() => handleApprove('approve')} loading={approveLoading}>
-                        Valider et publier (admin)
+                    <Button type="primary" icon={<CheckCircleOutlined />} onClick={() => handleApprove('consolidate')} loading={approveLoading}>
+                        Consolider et publier (admin)
                     </Button>
                 )}
                 {!canApproveDirect && canCoordinate && (

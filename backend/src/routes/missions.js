@@ -656,9 +656,12 @@ router.put('/:id/approve', async (req, res) => {
         if (!mission) return res.status(404).json({ error: 'Mission introuvable' });
 
         if (isPrivilegedAdmin(req.user?.role)) {
-            if (mission.status === 'DRAFT'
-                || isPendingConsolidatorValidation(mission.status)
-                || isPendingCoordinatorValidation(mission.status)) {
+            if (mission.status === 'DRAFT') {
+                return res.status(400).json({
+                    error: 'Étape 1/2 obligatoire : validation coordinateur avant consolidation et confirmation.',
+                });
+            }
+            if (isPendingConsolidatorValidation(mission.status)) {
                 const updated = await confirmMission(req, mission);
                 await notifyCreatorMissionProgress(req, mission, 'published');
                 await createAuditLog(
@@ -666,7 +669,19 @@ router.put('/:id/approve', async (req, res) => {
                     'MISSION_APPROVED',
                     'Mission',
                     mission.id,
-                    `Mission « ${mission.title} » confirmée (admin)`,
+                    `Mission « ${mission.title} » confirmée (admin, étape 2/2)`,
+                );
+                return res.json(updated);
+            }
+            if (isPendingCoordinatorValidation(mission.status)) {
+                const updated = await confirmMission(req, mission);
+                await notifyCreatorMissionProgress(req, mission, 'published');
+                await createAuditLog(
+                    req,
+                    'MISSION_APPROVED',
+                    'Mission',
+                    mission.id,
+                    `Mission « ${mission.title} » confirmée (admin, legacy)`,
                 );
                 return res.json(updated);
             }

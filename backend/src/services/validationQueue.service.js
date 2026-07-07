@@ -3,6 +3,7 @@ const {
     LEGACY_PENDING_COORDINATOR_STATUSES,
     PENDING_CONSOLIDATOR_STATUSES,
     isPendingCoordinatorValidation,
+    isPendingConsolidatorValidation,
 } = require('../config/planningWorkflow');
 const { formatPlanningWeekLabel, attachPlanningValidationProject } = require('./projectConsolidator.service');
 const { canAutoFinalizeAfterConsolidation } = require('./planningValidation.service');
@@ -201,11 +202,11 @@ function mapPlanningItem(planning, action, missionsCount = 0, user = null) {
     };
 }
 
-/** Action « À valider » pour un administrateur (tous paliers). */
+/** Action « À valider » pour un administrateur — respecte les 2 paliers. */
 function mapAdminValidationAction(entity) {
-    if (entity.status === 'DRAFT' || isPendingCoordinatorValidation(entity.status)) {
-        return 'approve';
-    }
+    if (entity.status === 'DRAFT') return 'coordinate';
+    if (isPendingConsolidatorValidation(entity.status)) return 'consolidate';
+    if (isPendingCoordinatorValidation(entity.status)) return 'finalize';
     return 'consolidate';
 }
 
@@ -214,9 +215,9 @@ function mapMeetingItemForUser(meeting, user) {
     if (isPrivilegedAdmin(user?.role)) {
         item.action = mapAdminValidationAction(meeting);
         item.validationPath = item.action === 'consolidate' ? 'consolidator' : 'admin';
-        item.statusLabel = item.action === 'approve' && meeting.status === 'DRAFT'
+        item.statusLabel = item.action === 'coordinate'
             ? 'Étape 1/2 — coordinateur (admin)'
-            : item.action === 'approve'
+            : item.action === 'finalize'
               ? 'Validation finale legacy (admin)'
               : 'Étape 2/2 — consolidation (admin)';
     }
@@ -228,9 +229,9 @@ function mapMissionItemForUser(mission, user) {
     if (isPrivilegedAdmin(user?.role)) {
         item.action = mapAdminValidationAction(mission);
         item.validationPath = item.action === 'consolidate' ? 'consolidator' : 'admin';
-        item.statusLabel = item.action === 'approve' && mission.status === 'DRAFT'
+        item.statusLabel = item.action === 'coordinate'
             ? 'Étape 1/2 — coordinateur (admin)'
-            : item.action === 'approve'
+            : item.action === 'finalize'
               ? 'Validation finale legacy (admin)'
               : 'Étape 2/2 — consolidation (admin)';
     }

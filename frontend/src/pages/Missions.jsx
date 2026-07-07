@@ -209,7 +209,7 @@ export default function Missions() {
                                         setActionLoadingId(record.id);
                                         try {
                                             await api.put(`/missions/${record.id}/approve`);
-                                            message.success('Mission validée et confirmée (admin)');
+                                            message.success('Mission consolidée et confirmée (admin)');
                                             fetchMissions();
                                         } catch (err) {
                                             message.error(err.response?.data?.error || 'Erreur');
@@ -219,7 +219,7 @@ export default function Missions() {
                                     }}
                                     loading={actionLoadingId === record.id}
                                 >
-                                    Confirmer (admin)
+                                    Consolider (admin)
                                 </Button>
                             )}
                             {!canApproveMission(record, user) && canCoordinateMission(record, user) && (

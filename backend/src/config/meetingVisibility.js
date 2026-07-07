@@ -11,15 +11,26 @@ const {
     isGlobalConsolidatorRole,
 } = require('../services/validationPolicy.service');
 
-/** Réunions visibles sur le calendrier public / page d'accueil. */
+/** Réunions visibles hors calendrier (listes, salles, disponibilités). */
 const PUBLISHED_MEETING_STATUSES = ['SENT', 'CONFIRMED', 'COMPLETED'];
+
+/** Réunions entièrement validées — seules autorisées sur le calendrier. */
+const CALENDAR_MEETING_STATUSES = ['CONFIRMED', 'COMPLETED'];
 
 function isPublishedMeetingStatus(status) {
     return PUBLISHED_MEETING_STATUSES.includes(status);
 }
 
+function isCalendarMeetingStatus(status) {
+    return CALENDAR_MEETING_STATUSES.includes(status);
+}
+
 function publishedMeetingStatusFilter() {
     return { status: { in: PUBLISHED_MEETING_STATUSES } };
+}
+
+function calendarMeetingStatusFilter() {
+    return { status: { in: CALENDAR_MEETING_STATUSES } };
 }
 
 /** Brouillons responsable visibles par le coordinateur du projet (étape 1). */
@@ -102,7 +113,7 @@ function ownMeetingScope(user) {
 }
 
 function meetingCalendarWhereForUser(_user) {
-    return publishedMeetingStatusFilter();
+    return calendarMeetingStatusFilter();
 }
 
 /**
@@ -124,9 +135,10 @@ function requiresConsolidatorApproval() {
 
 function canPublishMeeting(meeting, user) {
     if (!meeting || !user) return false;
+    // Jamais de publication directe depuis DRAFT — étape coordinateur obligatoire (approve-coordinator).
+    if (meeting.status === 'DRAFT') return false;
     if (isPrivilegedAdmin(user?.role)) {
-        return meeting.status === 'DRAFT'
-            || isPendingConsolidatorValidation(meeting.status)
+        return isPendingConsolidatorValidation(meeting.status)
             || isPendingCoordinatorValidation(meeting.status)
             || ['SENT', 'CONFIRMED'].includes(meeting.status);
     }
@@ -135,9 +147,6 @@ function canPublishMeeting(meeting, user) {
     }
     if (isPendingCoordinatorValidation(meeting.status)) {
         return canFinalizePendingMeeting(meeting, user);
-    }
-    if (meeting.status === 'DRAFT') {
-        return canCoordinateDraftMeeting(meeting, user);
     }
     if (['SENT', 'CONFIRMED'].includes(meeting.status)) {
         return meeting.organizerId === user.id;
@@ -196,8 +205,11 @@ function canViewMeetingForUser(meeting, user) {
 
 module.exports = {
     PUBLISHED_MEETING_STATUSES,
+    CALENDAR_MEETING_STATUSES,
     isPublishedMeetingStatus,
+    isCalendarMeetingStatus,
     publishedMeetingStatusFilter,
+    calendarMeetingStatusFilter,
     meetingCalendarWhereForUser,
     meetingListWhereForUser,
     requiresConsolidatorApproval,

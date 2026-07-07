@@ -40,15 +40,16 @@ function EventTypeTag({ eventType, fallback }) {
 function MeetingCard({ item, loading, onAction, isAdmin }) {
     const navigate = useNavigate();
     const isConsolidate = item.action === 'consolidate';
-    const isAdminDirect = isAdmin && item.action === 'approve';
-    const actionLabel = isAdminDirect
-        ? (item.status === 'DRAFT' ? 'Valider et publier (admin)' : 'Valider et publier (admin)')
-        : isConsolidate
-          ? (isAdmin ? 'Consolider et publier (admin)' : 'Consolider et publier')
-          : item.action === 'fallback'
-            ? 'Valider et publier (rôle dédié)'
-            : item.action === 'coordinate' && item.status === 'DRAFT'
-              ? 'Valider (coordinateur)'
+    const isCoordinate = item.action === 'coordinate';
+    const isFinalize = item.action === 'finalize';
+    const actionLabel = isConsolidate
+        ? (isAdmin ? 'Consolider et publier (admin)' : 'Consolider et publier')
+        : isCoordinate
+          ? (isAdmin ? 'Valider étape 1/2 (admin)' : 'Valider (coordinateur)')
+          : isFinalize
+            ? 'Valider et publier (legacy)'
+            : item.action === 'fallback'
+              ? 'Valider et publier (rôle dédié)'
               : 'Valider et publier';
     const actionColor = isConsolidate ? '#722ed1' : item.action === 'fallback' ? '#fa541c' : '#52c41a';
 
@@ -93,15 +94,16 @@ function MeetingCard({ item, loading, onAction, isAdmin }) {
 function MissionCard({ item, loading, onAction, isAdmin }) {
     const navigate = useNavigate();
     const isConsolidate = item.action === 'consolidate';
-    const isAdminDirect = isAdmin && item.action === 'approve';
-    const actionLabel = isAdminDirect
-        ? (item.status === 'DRAFT' ? 'Valider et confirmer (admin)' : 'Valider et confirmer (admin)')
-        : isConsolidate
-          ? (isAdmin ? 'Consolider et confirmer (admin)' : 'Consolider et confirmer')
-          : item.action === 'fallback'
-            ? 'Valider et confirmer (rôle dédié)'
-            : item.action === 'coordinate' && item.status === 'DRAFT'
-              ? 'Valider (coordinateur)'
+    const isCoordinate = item.action === 'coordinate';
+    const isFinalize = item.action === 'finalize';
+    const actionLabel = isConsolidate
+        ? (isAdmin ? 'Consolider et confirmer (admin)' : 'Consolider et confirmer')
+        : isCoordinate
+          ? (isAdmin ? 'Valider étape 1/2 (admin)' : 'Valider (coordinateur)')
+          : isFinalize
+            ? 'Valider et confirmer (legacy)'
+            : item.action === 'fallback'
+              ? 'Valider et confirmer (rôle dédié)'
               : 'Valider et confirmer';
     const actionColor = isConsolidate ? '#722ed1' : item.action === 'fallback' ? '#fa541c' : '#52c41a';
 
@@ -158,38 +160,38 @@ export default function PendingValidations() {
         setActionId(id);
         try {
             if (entityKind === 'meeting') {
-                if (action === 'consolidate' || (isAdmin && action === 'approve')) {
+                if (action === 'consolidate') {
                     await api.put(`/meetings/${id}/approve`);
-                    message.success(
-                        isAdmin && item.status === 'DRAFT'
-                            ? 'Réunion validée et publiée (admin)'
-                            : 'Réunion consolidée et publiée sur le calendrier',
-                    );
-                } else if (action === 'coordinate' || action === 'fallback') {
+                    message.success('Réunion consolidée et publiée sur le calendrier');
+                } else if (action === 'coordinate' || action === 'fallback' || action === 'finalize') {
                     await api.put(`/meetings/${id}/approve-coordinator`);
                     message.success(
-                        action === 'fallback'
-                            ? 'Réunion validée et publiée (rôle dédié)'
-                            : 'Réunion validée par le coordinateur — transmise au Consolidateur',
+                        action === 'finalize'
+                            ? 'Réunion validée définitivement et publiée'
+                            : action === 'fallback'
+                              ? 'Réunion validée et publiée (rôle dédié)'
+                              : isAdmin
+                                ? 'Réunion validée (étape 1/2) — transmise au consolidateur'
+                                : 'Réunion validée par le coordinateur — transmise au consolidateur',
                     );
                 } else {
                     await api.put(`/meetings/${id}/approve`);
                     message.success('Réunion validée et publiée');
                 }
             } else if (entityKind === 'mission') {
-                if (action === 'consolidate' || (isAdmin && action === 'approve')) {
+                if (action === 'consolidate') {
                     await api.put(`/missions/${id}/approve`);
-                    message.success(
-                        isAdmin && item.status === 'DRAFT'
-                            ? 'Mission validée et confirmée (admin)'
-                            : 'Mission consolidée et confirmée',
-                    );
-                } else if (action === 'coordinate' || action === 'fallback') {
+                    message.success('Mission consolidée et confirmée');
+                } else if (action === 'coordinate' || action === 'fallback' || action === 'finalize') {
                     await api.put(`/missions/${id}/approve-coordinator`);
                     message.success(
-                        action === 'fallback'
-                            ? 'Mission validée et confirmée (rôle dédié)'
-                            : 'Mission validée par le coordinateur — transmise au Consolidateur',
+                        action === 'finalize'
+                            ? 'Mission validée définitivement et confirmée'
+                            : action === 'fallback'
+                              ? 'Mission validée et confirmée (rôle dédié)'
+                              : isAdmin
+                                ? 'Mission validée (étape 1/2) — transmise au consolidateur'
+                                : 'Mission validée par le coordinateur — transmise au consolidateur',
                     );
                 } else {
                     await api.put(`/missions/${id}/approve`);

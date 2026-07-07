@@ -1,6 +1,6 @@
 const { toAppYmd, appDayBoundsFromYmd } = require('./calendarEvents');
 const { parseHm } = require('./roomBooking');
-const { publishedMeetingStatusFilter } = require('../config/meetingVisibility');
+const { calendarMeetingStatusFilter } = require('../config/meetingVisibility');
 
 function bookingOverlaps(booking, slotStart, slotEnd) {
     const dayYmd = toAppYmd(booking.date);
@@ -25,7 +25,7 @@ async function hasMeetingConflict(prisma, roomId, slotStart, slotEnd, excludeMee
     const conflict = await prisma.meeting.findFirst({
         where: {
             roomId,
-            ...publishedMeetingStatusFilter(),
+            ...calendarMeetingStatusFilter(),
             startTime: { lt: slotEnd },
             endTime: { gt: slotStart },
             ...(excludeMeetingId && { id: { not: excludeMeetingId } }),

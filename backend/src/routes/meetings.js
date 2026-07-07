@@ -1189,9 +1189,12 @@ router.put('/:id/approve', async (req, res) => {
         }
 
         if (isPrivilegedAdmin(req.user.role)) {
-            if (meeting.status === 'DRAFT'
-                || isPendingConsolidatorValidation(meeting.status)
-                || isPendingCoordinatorValidation(meeting.status)) {
+            if (meeting.status === 'DRAFT') {
+                return res.status(400).json({
+                    error: 'Étape 1/2 obligatoire : validation coordinateur avant consolidation et publication.',
+                });
+            }
+            if (isPendingConsolidatorValidation(meeting.status)) {
                 const updated = await publishMeeting(req, meeting);
                 await notifyOrganizerMeetingProgress(req, meeting, 'published');
                 await createAuditLog(
@@ -1199,7 +1202,19 @@ router.put('/:id/approve', async (req, res) => {
                     'MEETING_APPROVED',
                     'Meeting',
                     meeting.id,
-                    `Réunion « ${meeting.title} » publiée (admin)`,
+                    `Réunion « ${meeting.title} » publiée (admin, étape 2/2)`,
+                );
+                return res.json(updated);
+            }
+            if (isPendingCoordinatorValidation(meeting.status)) {
+                const updated = await publishMeeting(req, meeting);
+                await notifyOrganizerMeetingProgress(req, meeting, 'published');
+                await createAuditLog(
+                    req,
+                    'MEETING_APPROVED',
+                    'Meeting',
+                    meeting.id,
+                    `Réunion « ${meeting.title} » publiée (admin, legacy)`,
                 );
                 return res.json(updated);
             }

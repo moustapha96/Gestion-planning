@@ -11,15 +11,26 @@ const {
     isGlobalConsolidatorRole,
 } = require('../services/validationPolicy.service');
 
-/** Missions visibles sur le calendrier. */
+/** Missions visibles hors calendrier. */
 const PUBLISHED_MISSION_STATUSES = ['CONFIRMED'];
+
+/** Missions entièrement validées — seules autorisées sur le calendrier. */
+const CALENDAR_MISSION_STATUSES = ['CONFIRMED'];
 
 function isPublishedMissionStatus(status) {
     return PUBLISHED_MISSION_STATUSES.includes(status);
 }
 
+function isCalendarMissionStatus(status) {
+    return CALENDAR_MISSION_STATUSES.includes(status);
+}
+
 function publishedMissionStatusFilter() {
     return { status: { in: PUBLISHED_MISSION_STATUSES } };
+}
+
+function calendarMissionStatusFilter() {
+    return { status: { in: CALENDAR_MISSION_STATUSES } };
 }
 
 function coordinatorDraftMissionFilter(user) {
@@ -184,8 +195,11 @@ function canViewMissionForUser(mission, user) {
 
 module.exports = {
     PUBLISHED_MISSION_STATUSES,
+    CALENDAR_MISSION_STATUSES,
     isPublishedMissionStatus,
+    isCalendarMissionStatus,
     publishedMissionStatusFilter,
+    calendarMissionStatusFilter,
     missionListWhereForUser,
     requiresConsolidatorApproval,
     canConfirmMission,

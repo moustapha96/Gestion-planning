@@ -398,7 +398,7 @@ export default function Meetings() {
                                 setActionLoadingId(record.id);
                                 try {
                                     await api.put(`/meetings/${record.id}/approve`);
-                                    message.success('Réunion validée et publiée (admin)');
+                                    message.success('Réunion consolidée et publiée (admin)');
                                     fetchMeetings();
                                 } catch (err) {
                                     message.error(err.response?.data?.error || 'Erreur');
@@ -407,7 +407,7 @@ export default function Meetings() {
                                 }
                             }}
                         >
-                            Publier (admin)
+                            Consolider (admin)
                         </Button>
                     )}
                     {!canApproveMeeting(record, user) && canCoordinateMeeting(record, user) && (

@@ -10,7 +10,8 @@ const {
     timedEventOverlapsRange,
 } = require('../utils/calendarEvents');
 const { buildRoomDaySlots } = require('../utils/roomBooking');
-const { publishedMeetingStatusFilter } = require('../config/meetingVisibility');
+const { calendarMeetingStatusFilter } = require('../config/meetingVisibility');
+const { calendarMissionStatusFilter } = require('../config/missionVisibility');
 const router = express.Router();
 
 /** Lundi 00:00:00 du jour civil (fuseau applicatif) */
@@ -99,7 +100,7 @@ router.get('/day-planning', async (req, res) => {
 
         const missions = await req.prisma.mission.findMany({
             where: {
-                status: 'CONFIRMED',
+                ...calendarMissionStatusFilter(),
                 ...timedEventOverlapsRange(todayStart, todayEnd),
             },
             include: {
@@ -115,7 +116,7 @@ router.get('/day-planning', async (req, res) => {
 
         const meetings = await req.prisma.meeting.findMany({
             where: {
-                ...publishedMeetingStatusFilter(),
+                ...calendarMeetingStatusFilter(),
                 ...timedEventOverlapsRange(todayStart, todayEnd),
             },
             include: {
@@ -180,7 +181,7 @@ router.get('/week-planning', async (req, res) => {
 
         const meetings = await req.prisma.meeting.findMany({
             where: {
-                ...publishedMeetingStatusFilter(),
+                ...calendarMeetingStatusFilter(),
                 ...timedEventOverlapsRange(monday, rangeEnd),
             },
             include: {
@@ -198,7 +199,7 @@ router.get('/week-planning', async (req, res) => {
 
         const missions = await req.prisma.mission.findMany({
             where: {
-                status: 'CONFIRMED',
+                ...calendarMissionStatusFilter(),
                 ...timedEventOverlapsRange(monday, rangeEnd),
             },
             include: {

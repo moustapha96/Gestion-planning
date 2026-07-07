@@ -8,7 +8,7 @@ const {
     buildRoomDaySlots,
     findCurrentBooking,
 } = require('../utils/roomBooking');
-const { publishedMeetingStatusFilter } = require('../config/meetingVisibility');
+const { calendarMeetingStatusFilter } = require('../config/meetingVisibility');
 
 const router = express.Router();
 
@@ -47,7 +47,7 @@ router.get('/', async (req, res) => {
 
         const meetingsToday = await req.prisma.meeting.findMany({
             where: {
-                ...publishedMeetingStatusFilter(),
+                ...calendarMeetingStatusFilter(),
                 roomId: { not: null },
                 ...timedEventOverlapsRange(todayStart, todayEnd),
             },
@@ -97,7 +97,7 @@ router.get('/status', async (req, res) => {
 
         const meetingsToday = await req.prisma.meeting.findMany({
             where: {
-                ...publishedMeetingStatusFilter(),
+                ...calendarMeetingStatusFilter(),
                 roomId: { not: null },
                 ...timedEventOverlapsRange(todayStart, todayEnd),
             },

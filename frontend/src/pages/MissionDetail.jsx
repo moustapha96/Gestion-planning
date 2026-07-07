@@ -274,8 +274,8 @@ export default function MissionDetail() {
                     </Button>
                 )}
                 {canApproveDirect && (
-                    <Button type="primary" icon={<CheckCircleOutlined />} onClick={() => handleApprove('approve')} loading={approveLoading}>
-                        Valider et confirmer (admin)
+                    <Button type="primary" icon={<CheckCircleOutlined />} onClick={() => handleApprove('consolidate')} loading={approveLoading}>
+                        Consolider et confirmer (admin)
                     </Button>
                 )}
                 {!canApproveDirect && canCoordinate && (
