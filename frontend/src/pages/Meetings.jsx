@@ -3,7 +3,7 @@ import { Table, Tag, Button, Card, Typography, Space, Modal, Form, Input, Select
 import { PlusOutlined, StopOutlined, CheckCircleOutlined, RollbackOutlined, VideoCameraOutlined, DeleteOutlined, EditOutlined } from '@ant-design/icons';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import api from '../api/client';
-import { appYmd, toUtcIso } from '../utils/datetime';
+import { appYmd, toUtcIso, formatDateTime } from '../utils/datetime';
 import { useAuth } from '../context/AuthContext';
 import {
     canManageMeeting,
@@ -358,7 +358,15 @@ export default function Meetings() {
             title: 'Date',
             dataIndex: 'startTime',
             key: 'startTime',
+            width: 150,
             render: (d) => new Date(d).toLocaleString('fr-FR', { dateStyle: 'short', timeStyle: 'short' }),
+        },
+        {
+            title: 'Créée le',
+            dataIndex: 'createdAt',
+            key: 'createdAt',
+            width: 140,
+            render: (d) => (d ? formatDateTime(d) : '—'),
         },
         { title: 'Salle', key: 'room', render: (_, r) => r.room?.name || '—' },
         {

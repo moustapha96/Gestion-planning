@@ -399,6 +399,11 @@ export default function MissionDetail() {
                     <Descriptions.Item label="Créée par">
                         {mission.createdBy?.name} ({mission.createdBy?.email})
                     </Descriptions.Item>
+                    <Descriptions.Item label="Date de création">
+                        {mission.createdAt
+                            ? dayjs(mission.createdAt).format('dddd D MMMM YYYY à HH:mm')
+                            : '—'}
+                    </Descriptions.Item>
                     <Descriptions.Item label="Direction">
                         {mission.direction?.name ? (
                             <Tag color="purple">{mission.direction.code ? `${mission.direction.name} (${mission.direction.code})` : mission.direction.name}</Tag>

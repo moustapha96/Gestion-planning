@@ -934,6 +934,11 @@ export default function MeetingDetail() {
                         →{' '}
                         {formatDateTime(meeting.endTime, 'HH:mm')}
                     </Descriptions.Item>
+                    <Descriptions.Item label="Date de création">
+                        {meeting.createdAt
+                            ? formatDateTimeLocale(meeting.createdAt, { dateStyle: 'full', timeStyle: 'short' })
+                            : '—'}
+                    </Descriptions.Item>
                     {meeting.room && (
                         <Descriptions.Item label={<><EnvironmentOutlined /> Salle</>}>
                             {meeting.room.name} — {meeting.room.location}

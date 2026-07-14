@@ -266,6 +266,17 @@ export default function EventsUnified() {
             render: (v) => formatDateTime(v),
         },
         {
+            title: 'Créée le',
+            dataIndex: 'createdAt',
+            key: 'createdAt',
+            width: 150,
+            render: (v, row) => (
+                row.sourceType === 'MEETING' || row.sourceType === 'MISSION'
+                    ? (v ? formatDateTime(v) : '—')
+                    : '—'
+            ),
+        },
+        {
             title: '',
             key: 'actions',
             width: 110,
@@ -529,6 +540,12 @@ export default function EventsUnified() {
                                                 <div>
                                                     <Text type="secondary">Fin :</Text> <Text>{formatDateTime(row.endAt)}</Text>
                                                 </div>
+                                                {(row.sourceType === 'MEETING' || row.sourceType === 'MISSION') && row.createdAt && (
+                                                    <div>
+                                                        <Text type="secondary">Créée le :</Text>{' '}
+                                                        <Text>{formatDateTime(row.createdAt)}</Text>
+                                                    </div>
+                                                )}
                                                 <div>
                                                     <Text type="secondary">Lieu :</Text> <Text>{row.location || '-'}</Text>
                                                 </div>
@@ -612,6 +629,11 @@ export default function EventsUnified() {
                             <Descriptions.Item label="Jour">
                                 {formatDate(detailsItem.startAt)}
                             </Descriptions.Item>
+                            {(detailsItem.sourceType === 'MEETING' || detailsItem.sourceType === 'MISSION') && (
+                                <Descriptions.Item label="Date de création">
+                                    {detailsItem.createdAt ? formatDateTime(detailsItem.createdAt) : '—'}
+                                </Descriptions.Item>
+                            )}
 
                             <Descriptions.Item label="Lieu" span={isMobile ? 1 : 2}>
                                 {detailsItem.location || '-'}

@@ -165,6 +165,13 @@ export default function Missions() {
             render: (t) => (t ? dayjs(t).format('DD/MM/YYYY HH:mm') : '—'),
         },
         {
+            title: 'Créée le',
+            dataIndex: 'createdAt',
+            key: 'createdAt',
+            width: 140,
+            render: (t) => (t ? dayjs(t).format('DD/MM/YYYY HH:mm') : '—'),
+        },
+        {
             title: 'Créée par',
             key: 'createdBy',
             render: (_, r) => r.createdBy?.name || '—',

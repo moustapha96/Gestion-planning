@@ -68,6 +68,11 @@ function MeetingCard({ item, loading, onAction, isAdmin }) {
                     {formatDateTime(item.startTime)} → {dayjs(item.endTime).format('HH:mm')}
                     {item.room?.name ? ` · ${item.room.name}` : ''}
                 </Text>
+                {item.createdAt && (
+                    <Text type="secondary" style={{ fontSize: 12 }}>
+                        Créée le {formatDateTime(item.createdAt)}
+                    </Text>
+                )}
                 <Text style={{ fontSize: 13 }}>
                     Organisateur : <Text strong>{item.organizer?.name}</Text>
                     {item.project?.name ? ` · Projet : ${item.project.name}` : ''}
@@ -121,6 +126,11 @@ function MissionCard({ item, loading, onAction, isAdmin }) {
                     {formatDateTime(item.startTime)} → {dayjs(item.endTime).format('HH:mm')}
                     {item.location ? ` · ${item.location}` : ''}
                 </Text>
+                {item.createdAt && (
+                    <Text type="secondary" style={{ fontSize: 12 }}>
+                        Créée le {formatDateTime(item.createdAt)}
+                    </Text>
+                )}
                 <Text style={{ fontSize: 13 }}>
                     Créée par : <Text strong>{item.createdBy?.name}</Text>
                     {item.project?.name ? ` · Projet : ${item.project.name}` : ''}
