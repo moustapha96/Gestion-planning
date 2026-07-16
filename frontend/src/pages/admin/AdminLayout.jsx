@@ -5,8 +5,8 @@ import {
 } from 'antd';
 import { HomeOutlined, SettingOutlined, EyeInvisibleOutlined, EyeOutlined } from '@ant-design/icons';
 import { useAuth } from '../../context/AuthContext';
-import { isSuperAdmin } from '../../utils/roles';
-import { ROLE_COLORS, ROLE_LABELS } from './AdminSections';
+import { isSuperAdmin, normalizeRole, roleLabel } from '../../utils/roles';
+import { ROLE_COLORS } from './AdminSections';
 import { getAdminNavForRole, getAdminPageTitle } from './adminNavConfig';
 import { useState } from 'react';
 
@@ -118,8 +118,8 @@ export default function AdminLayout() {
                     {user?.role && (
                         <Col xs={24} lg={superAdmin ? 8 : 24} style={{ textAlign: compact ? 'left' : 'right' }}>
                             <Space wrap size={[8, 8]} style={{ justifyContent: compact ? 'flex-start' : 'flex-end', width: '100%' }}>
-                                <Tag color={ROLE_COLORS[user.role]} style={{ margin: 0, padding: '4px 10px', fontSize: 13 }}>
-                                    {ROLE_LABELS[user.role] || user.role}
+                                <Tag color={ROLE_COLORS[normalizeRole(user.role)] || 'default'} style={{ margin: 0, padding: '4px 10px', fontSize: 13 }}>
+                                    {roleLabel(user.role)}
                                 </Tag>
                                 {superAdmin && (
                                     <Tag

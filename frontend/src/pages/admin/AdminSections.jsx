@@ -18,22 +18,43 @@ import {
     hasCustomAppLogo,
     resolveAppLogoSrc,
 } from '../../utils/appBranding';
+import {
+    normalizeRole,
+    roleLabel,
+    ROLE_COLORS as SHARED_ROLE_COLORS,
+    ROLE_LABELS as SHARED_ROLE_LABELS,
+    ROLES,
+} from '../../utils/roles';
 
 const { Title, Text, Paragraph } = Typography;
 export const ROLE_COLORS = {
-    RESPONSABLE: 'blue',
-    COORDINATEUR: 'geekblue',
-    CONSOLIDATEUR: 'purple',
-    ADMIN: 'red',
-    SUPER_ADMIN: 'magenta',
+    ...SHARED_ROLE_COLORS,
+    COORDINATEUR_PROJET: 'geekblue',
+    SECRETAIRE_GENERAL: 'cyan',
+    DG: 'gold',
 };
 export const ROLE_LABELS = {
-    RESPONSABLE: 'Responsable',
-    COORDINATEUR: 'Coordinateur',
-    CONSOLIDATEUR: 'Consolidateur',
-    ADMIN: 'Administrateur',
-    SUPER_ADMIN: 'Super administrateur',
+    ...SHARED_ROLE_LABELS,
+    COORDINATEUR_PROJET: 'Coordinateur (ancien)',
+    SECRETAIRE_GENERAL: 'Secrétaire général (ancien)',
+    DG: 'Direction générale (ancien)',
 };
+
+const USER_ROLE_OPTIONS = [
+    { value: ROLES.RESPONSABLE, label: ROLE_LABELS[ROLES.RESPONSABLE] },
+    { value: ROLES.COORDINATEUR, label: ROLE_LABELS[ROLES.COORDINATEUR] },
+    { value: ROLES.CONSOLIDATEUR, label: ROLE_LABELS[ROLES.CONSOLIDATEUR] },
+    { value: ROLES.ADMIN, label: ROLE_LABELS[ROLES.ADMIN] },
+    { value: ROLES.SUPER_ADMIN, label: ROLE_LABELS[ROLES.SUPER_ADMIN] },
+];
+
+function displayRoleColor(role) {
+    return ROLE_COLORS[normalizeRole(role)] || ROLE_COLORS[role] || 'default';
+}
+
+function displayRoleLabel(role) {
+    return roleLabel(role) || ROLE_LABELS[role] || role || '—';
+}
 
 // ════════════════════════════════════════════════════════════════════
 // ONGLET UTILISATEURS
@@ -64,11 +85,14 @@ export function UsersTab() {
     const [resetForm] = Form.useForm();
 
     const fetchUsers = async () => {
+        setLoading(true);
         try {
             const res = await api.get('/users');
-            setUsers(res.data);
+            const list = Array.isArray(res.data) ? res.data : [];
+            setUsers(list);
         } catch {
             message.error('Impossible de charger les utilisateurs');
+            setUsers([]);
         } finally {
             setLoading(false);
         }
@@ -76,9 +100,12 @@ export function UsersTab() {
 
     const fetchDirections = async () => {
         try {
-            const res = await api.get('/events/taxonomy');
-            setDirections(res.data?.directions || []);
-            setProjects(res.data?.projects || []);
+            const [dRes, pRes] = await Promise.all([
+                api.get('/repertoire/directions'),
+                api.get('/projects'),
+            ]);
+            setDirections(Array.isArray(dRes.data) ? dRes.data : []);
+            setProjects(Array.isArray(pRes.data) ? pRes.data : []);
         } catch {
             setDirections([]);
             setProjects([]);
@@ -91,15 +118,27 @@ export function UsersTab() {
     }, []);
 
     const filtered = useMemo(() => {
-        return users.filter((u) => {
-            const q = search.toLowerCase();
-            if (q && !u.name.toLowerCase().includes(q) && !u.email.toLowerCase().includes(q)) return false;
-            if (roleFilter && u.role !== roleFilter) return false;
+        const q = String(search || '').trim().toLowerCase();
+        return (users || []).filter((u) => {
+            if (!u) return false;
+            const name = String(u.name || '').toLowerCase();
+            const email = String(u.email || '').toLowerCase();
+            if (q && !name.includes(q) && !email.includes(q)) return false;
+            if (roleFilter && normalizeRole(u.role) !== roleFilter) return false;
             if (statusFilter === 'active' && !u.isActive) return false;
             if (statusFilter === 'inactive' && u.isActive) return false;
             return true;
         });
     }, [users, search, roleFilter, statusFilter]);
+
+    const stats = useMemo(() => {
+        const list = users || [];
+        return {
+            total: list.length,
+            active: list.filter((u) => u.isActive).length,
+            inactive: list.filter((u) => !u.isActive).length,
+        };
+    }, [users]);
 
     const handleCreate = async (values) => {
         setCreateLoading(true);
@@ -148,7 +187,7 @@ export function UsersTab() {
         editForm.setFieldsValue({
             name: record.name,
             email: record.email,
-            role: record.role,
+            role: normalizeRole(record.role) || record.role,
             directionId: record.directionId || null,
             projectId: record.projectId || null,
         });
@@ -223,7 +262,7 @@ export function UsersTab() {
             title: 'Rôle',
             dataIndex: 'role',
             key: 'role',
-            render: (role) => <Tag color={ROLE_COLORS[role]}>{ROLE_LABELS[role] || role}</Tag>,
+            render: (role) => <Tag color={displayRoleColor(role)}>{displayRoleLabel(role)}</Tag>,
         },
         {
             title: 'Direction / projet',
@@ -310,6 +349,34 @@ export function UsersTab() {
     return (
         <>
             <Row gutter={[12, 12]} style={{ marginBottom: 16 }}>
+                <Col xs={24} sm={8} md={6}>
+                    <Card size="small">
+                        <Text type="secondary">Total plateforme</Text>
+                        <div><Text strong style={{ fontSize: 20 }}>{stats.total}</Text></div>
+                    </Card>
+                </Col>
+                <Col xs={12} sm={8} md={6}>
+                    <Card size="small">
+                        <Text type="secondary">Actifs</Text>
+                        <div><Text strong style={{ fontSize: 20, color: '#389e0d' }}>{stats.active}</Text></div>
+                    </Card>
+                </Col>
+                <Col xs={12} sm={8} md={6}>
+                    <Card size="small">
+                        <Text type="secondary">Inactifs</Text>
+                        <div><Text strong style={{ fontSize: 20, color: '#cf1322' }}>{stats.inactive}</Text></div>
+                    </Card>
+                </Col>
+                <Col xs={24} md={6} style={{ display: 'flex', alignItems: 'center' }}>
+                    <Text type="secondary">
+                        {filtered.length === stats.total
+                            ? `${stats.total} utilisateur(s) affiché(s)`
+                            : `${filtered.length} / ${stats.total} utilisateur(s) (filtre actif)`}
+                    </Text>
+                </Col>
+            </Row>
+
+            <Row gutter={[12, 12]} style={{ marginBottom: 16 }}>
                 <Col xs={24} sm={8} md={7}>
                     <Input
                         prefix={<SearchOutlined />}
@@ -326,7 +393,7 @@ export function UsersTab() {
                         style={{ width: '100%' }}
                         value={roleFilter}
                         onChange={setRoleFilter}
-                        options={Object.entries(ROLE_LABELS).map(([v, l]) => ({ value: v, label: l }))}
+                        options={USER_ROLE_OPTIONS}
                     />
                 </Col>
                 <Col xs={12} sm={5} md={4}>
@@ -340,7 +407,7 @@ export function UsersTab() {
                     />
                 </Col>
                 <Col xs={24} sm={6} md={9} style={{ display: 'flex', justifyContent: 'flex-end', gap: 8, alignItems: 'center' }}>
-                    <Text type="secondary" style={{ fontSize: 12 }}>{filtered.length} résultat(s)</Text>
+                    <Button onClick={fetchUsers} loading={loading}>Actualiser</Button>
                     <Button type="primary" icon={<PlusOutlined />} onClick={() => setCreateModal(true)}>
                         Nouvel utilisateur
                     </Button>
@@ -362,7 +429,7 @@ export function UsersTab() {
                                         <Text type="secondary" style={{ fontSize: 12 }}>{record.email}</Text>
                                     </div>
                                     <Space wrap>
-                                        <Tag color={ROLE_COLORS[record.role]}>{ROLE_LABELS[record.role] || record.role}</Tag>
+                                        <Tag color={displayRoleColor(record.role)}>{displayRoleLabel(record.role)}</Tag>
                                         <Tag color={record.isActive ? 'green' : 'red'}>{record.isActive ? 'Actif' : 'Inactif'}</Tag>
                                         <Text type="secondary" style={{ fontSize: 11 }}>
                                             Créé le {new Date(record.createdAt).toLocaleDateString('fr-FR')}
@@ -433,11 +500,17 @@ export function UsersTab() {
                 <Table
                     columns={columns}
                     dataSource={filtered}
-                    rowKey="id"
+                    rowKey={(r) => r.id}
                     loading={loading}
-                    pagination={{ pageSize: 10, showTotal: (t) => `${t} utilisateur(s)` }}
+                    pagination={{
+                        pageSize: 25,
+                        showSizeChanger: true,
+                        pageSizeOptions: ['10', '25', '50', '100'],
+                        showTotal: (t, range) => `${range[0]}-${range[1]} sur ${t} utilisateur(s)`,
+                    }}
                     scroll={{ x: 'max-content' }}
                     size="small"
+                    locale={{ emptyText: loading ? 'Chargement…' : 'Aucun utilisateur trouvé' }}
                 />
             )}
 
@@ -460,7 +533,7 @@ export function UsersTab() {
                         </Col>
                         <Col xs={24} sm={10}>
                             <Form.Item name="role" label="Rôle" initialValue="RESPONSABLE" rules={[{ required: true }]}>
-                                <Select options={Object.entries(ROLE_LABELS).map(([v, l]) => ({ value: v, label: l }))} />
+                                <Select options={USER_ROLE_OPTIONS} />
                             </Form.Item>
                         </Col>
                     </Row>
@@ -525,7 +598,7 @@ export function UsersTab() {
                         <Input />
                     </Form.Item>
                     <Form.Item name="role" label="Rôle" rules={[{ required: true }]}>
-                        <Select options={Object.entries(ROLE_LABELS).map(([v, l]) => ({ value: v, label: l }))} />
+                        <Select options={USER_ROLE_OPTIONS} />
                     </Form.Item>
                     <Form.Item name="directionId" label="Direction (canal équipe)">
                         <Select
