@@ -17,6 +17,9 @@ const {
     assignUserAsProjectResponsible,
     clearProjectResponsibleIfUser,
 } = require('../services/projectResponsible.service');
+const { clearProjectCoordinatorIfUser } = require('../services/projectCoordinator.service');
+const { clearProjectConsolidatorIfUser } = require('../services/projectConsolidator.service');
+const { purgeUserAccount } = require('../services/userDeletion.service');
 const {
     validatePasswordStrength,
     createPasswordResetToken,
@@ -135,7 +138,7 @@ router.get('/participants', async (req, res) => {
  *                 format: email
  *               role:
  *                 type: string
- *                 enum: [RESPONSABLE, CONSOLIDATEUR, COORDINATEUR_PROJET, SECRETAIRE_GENERAL, DG, ADMIN, SUPER_ADMIN]
+ *                 enum: [RESPONSABLE, COORDINATEUR, CONSOLIDATEUR, COORDINATEUR_PROJET, SECRETAIRE_GENERAL, DG, ADMIN, SUPER_ADMIN]
  *               password:
  *                 type: string
  *                 description: Mot de passe initial (min 8 caractères)
@@ -170,7 +173,9 @@ router.post('/', roleMiddleware(ADMIN_ROUTE_ROLES), async (req, res) => {
             return res.status(400).json({ error: 'Le mot de passe doit contenir au moins 8 caractères' });
         }
 
-        const existingUser = await req.prisma.user.findUnique({ where: { email } });
+        const existingUser = await req.prisma.user.findFirst({
+            where: { email: { equals: email, mode: 'insensitive' }, isDeleted: false },
+        });
         if (existingUser) {
             return res.status(409).json({ error: 'Un utilisateur avec cet email existe déjà' });
         }
@@ -391,6 +396,32 @@ router.put('/:id', roleMiddleware(ADMIN_ROUTE_ROLES), async (req, res) => {
             }
         }
 
+        const nextStoredRole = normalizeStoredRole(updated.role);
+        const previousStoredRole = normalizeStoredRole(previousRole);
+        if (storedRole && nextStoredRole !== previousStoredRole) {
+            if (previousStoredRole === ROLES.COORDINATEUR && nextStoredRole !== ROLES.COORDINATEUR) {
+                await clearProjectCoordinatorIfUser(req.prisma, updated.id);
+            }
+            if (previousStoredRole === ROLES.CONSOLIDATEUR && nextStoredRole !== ROLES.CONSOLIDATEUR) {
+                const projects = await req.prisma.project.findMany({
+                    where: { consolidatorId: updated.id },
+                    select: { id: true },
+                });
+                for (const project of projects) {
+                    await clearProjectConsolidatorIfUser(req.prisma, project.id, updated.id);
+                }
+            }
+            if (previousStoredRole === ROLES.RESPONSABLE && nextStoredRole !== ROLES.RESPONSABLE) {
+                const projects = await req.prisma.project.findMany({
+                    where: { responsibleId: updated.id },
+                    select: { id: true },
+                });
+                for (const project of projects) {
+                    await clearProjectResponsibleIfUser(req.prisma, project.id, updated.id);
+                }
+            }
+        }
+
         // Si le rôle a changé : email + notification in-app à l'utilisateur concerné
         if (role && previousRole !== role && updated.isActive) {
             const newRoleLabel = ROLE_LABELS[updated.role] || updated.role;
@@ -602,8 +633,8 @@ router.put('/:id/reset-password', roleMiddleware(ADMIN_ROUTE_ROLES), async (req,
 });
 
 /**
- * DELETE /api/users/:id — Soft-delete (isDeleted=true) — CDC §3.9.1
- * Préserve l'historique des données liées.
+ * DELETE /api/users/:id — Suppression applicative
+ * Détache l'utilisateur des projets et libère son e-mail pour recréation depuis le répertoire.
  */
 router.delete('/:id', roleMiddleware(ADMIN_ROUTE_ROLES), async (req, res) => {
     try {
@@ -626,15 +657,16 @@ router.delete('/:id', roleMiddleware(ADMIN_ROUTE_ROLES), async (req, res) => {
             }
         }
 
-        await req.prisma.user.update({
-            where: { id: req.params.id },
-            data: { isDeleted: true, isActive: false },
-        });
-        // Révoquer tous les tokens actifs
-        await req.prisma.refreshToken.updateMany({ where: { userId: req.params.id }, data: { isRevoked: true } });
+        const { deletedEmail } = await purgeUserAccount(req.prisma, target);
 
-        await createAuditLog(req, 'DELETE_USER', 'User', req.params.id, `Soft-delete utilisateur ${target.email}`);
-        res.json({ success: true });
+        await createAuditLog(
+            req,
+            'DELETE_USER',
+            'User',
+            req.params.id,
+            `Suppression utilisateur ${target.email} (e-mail libéré : ${deletedEmail})`,
+        );
+        res.json({ success: true, emailReleased: true });
     } catch (error) {
         res.status(400).json({ error: error.message });
     }

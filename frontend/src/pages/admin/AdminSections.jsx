@@ -22,12 +22,14 @@ import {
 const { Title, Text, Paragraph } = Typography;
 export const ROLE_COLORS = {
     RESPONSABLE: 'blue',
+    COORDINATEUR: 'geekblue',
     CONSOLIDATEUR: 'purple',
     ADMIN: 'red',
     SUPER_ADMIN: 'magenta',
 };
 export const ROLE_LABELS = {
     RESPONSABLE: 'Responsable',
+    COORDINATEUR: 'Coordinateur',
     CONSOLIDATEUR: 'Consolidateur',
     ADMIN: 'Administrateur',
     SUPER_ADMIN: 'Super administrateur',
@@ -192,7 +194,7 @@ export function UsersTab() {
         setDeleteId(userId);
         try {
             await api.delete(`/users/${userId}`);
-            message.success(`Utilisateur ${email} supprimé (soft-delete)`);
+            message.success(`Utilisateur ${email} supprimé — e-mail libéré`);
             fetchUsers();
         } catch (err) {
             message.error(err.response?.data?.error || 'Erreur');
@@ -289,13 +291,13 @@ export function UsersTab() {
                     {record.id !== currentUser?.id && (
                         <Popconfirm
                             title="Supprimer cet utilisateur ?"
-                            description="Soft-delete : les données liées sont préservées (CDC §3.9.1)."
+                            description="Le compte sera détaché des projets et son e-mail libéré pour une recréation depuis le répertoire."
                             onConfirm={() => handleDelete(record.id, record.email)}
                             okText="Supprimer"
                             cancelText="Annuler"
                             okButtonProps={{ danger: true, loading: deleteId === record.id }}
                         >
-                            <Tooltip title="Supprimer (soft-delete)">
+                            <Tooltip title="Supprimer le compte">
                                 <Button size="small" danger type="text" icon={<DeleteOutlined />} loading={deleteId === record.id} />
                             </Tooltip>
                         </Popconfirm>
@@ -410,7 +412,7 @@ export function UsersTab() {
                                         {record.id !== currentUser?.id && (
                                             <Popconfirm
                                                 title="Supprimer cet utilisateur ?"
-                                                description="Soft-delete : les données liées sont préservées (CDC §3.9.1)."
+                                                description="Le compte sera détaché des projets et son e-mail libéré pour une recréation depuis le répertoire."
                                                 onConfirm={() => handleDelete(record.id, record.email)}
                                                 okText="Supprimer"
                                                 cancelText="Annuler"
@@ -916,7 +918,7 @@ export function RolesPermissionsTab() {
             .finally(() => setLoading(false));
     }, []);
 
-    const roleOrder = ['RESPONSABLE', 'CONSOLIDATEUR', 'ADMIN', 'SUPER_ADMIN'];
+    const roleOrder = ['RESPONSABLE', 'COORDINATEUR', 'CONSOLIDATEUR', 'ADMIN', 'SUPER_ADMIN'];
 
     if (loading) return <div style={{ textAlign: 'center', padding: 24 }}><Spin /></div>;
 

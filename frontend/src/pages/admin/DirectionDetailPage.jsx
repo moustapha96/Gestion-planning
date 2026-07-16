@@ -8,6 +8,7 @@ const { Title, Text } = Typography;
 
 const ROLE_LABELS = {
     RESPONSABLE: 'Responsable',
+    COORDINATEUR: 'Coordinateur',
     CONSOLIDATEUR: 'Consolidateur',
     COORDINATEUR_PROJET: 'Coord. projet',
     SECRETAIRE_GENERAL: 'Secr. général',
@@ -17,6 +18,7 @@ const ROLE_LABELS = {
 };
 const ROLE_COLORS = {
     RESPONSABLE: 'blue',
+    COORDINATEUR: 'geekblue',
     CONSOLIDATEUR: 'purple',
     COORDINATEUR_PROJET: 'geekblue',
     SECRETAIRE_GENERAL: 'cyan',

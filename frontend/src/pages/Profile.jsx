@@ -15,27 +15,9 @@ import { useAuth } from '../context/AuthContext';
 import UserAvatar from '../components/UserAvatar';
 import api from '../api/client';
 import ProjectLogo from '../components/ProjectLogo';
+import { roleLabel, ROLE_COLORS, normalizeRole } from '../utils/roles';
 
 const { Title, Text, Paragraph } = Typography;
-
-const ROLE_LABELS = {
-    RESPONSABLE:   'Responsable',
-    CONSOLIDATEUR: 'Consolidateur',
-    COORDINATEUR_PROJET: 'Coordinateur de projet',
-    SECRETAIRE_GENERAL: 'Secrétaire général',
-    DG:            'Directeur Général',
-    ADMIN:         'Administrateur',
-    SUPER_ADMIN:   'Super administrateur',
-};
-const ROLE_COLORS = {
-    RESPONSABLE:   'blue',
-    CONSOLIDATEUR: 'purple',
-    COORDINATEUR_PROJET: 'geekblue',
-    SECRETAIRE_GENERAL: 'cyan',
-    DG:            'gold',
-    ADMIN:         'red',
-    SUPER_ADMIN:   'magenta',
-};
 
 // ── Indicateur de force de mot de passe ─────────────────────────
 function PasswordStrength({ value }) {
@@ -432,10 +414,10 @@ export default function Profile() {
                             <div style={{ marginBottom: 12 }}>
                                 <Text strong style={{ fontSize: 16, display: 'block' }}>{user?.name}</Text>
                                 <Tag
-                                    color={ROLE_COLORS[user?.role]}
+                                    color={ROLE_COLORS[normalizeRole(user?.storedRole || user?.role)]}
                                     style={{ marginTop: 4, fontSize: 12 }}
                                 >
-                                    {ROLE_LABELS[user?.role] || user?.role}
+                                    {roleLabel(user?.storedRole || user?.role)}
                                 </Tag>
                             </div>
 
@@ -649,8 +631,8 @@ export default function Profile() {
                                 <Descriptions.Item
                                     label={<Space size={6}><CrownOutlined />Rôle</Space>}
                                 >
-                                    <Tag color={ROLE_COLORS[user?.role]} style={{ margin: 0 }}>
-                                        {ROLE_LABELS[user?.role] || user?.role}
+                                    <Tag color={ROLE_COLORS[normalizeRole(user?.storedRole || user?.role)]} style={{ margin: 0 }}>
+                                        {roleLabel(user?.storedRole || user?.role)}
                                     </Tag>
                                 </Descriptions.Item>
 

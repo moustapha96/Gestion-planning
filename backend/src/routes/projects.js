@@ -2,7 +2,7 @@ const express = require('express');
 const path = require('path');
 const fs = require('fs');
 const multer = require('multer');
-const { ROLES, isPrivilegedAdmin, isResponsable, canManageProjects } = require('../config/roles');
+const { ROLES, isPrivilegedAdmin, isResponsable, isCoordinateur, canManageProjects } = require('../config/roles');
 const {
     validateConsolidatorId,
     PROJECT_CONSOLIDATOR_INCLUDE,
@@ -86,7 +86,7 @@ router.get('/', async (req, res) => {
         const where = {};
         if (active !== undefined) where.isActive = active === 'true';
         if (status && PROJECT_STATUSES.includes(String(status).toUpperCase())) where.status = String(status).toUpperCase();
-        if (isResponsable(req.user?.role) && !isPrivilegedAdmin(req.user?.role)) {
+        if ((isResponsable(req.user?.role) || isCoordinateur(req.user?.role)) && !isPrivilegedAdmin(req.user?.role)) {
             where.OR = [{ responsibleId: req.user.id }, { coordinatorId: req.user.id }];
         }
 
@@ -159,7 +159,7 @@ router.get('/:id', async (req, res) => {
         });
         if (!project) return res.status(404).json({ error: 'Projet introuvable' });
         if (
-            isResponsable(req.user?.role)
+            (isResponsable(req.user?.role) || isCoordinateur(req.user?.role))
             && !isPrivilegedAdmin(req.user?.role)
             && project.responsibleId !== req.user.id
             && project.coordinatorId !== req.user.id

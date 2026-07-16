@@ -8,7 +8,7 @@ const { logger } = require('../utils/logger');
 const { notificationService } = require('../services/notification.service');
 const { createAuditLog } = require('../utils/audit');
 const {
-  ROLES, isValidRole, REPERTOIRE_VIEW_ROLES, REPERTOIRE_MANAGE_ROLES, isSuperAdmin,
+  ROLES, isValidRole, REPERTOIRE_VIEW_ROLES, REPERTOIRE_MANAGE_ROLES, isSuperAdmin, normalizeStoredRole,
 } = require('../config/roles');
 const { validatePasswordStrength } = require('../utils/passwordUtils');
 const { syncDirectionDiscussionMembers } = require('../services/directionDiscussion.service');
@@ -132,7 +132,7 @@ router.post(
     try {
       const { id } = req.params;
       const { password, role: roleRaw } = req.body || {};
-      let role = roleRaw || ROLES.RESPONSABLE;
+      let role = normalizeStoredRole(roleRaw || ROLES.RESPONSABLE);
       if (!isValidRole(role)) {
         return res.status(400).json({ error: 'Rôle invalide' });
       }
@@ -163,7 +163,7 @@ router.post(
       const email = emailRaw.toLowerCase();
 
       const existingUser = await req.prisma.user.findFirst({
-        where: { email: { equals: email, mode: 'insensitive' } },
+        where: { email: { equals: email, mode: 'insensitive' }, isDeleted: false },
         select: { id: true },
       });
       if (existingUser) {

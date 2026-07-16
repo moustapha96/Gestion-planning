@@ -1,4 +1,4 @@
-const { isPrivilegedAdmin } = require('../config/roles');
+const { ROLES, isPrivilegedAdmin, normalizeStoredRole } = require('../config/roles');
 const {
     canCoordinateSubmittedPlanning,
     canValidatePlanningAsCoordinator,
@@ -81,6 +81,23 @@ async function canUserReturnPlanning(prisma, user, planning) {
     return canUserCoordinatePlanning(prisma, user, planning);
 }
 
+async function clearProjectCoordinatorIfUser(prisma, userId) {
+    if (!userId) return;
+    const projects = await prisma.project.findMany({
+        where: { coordinatorId: userId },
+        select: { id: true },
+    });
+    if (!projects.length) return;
+    await prisma.project.updateMany({
+        where: { coordinatorId: userId },
+        data: { coordinatorId: null },
+    });
+    const { syncProjectDiscussionMembers } = require('./projectDiscussion.service');
+    for (const project of projects) {
+        await syncProjectDiscussionMembers(prisma, project.id);
+    }
+}
+
 async function validateCoordinatorId(prisma, coordinatorIdRaw) {
     if (coordinatorIdRaw === null || coordinatorIdRaw === undefined || coordinatorIdRaw === '') {
         return { ok: true, value: null };
@@ -88,9 +105,15 @@ async function validateCoordinatorId(prisma, coordinatorIdRaw) {
     const id = String(coordinatorIdRaw).trim();
     const user = await prisma.user.findFirst({
         where: { id, isDeleted: false, isActive: true },
-        select: { id: true },
+        select: { id: true, role: true },
     });
     if (!user) return { ok: false, error: 'Coordinateur introuvable ou inactif.' };
+    if (normalizeStoredRole(user.role) !== ROLES.COORDINATEUR) {
+        return {
+            ok: false,
+            error: 'Le coordinateur sélectionné doit avoir le rôle Coordinateur.',
+        };
+    }
     return { ok: true, value: id };
 }
 
@@ -276,5 +299,6 @@ module.exports = {
     coordinatorApproveBlockingReason,
     canUserReturnPlanning,
     validateCoordinatorId,
+    clearProjectCoordinatorIfUser,
     notifyProjectCoordinatorAssigned,
 };

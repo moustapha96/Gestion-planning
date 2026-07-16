@@ -12,7 +12,7 @@ API REST pour la gestion de planning, réunions, salles et notifications.
 ## Rôles utilisateurs
 - **RESPONSABLE** : Soumet son planning hebdomadaire
 - **CONSOLIDATEUR** : Consolide les plannings des responsables
-- **COORDINATEUR_PROJET** : Première validation du planning après consolidation
+- **COORDINATEUR** : Validation en première étape (réunions, missions, plannings) sur les projets coordonnés
 - **SECRETAIRE_GENERAL** : Même pouvoir que la direction sur les deux dernières étapes (accord SG/DG puis validation finale) ; retour pour correction
 - **DG** : Même pouvoir que le secrétaire général sur l’accord et la validation finale ; visualise tout le circuit
 - **ADMIN** : Gestion des utilisateurs et configuration
@@ -49,7 +49,7 @@ Toutes les routes protégées requièrent un token JWT Bearer dans le header Aut
             email: { type: 'string', format: 'email', example: 'jean.dupont@example.com' },
             role: {
               type: 'string',
-              enum: ['RESPONSABLE', 'CONSOLIDATEUR', 'COORDINATEUR_PROJET', 'SECRETAIRE_GENERAL', 'DG', 'ADMIN', 'SUPER_ADMIN'],
+              enum: ['RESPONSABLE', 'COORDINATEUR', 'CONSOLIDATEUR', 'COORDINATEUR_PROJET', 'SECRETAIRE_GENERAL', 'DG', 'ADMIN', 'SUPER_ADMIN'],
               example: 'RESPONSABLE',
             },
             isActive: { type: 'boolean', example: true },

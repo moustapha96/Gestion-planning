@@ -14,7 +14,7 @@ import api, { API_BASE } from '../api/client';
 import { useAuth } from '../context/AuthContext';
 import { PDF_ACCEPT, isAcceptedPdfFile } from '../utils/pdfAttachment';
 import ProjectLogo from '../components/ProjectLogo';
-import { canManageProjects, isResponsable } from '../utils/roles';
+import { canManageProjects, isResponsable, isCoordinateur } from '../utils/roles';
 import { isUserProjectResponsibleOrCoordinator } from '../utils/projectScope';
 
 const { Title, Text } = Typography;
@@ -43,7 +43,7 @@ export default function Projects({ adminContext = false }) {
     const [search,        setSearch]        = useState('');
 
     const canManage = adminContext || canManageProjects(user?.role);
-    const isResponsibleUser = isResponsable(user?.role) && !canManage;
+    const isResponsibleUser = (isResponsable(user?.role) || isCoordinateur(user?.role)) && !canManage;
     const myProjects = isResponsibleUser
         ? projects.filter((p) => isUserProjectResponsibleOrCoordinator(user, p))
         : projects;

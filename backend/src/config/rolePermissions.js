@@ -7,6 +7,11 @@ const ROLE_PERMISSIONS = {
         'Consulter le calendrier et les salles',
         'Consulter le répertoire (export)',
     ],
+    [ROLES.COORDINATEUR]: [
+        'Valider en première étape les réunions, missions et plannings des projets coordonnés',
+        'Retourner ces éléments pour correction',
+        'Consulter les projets dont il est coordinateur',
+    ],
     [ROLES.CONSOLIDATEUR]: [
         'Consolider les plannings soumis',
         'Valider les réunions en brouillon des responsables (consolidateur de projet ou rôle global)',
@@ -27,6 +32,7 @@ const ROLE_PERMISSIONS = {
 
 const ROLE_LABELS = {
     [ROLES.RESPONSABLE]: 'Responsable',
+    [ROLES.COORDINATEUR]: 'Coordinateur',
     [ROLES.CONSOLIDATEUR]: 'Consolidateur',
     [ROLES.ADMIN]: 'Administrateur',
     [ROLES.SUPER_ADMIN]: 'Super administrateur',

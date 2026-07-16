@@ -20,7 +20,7 @@ import api, { API_BASE } from '../api/client';
 import {
     getSocket, subscribeSocketStatus, getSocketStatusSnapshot, getSocketStatusLabel, getSocketStatusDetail,
 } from '../realtime/socket';
-import { isPrivilegedAdmin, isSuperAdmin, canAccessRepertoire } from '../utils/roles';
+import { isPrivilegedAdmin, isSuperAdmin, canAccessRepertoire, roleLabel, ROLE_COLORS, normalizeRole } from '../utils/roles';
 import { getAdminNavForRole } from '../pages/admin/adminNavConfig';
 import { useThemeMode } from '../context/ThemeModeContext';
 import { resolveAppLogoSrc, DEFAULT_APP_NAME } from '../utils/appBranding';
@@ -30,24 +30,13 @@ const { Header, Content, Sider } = Layout;
 const { useBreakpoint } = Grid;
 const { Text } = Typography;
 
-const ROLE_LABELS = {
-    RESPONSABLE:   'Responsable',
-    CONSOLIDATEUR: 'Consolidateur',
-    COORDINATEUR_PROJET: 'Coord. projet',
-    SECRETAIRE_GENERAL: 'Secr. général',
-    DG:            'Dir. Général',
-    ADMIN:         'Administrateur',
-    SUPER_ADMIN:   'Super administrateur',
-};
-const ROLE_COLORS = {
-    RESPONSABLE:   'blue',
-    CONSOLIDATEUR: 'purple',
-    COORDINATEUR_PROJET: 'geekblue',
-    SECRETAIRE_GENERAL: 'cyan',
-    DG:            'gold',
-    ADMIN:         'red',
-    SUPER_ADMIN:   'magenta',
-};
+function displayRole(user) {
+    return roleLabel(user?.storedRole || user?.role);
+}
+
+function displayRoleColor(user) {
+    return ROLE_COLORS[normalizeRole(user?.storedRole || user?.role)] || 'default';
+}
 
 export default function AppLayout() {
     const { user, logout } = useAuth();
@@ -577,8 +566,8 @@ export default function AppLayout() {
                         ) : null}
                         <Text type="secondary" style={{ fontSize: 12 }}>{user?.email}</Text>
                         <div style={{ marginTop: 3 }}>
-                            <Tag color={ROLE_COLORS[user?.role]} style={{ fontSize: 11, margin: 0 }}>
-                                {ROLE_LABELS[user?.role] || user?.role}
+                            <Tag color={displayRoleColor(user)} style={{ fontSize: 11, margin: 0 }}>
+                                {displayRole(user)}
                             </Tag>
                         </div>
                     </div>
@@ -755,10 +744,10 @@ export default function AppLayout() {
                             {user?.name}
                         </Text>
                         <Tag
-                            color={ROLE_COLORS[user?.role]}
+                            color={displayRoleColor(user)}
                             style={{ fontSize: 10, padding: '0 4px', lineHeight: '16px', marginTop: 2 }}
                         >
-                            {ROLE_LABELS[user?.role] || user?.role}
+                            {displayRole(user)}
                         </Tag>
                     </div>
                 </div>
@@ -987,10 +976,10 @@ export default function AppLayout() {
                                             {user?.name}
                                         </Text>
                                         <Tag
-                                            color={ROLE_COLORS[user?.role]}
+                                            color={displayRoleColor(user)}
                                             style={{ fontSize: 10, padding: '0 4px', lineHeight: '14px', margin: 0, width: 'fit-content', maxWidth: '100%' }}
                                         >
-                                            {ROLE_LABELS[user?.role] || user?.role}
+                                            {displayRole(user)}
                                         </Tag>
                                     </div>
                                 )}

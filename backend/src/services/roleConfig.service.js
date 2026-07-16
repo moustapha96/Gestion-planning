@@ -18,7 +18,12 @@ const DEFAULT_ELEVATION_PATTERNS = {
     [ELEVATION_TYPES.SERVICE_DIRECTOR]: ['Directeur de service', 'Chef de service', 'Directeur'],
 };
 
-const ASSIGNABLE_ROLES = [ROLES.RESPONSABLE, ROLES.CONSOLIDATEUR, ROLES.ADMIN];
+const ASSIGNABLE_ROLES = [
+    ROLES.RESPONSABLE,
+    ROLES.COORDINATEUR,
+    ROLES.CONSOLIDATEUR,
+    ROLES.ADMIN,
+];
 
 function emptyElevation() {
     return { directionId: null, jobTitlePatterns: [] };
@@ -162,7 +167,8 @@ async function resolveUserFunctionalCapabilities(prisma, user) {
     const stored = normalizeStoredRole(user?.role);
     const mayConsolidate = stored === ROLES.CONSOLIDATEUR
         || qualifiesForElevation(user, elevations[ELEVATION_TYPES.CONSOLIDATOR]);
-    const mayCoordinateProject = qualifiesForElevation(user, elevations[ELEVATION_TYPES.PROJECT_COORDINATOR]);
+    const mayCoordinateProject = stored === ROLES.COORDINATEUR
+        || qualifiesForElevation(user, elevations[ELEVATION_TYPES.PROJECT_COORDINATOR]);
     const mayActAsServiceDirector = qualifiesForElevation(user, elevations[ELEVATION_TYPES.SERVICE_DIRECTOR]);
     const elevatedAdmin = stored === ROLES.ADMIN
         || stored === ROLES.SUPER_ADMIN
@@ -245,6 +251,7 @@ async function getRoleDirectionRules(prisma) {
     });
     const byRole = {
         [ROLES.RESPONSABLE]: [],
+        [ROLES.COORDINATEUR]: [],
         [ROLES.CONSOLIDATEUR]: [],
         [ROLES.ADMIN]: [],
     };

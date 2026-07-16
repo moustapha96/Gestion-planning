@@ -37,7 +37,7 @@ const ACCOUNTS = [
         direction: 'Dir. Générale',
     },
     {
-        role:      'COORDINATEUR_PROJET',
+        role:      'COORDINATEUR',
         email:     'cp.test@adm.sn',
         name:      'Moussa Ndiaye',
         direction: 'Dir. Projets',

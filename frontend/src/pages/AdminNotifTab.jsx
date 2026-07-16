@@ -10,11 +10,11 @@ const { TextArea } = Input;
 const { Title, Text } = Typography;
 
 const ROLE_LABELS = {
-    RESPONSABLE: 'Responsable', CONSOLIDATEUR: 'Consolidateur', COORDINATEUR_PROJET: 'Coord. projet',
+    RESPONSABLE: 'Responsable', COORDINATEUR: 'Coordinateur', CONSOLIDATEUR: 'Consolidateur', COORDINATEUR_PROJET: 'Coord. projet',
     SECRETAIRE_GENERAL: 'Secr. général', DG: 'Dir. Général', ADMIN: 'Administrateur', SUPER_ADMIN: 'Super admin',
 };
 const ROLE_COLORS = {
-    RESPONSABLE: 'blue', CONSOLIDATEUR: 'purple', COORDINATEUR_PROJET: 'geekblue', SECRETAIRE_GENERAL: 'cyan',
+    RESPONSABLE: 'blue', COORDINATEUR: 'geekblue', CONSOLIDATEUR: 'purple', COORDINATEUR_PROJET: 'geekblue', SECRETAIRE_GENERAL: 'cyan',
     DG: 'gold', ADMIN: 'red', SUPER_ADMIN: 'magenta',
 };
 

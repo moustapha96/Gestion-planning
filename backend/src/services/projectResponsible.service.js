@@ -1,4 +1,4 @@
-const { ROLES, isPrivilegedAdmin, isResponsable } = require('../config/roles');
+const { ROLES, isCoordinateur, isResponsable, isPrivilegedAdmin } = require('../config/roles');
 const { logger } = require('../utils/logger');
 
 const RESPONSIBLE_USER_SELECT = {
@@ -175,7 +175,7 @@ async function validateProjectForUserAction(prisma, user, projectId, options = {
         return validateActiveProjectId(prisma, projectId);
     }
 
-    if (isResponsable(user?.role)) {
+    if (isResponsable(user?.role) || isCoordinateur(user?.role)) {
         let pid = projectId;
         const owned = await getOwnedOrCoordinatedProjects(prisma, user.id);
         if (!pid) {
@@ -211,7 +211,9 @@ async function validateProjectForUserAction(prisma, user, projectId, options = {
 /** Filtre Prisma pour limiter les projets listés (taxonomy, sélecteurs). */
 function projectsFilterWhereForUser(user) {
     if (isPrivilegedAdmin(user?.role)) return {};
-    if (isResponsable(user?.role)) return { OR: [{ responsibleId: user.id }, { coordinatorId: user.id }] };
+    if (isResponsable(user?.role) || isCoordinateur(user?.role)) {
+        return { OR: [{ responsibleId: user.id }, { coordinatorId: user.id }] };
+    }
     return {};
 }
 

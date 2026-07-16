@@ -21,22 +21,17 @@ import { PlusOutlined, StopOutlined, CheckOutlined, KeyOutlined, UserOutlined, E
 import UserAvatar from '../components/UserAvatar';
 import api from '../api/client';
 import { useAuth } from '../context/AuthContext';
-import { isPrivilegedAdmin } from '../utils/roles';
+import { isPrivilegedAdmin, ROLES, ROLE_COLORS, roleLabel, normalizeRole } from '../utils/roles';
 
 const { Title, Text } = Typography;
-const ROLE_COLORS = {
-    RESPONSABLE: 'blue', CONSOLIDATEUR: 'purple', COORDINATEUR_PROJET: 'geekblue', SECRETAIRE_GENERAL: 'cyan',
-    DG: 'gold', ADMIN: 'red', SUPER_ADMIN: 'magenta',
-};
-const ROLE_LABELS = {
-    RESPONSABLE: 'Responsable',
-    CONSOLIDATEUR: 'Consolidateur',
-    COORDINATEUR_PROJET: 'Coordinateur de projet',
-    SECRETAIRE_GENERAL: 'Secrétaire général',
-    DG: 'Directeur Général',
-    ADMIN: 'Administrateur',
-    SUPER_ADMIN: 'Super administrateur',
-};
+
+const USER_ROLE_OPTIONS = [
+    { value: ROLES.RESPONSABLE, label: 'Responsable' },
+    { value: ROLES.COORDINATEUR, label: 'Coordinateur' },
+    { value: ROLES.CONSOLIDATEUR, label: 'Consolidateur' },
+    { value: ROLES.ADMIN, label: 'Administrateur' },
+    { value: ROLES.SUPER_ADMIN, label: 'Super administrateur' },
+];
 
 export default function Users() {
     const navigate = useNavigate();
@@ -250,7 +245,7 @@ export default function Users() {
             title: 'Rôle',
             dataIndex: 'role',
             key: 'role',
-            render: (role) => <Tag color={ROLE_COLORS[role]}>{ROLE_LABELS[role] || role}</Tag>,
+            render: (role) => <Tag color={ROLE_COLORS[normalizeRole(role)] || 'default'}>{roleLabel(role)}</Tag>,
         },
         {
             title: 'Statut',
@@ -330,13 +325,13 @@ export default function Users() {
                             {/* Soft-delete — CDC §3.9.1 */}
                             <Popconfirm
                                 title={`Supprimer définitivement ${record.name} ?`}
-                                description="L'historique des données sera préservé (soft-delete)."
+                                description="Le compte sera supprimé, détaché de tous les projets et son e-mail sera libéré pour recréer un compte depuis le répertoire."
                                 onConfirm={() => handleDeleteUser(record.id, record.name)}
                                 okText="Supprimer"
                                 okButtonProps={{ danger: true }}
                                 cancelText="Annuler"
                             >
-                                <Tooltip title="Supprimer (soft-delete)">
+                                <Tooltip title="Supprimer le compte">
                                     <Button size="small" danger icon={<DeleteOutlined />} />
                                 </Tooltip>
                             </Popconfirm>
@@ -420,15 +415,7 @@ export default function Users() {
                                 initialValue="RESPONSABLE"
                                 rules={[{ required: true }]}
                             >
-                                <Select>
-                                    <Select.Option value="RESPONSABLE">Responsable</Select.Option>
-                                    <Select.Option value="CONSOLIDATEUR">Consolidateur</Select.Option>
-                                    <Select.Option value="COORDINATEUR_PROJET">Coordinateur de projet</Select.Option>
-                                    <Select.Option value="SECRETAIRE_GENERAL">Secrétaire général</Select.Option>
-                                    <Select.Option value="DG">Directeur Général</Select.Option>
-                                    <Select.Option value="ADMIN">Administrateur</Select.Option>
-                                    <Select.Option value="SUPER_ADMIN">Super administrateur</Select.Option>
-                                </Select>
+                                <Select options={USER_ROLE_OPTIONS} />
                             </Form.Item>
                         </Col>
                     </Row>
@@ -518,15 +505,7 @@ export default function Users() {
                         <Input />
                     </Form.Item>
                     <Form.Item name="role" label="Rôle" rules={[{ required: true }]}>
-                        <Select>
-                            <Select.Option value="RESPONSABLE">Responsable</Select.Option>
-                            <Select.Option value="CONSOLIDATEUR">Consolidateur</Select.Option>
-                            <Select.Option value="COORDINATEUR_PROJET">Coordinateur de projet</Select.Option>
-                            <Select.Option value="SECRETAIRE_GENERAL">Secrétaire général</Select.Option>
-                            <Select.Option value="DG">Directeur Général</Select.Option>
-                            <Select.Option value="ADMIN">Administrateur</Select.Option>
-                            <Select.Option value="SUPER_ADMIN">Super administrateur</Select.Option>
-                        </Select>
+                        <Select options={USER_ROLE_OPTIONS} />
                     </Form.Item>
                     <Row gutter={16}>
                         <Col xs={24} sm={12}>

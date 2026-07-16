@@ -159,7 +159,7 @@ router.post('/login', async (req, res) => {
             },
         });
 
-        if (!user || !(await bcrypt.compare(password, user.passwordHash))) {
+        if (!user || user.isDeleted || !(await bcrypt.compare(password, user.passwordHash))) {
             logger.warn('LOGIN_FAILED', `Tentative échouée pour ${email}`, { email, ip: req.ip });
             return res.status(401).json({ error: 'Email ou mot de passe incorrect' });
         }
@@ -366,7 +366,7 @@ router.post('/refresh', async (req, res) => {
         }
 
         const user = await req.prisma.user.findUnique({ where: { id: decoded.id } });
-        if (!user || !user.isActive) {
+        if (!user || user.isDeleted || !user.isActive) {
             return res.status(401).json({ error: 'Compte invalide' });
         }
 
@@ -699,7 +699,7 @@ router.post('/forgot-password', async (req, res) => {
 
         const user = await findUserByEmail(req.prisma, email);
 
-        if (!user || !user.isActive) {
+        if (!user || !user.isActive || user.isDeleted) {
             return res.json({ success: true, message: genericMessage });
         }
 

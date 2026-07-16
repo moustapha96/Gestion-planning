@@ -1,4 +1,4 @@
-import { isPrivilegedAdmin, isResponsable } from './roles';
+import { isPrivilegedAdmin, isResponsable, isCoordinateur } from './roles';
 
 export const NO_RESPONSIBLE_PROJECT_TITLE = 'Aucun projet assigné';
 
@@ -19,7 +19,7 @@ export function isUserProjectResponsibleOrCoordinator(user, project) {
 export function filterAssignableProjects(user, projects) {
     const list = projects || [];
     if (!user || isPrivilegedAdmin(user.role)) return list;
-    if (isResponsable(user.role)) {
+    if (isResponsable(user.role) || isCoordinateur(user.role)) {
         return list.filter((p) => p.responsibleId === user.id || p.coordinatorId === user.id);
     }
     return list;
@@ -64,7 +64,7 @@ export function projectsSummaryLabel(projects) {
 }
 
 export function isProjectRequiredForUser(user) {
-    return isResponsable(user?.role);
+    return isResponsable(user?.role) || isCoordinateur(user?.role);
 }
 
 export function hasMultipleAssignableProjects(assignableProjects) {

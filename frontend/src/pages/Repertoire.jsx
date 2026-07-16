@@ -826,10 +826,8 @@ export default function Repertoire() {
               <Form.Item name="role" label="Rôle dans l’application" rules={[{ required: true }]} initialValue="RESPONSABLE">
                 <Select>
                   <Select.Option value="RESPONSABLE">Responsable</Select.Option>
+                  <Select.Option value="COORDINATEUR">Coordinateur</Select.Option>
                   <Select.Option value="CONSOLIDATEUR">Consolidateur</Select.Option>
-                  <Select.Option value="COORDINATEUR_PROJET">Coordinateur de projet</Select.Option>
-                  <Select.Option value="SECRETAIRE_GENERAL">Secrétaire général</Select.Option>
-                  <Select.Option value="DG">Directeur général</Select.Option>
                   <Select.Option value="ADMIN">Administrateur</Select.Option>
                   <Select.Option value="SUPER_ADMIN">Super administrateur</Select.Option>
                 </Select>

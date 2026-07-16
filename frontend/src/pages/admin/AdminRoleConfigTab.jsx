@@ -6,9 +6,10 @@ import { ROLES } from '../../utils/roles';
 
 const { Title, Text, Paragraph } = Typography;
 
-const ROLE_KEYS = [ROLES.RESPONSABLE, ROLES.CONSOLIDATEUR, ROLES.ADMIN];
+const ROLE_KEYS = [ROLES.RESPONSABLE, ROLES.COORDINATEUR, ROLES.CONSOLIDATEUR, ROLES.ADMIN];
 const ROLE_LABELS_UI = {
     [ROLES.RESPONSABLE]: 'Responsable',
+    [ROLES.COORDINATEUR]: 'Coordinateur',
     [ROLES.CONSOLIDATEUR]: 'Consolidateur',
     [ROLES.ADMIN]: 'Administrateur',
 };
@@ -95,6 +96,7 @@ export default function AdminRoleConfigTab() {
     const [directions, setDirections] = useState([]);
     const [rules, setRules] = useState({
         [ROLES.RESPONSABLE]: [],
+        [ROLES.COORDINATEUR]: [],
         [ROLES.CONSOLIDATEUR]: [],
         [ROLES.ADMIN]: [],
     });
@@ -114,6 +116,7 @@ export default function AdminRoleConfigTab() {
             const r = data?.rules || {};
             setRules({
                 [ROLES.RESPONSABLE]: (r[ROLES.RESPONSABLE] || []).map((x) => x.directionId),
+                [ROLES.COORDINATEUR]: (r[ROLES.COORDINATEUR] || []).map((x) => x.directionId),
                 [ROLES.CONSOLIDATEUR]: (r[ROLES.CONSOLIDATEUR] || []).map((x) => x.directionId),
                 [ROLES.ADMIN]: (r[ROLES.ADMIN] || []).map((x) => x.directionId),
             });
@@ -182,7 +185,7 @@ export default function AdminRoleConfigTab() {
                 Rôles et directions
             </Title>
             <Paragraph type="secondary">
-                Quatre rôles système : Responsable, Consolidateur, Administrateur, Super administrateur.
+                Quatre rôles système : Responsable, Coordinateur, Consolidateur, Administrateur, Super administrateur.
                 Les profils fonctionnels ci-dessous (direction + intitulé de poste) s&apos;ajoutent aux désignations
                 par projet (consolidateur / coordinateur sur la fiche projet).
             </Paragraph>

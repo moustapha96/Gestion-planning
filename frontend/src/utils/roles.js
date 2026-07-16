@@ -1,6 +1,7 @@
 /** Aligné sur backend/src/config/roles.js */
 export const ROLES = {
     RESPONSABLE: 'RESPONSABLE',
+    COORDINATEUR: 'COORDINATEUR',
     CONSOLIDATEUR: 'CONSOLIDATEUR',
     ADMIN: 'ADMIN',
     SUPER_ADMIN: 'SUPER_ADMIN',
@@ -13,10 +14,31 @@ export const LEGACY_ROLE_LABELS = {
     DG: 'Direction générale (ancien)',
 };
 
+export const ROLE_LABELS = {
+    [ROLES.RESPONSABLE]: 'Responsable',
+    [ROLES.COORDINATEUR]: 'Coordinateur',
+    [ROLES.CONSOLIDATEUR]: 'Consolidateur',
+    [ROLES.ADMIN]: 'Administrateur',
+    [ROLES.SUPER_ADMIN]: 'Super administrateur',
+};
+
+export const ROLE_COLORS = {
+    [ROLES.RESPONSABLE]: 'blue',
+    [ROLES.COORDINATEUR]: 'geekblue',
+    [ROLES.CONSOLIDATEUR]: 'purple',
+    [ROLES.ADMIN]: 'red',
+    [ROLES.SUPER_ADMIN]: 'magenta',
+};
+
 export function normalizeRole(role) {
-    if (role === 'COORDINATEUR_PROJET') return ROLES.CONSOLIDATEUR;
+    if (role === 'COORDINATEUR_PROJET') return ROLES.COORDINATEUR;
     if (role === 'SECRETAIRE_GENERAL' || role === 'DG') return ROLES.ADMIN;
     return role;
+}
+
+export function roleLabel(role) {
+    const normalized = normalizeRole(role);
+    return ROLE_LABELS[normalized] || LEGACY_ROLE_LABELS[role] || role;
 }
 
 export function isPrivilegedAdmin(role) {
@@ -98,7 +120,8 @@ export function canFinalizeMission(mission, user) {
 
 export function canAccessRepertoire(role) {
     const r = normalizeRole(role);
-    return r === ROLES.ADMIN || r === ROLES.SUPER_ADMIN || r === ROLES.CONSOLIDATEUR || r === ROLES.RESPONSABLE;
+    return r === ROLES.ADMIN || r === ROLES.SUPER_ADMIN || r === ROLES.CONSOLIDATEUR
+        || r === ROLES.COORDINATEUR || r === ROLES.RESPONSABLE;
 }
 
 export function canManageProjects(role) {
@@ -115,6 +138,10 @@ export function isResponsable(role) {
     return normalizeRole(role) === ROLES.RESPONSABLE;
 }
 
+export function isCoordinateur(role) {
+    return normalizeRole(role) === ROLES.COORDINATEUR;
+}
+
 /** Capacités dérivées de la config direction + intitulé de poste (voir Admin → Rôles). */
 export function userMayConsolidate(user) {
     if (!user) return false;
@@ -123,6 +150,8 @@ export function userMayConsolidate(user) {
 }
 
 export function userMayCoordinateProject(user) {
+    if (!user) return false;
+    if (normalizeRole(user.storedRole || user.role) === ROLES.COORDINATEUR) return true;
     return Boolean(user?.functionalCapabilities?.mayCoordinateProject);
 }
 

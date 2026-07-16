@@ -13,7 +13,7 @@ import { useAuth } from '../context/AuthContext';
 import { PDF_ACCEPT, isAcceptedPdfFile } from '../utils/pdfAttachment';
 import { resolveProjectLogoSrc } from '../utils/mediaUrl';
 import ProjectLogo from '../components/ProjectLogo';
-import { canManageProjects, isResponsable } from '../utils/roles';
+import { canManageProjects, isResponsable, ROLES, roleLabel } from '../utils/roles';
 
 const { Title, Text, Paragraph } = Typography;
 
@@ -235,11 +235,18 @@ export default function ProjectFormPage({ adminContext = false }) {
 
     const userOptions = allUsers.map((u) => ({
         value: u.id,
-        label: `${u.name} (${u.email}) — ${u.role}`,
+        label: `${u.name} (${u.email}) — ${roleLabel(u.role)}`,
     }));
 
     const responsableOptions = allUsers
-        .filter((u) => u.role === 'RESPONSABLE')
+        .filter((u) => u.role === ROLES.RESPONSABLE)
+        .map((u) => ({
+            value: u.id,
+            label: `${u.name} (${u.email})`,
+        }));
+
+    const coordinatorOptions = allUsers
+        .filter((u) => u.role === ROLES.COORDINATEUR)
         .map((u) => ({
             value: u.id,
             label: `${u.name} (${u.email})`,
@@ -379,14 +386,14 @@ export default function ProjectFormPage({ adminContext = false }) {
                                     <Form.Item
                                         name="coordinatorId"
                                         label="Coordinateur"
-                                        extra="Valide les réunions en brouillon."
+                                        extra="Utilisateur au rôle Coordinateur. Valide les réunions et missions en brouillon (étape 1/2)."
                                     >
                                         <Select
                                             allowClear
                                             showSearch
-                                            placeholder="Choisir un utilisateur"
+                                            placeholder="Choisir un coordinateur"
                                             optionFilterProp="label"
-                                            options={userOptions}
+                                            options={coordinatorOptions}
                                         />
                                     </Form.Item>
                                 </Col>

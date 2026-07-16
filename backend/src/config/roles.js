@@ -1,5 +1,6 @@
 const ROLES = {
     RESPONSABLE: 'RESPONSABLE',
+    COORDINATEUR: 'COORDINATEUR',
     CONSOLIDATEUR: 'CONSOLIDATEUR',
     ADMIN: 'ADMIN',
     SUPER_ADMIN: 'SUPER_ADMIN',
@@ -7,7 +8,7 @@ const ROLES = {
 
 /** Anciens rôles (migration) → rôle stocké. */
 const LEGACY_ROLE_MAP = {
-    COORDINATEUR_PROJET: ROLES.CONSOLIDATEUR,
+    COORDINATEUR_PROJET: ROLES.COORDINATEUR,
     SECRETAIRE_GENERAL: ROLES.ADMIN,
     DG: ROLES.ADMIN,
 };
@@ -21,6 +22,7 @@ const ADMIN_ROUTE_ROLES = [ROLES.ADMIN, ROLES.SUPER_ADMIN];
 const REPERTOIRE_VIEW_ROLES = [
     ROLES.ADMIN,
     ROLES.SUPER_ADMIN,
+    ROLES.COORDINATEUR,
     ROLES.CONSOLIDATEUR,
     ROLES.RESPONSABLE,
 ];
@@ -98,6 +100,10 @@ function isResponsable(role) {
     return normalizeStoredRole(role) === ROLES.RESPONSABLE;
 }
 
+function isCoordinateur(role) {
+    return normalizeStoredRole(role) === ROLES.COORDINATEUR;
+}
+
 function missionScopeWhere(user) {
     if (canViewAllMissions(user?.role)) return {};
     const userId = user?.id;
@@ -144,6 +150,7 @@ module.exports = {
     canViewAllMissions,
     canViewAllPlannings,
     isResponsable,
+    isCoordinateur,
     missionScopeWhere,
     planningScopeWhere,
     canViewMission,
