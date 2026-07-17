@@ -212,6 +212,7 @@ router.post('/', roleMiddleware(ADMIN_ROUTE_ROLES), async (req, res) => {
                     cellUnit: clipUserText(cellUnit, MAX_USER_CELL_UNIT) ?? existingUser.cellUnit,
                     twoFactorSecret: null,
                     twoFactorEnabled: false,
+                    createdAt: new Date(),
                 },
                 select: PUBLIC_USER_SELECT,
             });
@@ -277,6 +278,7 @@ router.post('/', roleMiddleware(ADMIN_ROUTE_ROLES), async (req, res) => {
                 phone: clipUserText(phone, MAX_USER_PHONE) ?? null,
                 jobTitle: clipUserText(jobTitle, MAX_USER_JOB_TITLE) ?? null,
                 cellUnit: clipUserText(cellUnit, MAX_USER_CELL_UNIT) ?? null,
+                createdAt: new Date(),
             },
         });
 

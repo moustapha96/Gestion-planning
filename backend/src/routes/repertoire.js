@@ -219,6 +219,7 @@ router.post(
             cellUnit,
             twoFactorSecret: null,
             twoFactorEnabled: false,
+            createdAt: new Date(),
           },
           select: PUBLIC_USER_SELECT,
         });
@@ -236,6 +237,7 @@ router.post(
             phone,
             jobTitle,
             cellUnit,
+            createdAt: new Date(),
           },
         });
       }
