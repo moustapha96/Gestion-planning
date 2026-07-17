@@ -356,32 +356,34 @@ export function UsersTab() {
                         </Popconfirm>
                     )}
                     {record.id !== currentUser?.id && (
-                        <Popconfirm
-                            title="Supprimer cet utilisateur ?"
-                            description="Libère l'e-mail pour une recréation. Utilisez « définitive » s'il n'a pas d'historique bloquant."
-                            onConfirm={() => handleDelete(record.id, record.email, false)}
-                            okText="Supprimer"
-                            cancelText="Annuler"
-                            okButtonProps={{ danger: true, loading: deleteId === record.id }}
-                        >
-                            <Tooltip title="Supprimer le compte">
-                                <Button size="small" danger type="text" icon={<DeleteOutlined />} loading={deleteId === record.id} />
-                            </Tooltip>
-                        </Popconfirm>
-                        <Popconfirm
-                            title="Suppression définitive ?"
-                            description="Efface le compte si possible. Sinon anonymise et libère l'e-mail."
-                            onConfirm={() => handleDelete(record.id, record.email, true)}
-                            okText="Définitive"
-                            cancelText="Annuler"
-                            okButtonProps={{ danger: true, loading: deleteId === record.id }}
-                        >
-                            <Tooltip title="Suppression définitive">
-                                <Button size="small" danger type="link" style={{ padding: 0, fontSize: 11 }}>
-                                    Définitive
-                                </Button>
-                            </Tooltip>
-                        </Popconfirm>
+                        <>
+                            <Popconfirm
+                                title="Supprimer cet utilisateur ?"
+                                description="Libère l'e-mail pour une recréation. Utilisez « définitive » s'il n'a pas d'historique bloquant."
+                                onConfirm={() => handleDelete(record.id, record.email, false)}
+                                okText="Supprimer"
+                                cancelText="Annuler"
+                                okButtonProps={{ danger: true, loading: deleteId === record.id }}
+                            >
+                                <Tooltip title="Supprimer le compte">
+                                    <Button size="small" danger type="text" icon={<DeleteOutlined />} loading={deleteId === record.id} />
+                                </Tooltip>
+                            </Popconfirm>
+                            <Popconfirm
+                                title="Suppression définitive ?"
+                                description="Efface le compte si possible. Sinon anonymise et libère l'e-mail."
+                                onConfirm={() => handleDelete(record.id, record.email, true)}
+                                okText="Définitive"
+                                cancelText="Annuler"
+                                okButtonProps={{ danger: true, loading: deleteId === record.id }}
+                            >
+                                <Tooltip title="Suppression définitive">
+                                    <Button size="small" danger type="link" style={{ padding: 0, fontSize: 11 }}>
+                                        Définitive
+                                    </Button>
+                                </Tooltip>
+                            </Popconfirm>
+                        </>
                     )}
                 </Space>
             ),
@@ -519,30 +521,32 @@ export function UsersTab() {
                                             </Popconfirm>
                                         )}
                                         {record.id !== currentUser?.id && (
-                                            <Popconfirm
-                                                title="Supprimer cet utilisateur ?"
-                                                description="Libère l'e-mail pour une recréation."
-                                                onConfirm={() => handleDelete(record.id, record.email, false)}
-                                                okText="Supprimer"
-                                                cancelText="Annuler"
-                                                okButtonProps={{ danger: true, loading: deleteId === record.id }}
-                                            >
-                                                <Button size="small" danger icon={<DeleteOutlined />} loading={deleteId === record.id}>
-                                                    Supprimer
-                                                </Button>
-                                            </Popconfirm>
-                                            <Popconfirm
-                                                title="Suppression définitive ?"
-                                                description="Efface le compte si possible, sinon anonymise."
-                                                onConfirm={() => handleDelete(record.id, record.email, true)}
-                                                okText="Définitive"
-                                                cancelText="Annuler"
-                                                okButtonProps={{ danger: true, loading: deleteId === record.id }}
-                                            >
-                                                <Button size="small" danger>
-                                                    Définitive
-                                                </Button>
-                                            </Popconfirm>
+                                            <>
+                                                <Popconfirm
+                                                    title="Supprimer cet utilisateur ?"
+                                                    description="Libère l'e-mail pour une recréation."
+                                                    onConfirm={() => handleDelete(record.id, record.email, false)}
+                                                    okText="Supprimer"
+                                                    cancelText="Annuler"
+                                                    okButtonProps={{ danger: true, loading: deleteId === record.id }}
+                                                >
+                                                    <Button size="small" danger icon={<DeleteOutlined />} loading={deleteId === record.id}>
+                                                        Supprimer
+                                                    </Button>
+                                                </Popconfirm>
+                                                <Popconfirm
+                                                    title="Suppression définitive ?"
+                                                    description="Efface le compte si possible, sinon anonymise."
+                                                    onConfirm={() => handleDelete(record.id, record.email, true)}
+                                                    okText="Définitive"
+                                                    cancelText="Annuler"
+                                                    okButtonProps={{ danger: true, loading: deleteId === record.id }}
+                                                >
+                                                    <Button size="small" danger>
+                                                        Définitive
+                                                    </Button>
+                                                </Popconfirm>
+                                            </>
                                         )}
                                     </Space>
                                 </Space>
