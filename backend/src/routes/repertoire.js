@@ -13,6 +13,12 @@ const {
 const { validatePasswordStrength } = require('../utils/passwordUtils');
 const { syncDirectionDiscussionMembers } = require('../services/directionDiscussion.service');
 const { fetchRepertoireContacts, buildRepertoireDocxBuffer } = require('../utils/repertoireDocxExport');
+const {
+  findUserByEmail,
+  normalizeEmail,
+  emailConflictPayload,
+  PUBLIC_USER_SELECT,
+} = require('../services/userDeletion.service');
 
 const VIEW_ROLES = REPERTOIRE_VIEW_ROLES;
 const MANAGE_ROLES = REPERTOIRE_MANAGE_ROLES;
@@ -160,14 +166,13 @@ router.post(
           error: 'Ce contact n\'a pas d\'adresse e-mail valide. Complétez la fiche répertoire d\'abord.',
         });
       }
-      const email = emailRaw.toLowerCase();
+      const email = normalizeEmail(emailRaw);
 
-      const existingUser = await req.prisma.user.findFirst({
-        where: { email: { equals: email, mode: 'insensitive' }, isDeleted: false },
-        select: { id: true },
-      });
-      if (existingUser) {
-        return res.status(409).json({ error: 'Un compte existe déjà avec cet e-mail.' });
+      const existingUser = await findUserByEmail(req.prisma, email);
+      if (existingUser && !existingUser.isDeleted) {
+        return res.status(409).json(
+          emailConflictPayload(existingUser, 'Un compte existe déjà avec cet e-mail.'),
+        );
       }
 
       const name = String(contact.prenomNom || '').trim();
@@ -195,36 +200,63 @@ router.post(
 
       const hashedPassword = await bcrypt.hash(password, 12);
 
-      const user = await req.prisma.user.create({
-        data: {
-          name,
-          email,
-          role,
-          passwordHash: hashedPassword,
-          isActive: false,
-          directionId,
-          projectId: null,
-          phone,
-          jobTitle,
-          cellUnit,
-        },
-      });
+      let user;
+      let restored = false;
+      if (existingUser?.isDeleted) {
+        user = await req.prisma.user.update({
+          where: { id: existingUser.id },
+          data: {
+            name,
+            email,
+            role,
+            passwordHash: hashedPassword,
+            isDeleted: false,
+            isActive: false,
+            directionId,
+            projectId: null,
+            phone,
+            jobTitle,
+            cellUnit,
+            twoFactorSecret: null,
+            twoFactorEnabled: false,
+          },
+          select: PUBLIC_USER_SELECT,
+        });
+        restored = true;
+      } else {
+        user = await req.prisma.user.create({
+          data: {
+            name,
+            email,
+            role,
+            passwordHash: hashedPassword,
+            isActive: false,
+            directionId,
+            projectId: null,
+            phone,
+            jobTitle,
+            cellUnit,
+          },
+        });
+      }
 
       if (user.directionId) {
         await syncDirectionDiscussionMembers(req.prisma, user.directionId);
       }
 
-      logger.info('USER_CREATED_FROM_REPERTOIRE', {
+      logger.info(restored ? 'USER_RESTORED_FROM_REPERTOIRE' : 'USER_CREATED_FROM_REPERTOIRE', {
         userId: user.id,
         repertoireContactId: id,
         by: req.user?.id,
       });
       await createAuditLog(
         req,
-        'CREATE_USER',
+        restored ? 'RESTORE_USER' : 'CREATE_USER',
         'User',
         user.id,
-        `Compte créé depuis le répertoire (${email})`,
+        restored
+          ? `Compte réactivé depuis le répertoire (${email})`
+          : `Compte créé depuis le répertoire (${email})`,
       );
 
       const activationToken = jwt.sign(
@@ -237,7 +269,7 @@ router.post(
 
       await notificationService.sendEmail(email, 'ACCOUNT_ACTIVATION', [user, activationUrl, password]);
 
-      res.status(201).json({
+      res.status(restored ? 200 : 201).json({
         id: user.id,
         name: user.name,
         email: user.email,
@@ -245,8 +277,24 @@ router.post(
         isActive: user.isActive,
         directionId: user.directionId,
         directionLinked: Boolean(directionId),
+        restored,
+        message: restored ? 'Un ancien compte avec cet e-mail a été réactivé.' : undefined,
       });
     } catch (err) {
+      if (err?.code === 'P2002') {
+        const conflict = await findUserByEmail(req.prisma, req.body?.email || '');
+        // Re-fetch from contact email
+        const contactEmail = (await req.prisma.repertoireContact.findUnique({
+          where: { id: req.params.id },
+          select: { email: true },
+        }))?.email;
+        const found = conflict || (contactEmail ? await findUserByEmail(req.prisma, contactEmail) : null);
+        if (found) {
+          return res.status(409).json(
+            emailConflictPayload(found, 'Un compte existe déjà avec cet e-mail.'),
+          );
+        }
+      }
       logger.error('POST /repertoire/:id/create-account', { error: err.message });
       res.status(400).json({ error: err.message || 'Erreur serveur' });
     }

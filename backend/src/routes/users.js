@@ -19,7 +19,15 @@ const {
 } = require('../services/projectResponsible.service');
 const { clearProjectCoordinatorIfUser } = require('../services/projectCoordinator.service');
 const { clearProjectConsolidatorIfUser } = require('../services/projectConsolidator.service');
-const { purgeUserAccount } = require('../services/userDeletion.service');
+const {
+    purgeUserAccount,
+    deleteUserCompletely,
+    findUserByEmail,
+    normalizeEmail,
+    toPublicUser,
+    emailConflictPayload,
+    PUBLIC_USER_SELECT,
+} = require('../services/userDeletion.service');
 const {
     validatePasswordStrength,
     createPasswordResetToken,
@@ -173,11 +181,66 @@ router.post('/', roleMiddleware(ADMIN_ROUTE_ROLES), async (req, res) => {
             return res.status(400).json({ error: 'Le mot de passe doit contenir au moins 8 caractères' });
         }
 
-        const existingUser = await req.prisma.user.findFirst({
-            where: { email: { equals: email, mode: 'insensitive' }, isDeleted: false },
-        });
-        if (existingUser) {
-            return res.status(409).json({ error: 'Un utilisateur avec cet email existe déjà' });
+        const emailNorm = normalizeEmail(email);
+        if (!emailNorm) {
+            return res.status(400).json({ error: 'Email requis' });
+        }
+
+        const existingUser = await findUserByEmail(req.prisma, emailNorm);
+        if (existingUser && !existingUser.isDeleted) {
+            return res.status(409).json(
+                emailConflictPayload(existingUser, 'Un utilisateur avec cet email existe déjà'),
+            );
+        }
+
+        // Compte soft-supprimé : réactivation sur la même fiche (évite P2002)
+        if (existingUser?.isDeleted) {
+            const hashedPassword = await bcrypt.hash(password, 12);
+            const restored = await req.prisma.user.update({
+                where: { id: existingUser.id },
+                data: {
+                    name: name || existingUser.name,
+                    email: emailNorm,
+                    role: storedRole,
+                    passwordHash: hashedPassword,
+                    isDeleted: false,
+                    isActive: false,
+                    directionId: directionId || null,
+                    projectId: projectId || null,
+                    phone: clipUserText(phone, MAX_USER_PHONE) ?? existingUser.phone,
+                    jobTitle: clipUserText(jobTitle, MAX_USER_JOB_TITLE) ?? existingUser.jobTitle,
+                    cellUnit: clipUserText(cellUnit, MAX_USER_CELL_UNIT) ?? existingUser.cellUnit,
+                    twoFactorSecret: null,
+                    twoFactorEnabled: false,
+                },
+                select: PUBLIC_USER_SELECT,
+            });
+
+            if (restored.directionId) {
+                await syncDirectionDiscussionMembers(req.prisma, restored.directionId);
+            }
+            if (restored.projectId) {
+                await syncProjectDiscussionMembers(req.prisma, restored.projectId);
+                if (restored.role === ROLES.RESPONSABLE) {
+                    await assignUserAsProjectResponsible(req.prisma, restored.projectId, restored.id);
+                }
+            }
+
+            const activationToken = jwt.sign(
+                { id: restored.id, purpose: 'account_activation' },
+                process.env.JWT_SECRET,
+                { expiresIn: process.env.JWT_ACTIVATION_EXPIRY || '7d' },
+            );
+            const frontendUrl = process.env.FRONTEND_URL || 'http://localhost:5173';
+            const activationUrl = `${frontendUrl}/activate-account?token=${encodeURIComponent(activationToken)}`;
+            await notificationService.sendEmail(emailNorm, 'ACCOUNT_ACTIVATION', [restored, activationUrl, password]);
+            await createAuditLog(req, 'RESTORE_USER', 'User', restored.id, `Compte réactivé pour ${emailNorm}`);
+
+            return res.status(200).json({
+                ...toPublicUser(restored),
+                restored: true,
+                message: 'Un ancien compte avec cet e-mail a été réactivé.',
+            });
         }
 
         const hashedPassword = await bcrypt.hash(password, 12);
@@ -205,7 +268,7 @@ router.post('/', roleMiddleware(ADMIN_ROUTE_ROLES), async (req, res) => {
         const user = await req.prisma.user.create({
             data: {
                 name,
-                email,
+                email: emailNorm,
                 role: storedRole,
                 passwordHash: hashedPassword,
                 isActive: false,
@@ -227,11 +290,11 @@ router.post('/', roleMiddleware(ADMIN_ROUTE_ROLES), async (req, res) => {
             await syncProjectDiscussionMembers(req.prisma, user.projectId);
         }
 
-        logger.info('USER_CREATED', `Utilisateur ${email} créé par admin ${req.user.id}`, {
+        logger.info('USER_CREATED', `Utilisateur ${emailNorm} créé par admin ${req.user.id}`, {
             userId: user.id, adminId: req.user.id,
         });
 
-        await createAuditLog(req, 'CREATE_USER', 'User', user.id, `Utilisateur ${email} créé (en attente d'activation)`);
+        await createAuditLog(req, 'CREATE_USER', 'User', user.id, `Utilisateur ${emailNorm} créé (en attente d'activation)`);
 
         const activationToken = jwt.sign(
             { id: user.id, purpose: 'account_activation' },
@@ -241,7 +304,7 @@ router.post('/', roleMiddleware(ADMIN_ROUTE_ROLES), async (req, res) => {
         const frontendUrl = process.env.FRONTEND_URL || 'http://localhost:5173';
         const activationUrl = `${frontendUrl}/activate-account?token=${encodeURIComponent(activationToken)}`;
 
-        await notificationService.sendEmail(email, 'ACCOUNT_ACTIVATION', [user, activationUrl, password]);
+        await notificationService.sendEmail(emailNorm, 'ACCOUNT_ACTIVATION', [user, activationUrl, password]);
 
         res.json({
             id: user.id,
@@ -256,6 +319,14 @@ router.post('/', roleMiddleware(ADMIN_ROUTE_ROLES), async (req, res) => {
             cellUnit: user.cellUnit || null,
         });
     } catch (error) {
+        if (error?.code === 'P2002') {
+            const conflict = await findUserByEmail(req.prisma, req.body?.email);
+            if (conflict) {
+                return res.status(409).json(
+                    emailConflictPayload(conflict, 'Un utilisateur avec cet email existe déjà'),
+                );
+            }
+        }
         logger.error('CREATE_USER', 'Erreur création utilisateur', { error: error.message });
         res.status(400).json({ error: error.message });
     }
@@ -345,9 +416,26 @@ router.put('/:id', roleMiddleware(ADMIN_ROUTE_ROLES), async (req, res) => {
         const previousRole = targetUser.role;
         const previousDirectionId = targetUser.directionId || null;
         const previousProjectId = targetUser.projectId || null;
+
+        let emailNorm;
+        if (email !== undefined && email !== null && String(email).trim() !== '') {
+            emailNorm = normalizeEmail(email);
+            if (emailNorm !== normalizeEmail(targetUser.email)) {
+                const conflict = await findUserByEmail(req.prisma, emailNorm, { excludeId: targetUser.id });
+                if (conflict) {
+                    return res.status(409).json(
+                        emailConflictPayload(
+                            conflict,
+                            `Cet e-mail est déjà utilisé par ${conflict.name} (${conflict.email})`,
+                        ),
+                    );
+                }
+            }
+        }
+
         const updateData = {
             name: name || undefined,
-            email: email || undefined,
+            email: emailNorm || undefined,
             role: storedRole || undefined,
             directionId: directionId === undefined ? undefined : (directionId || null),
             projectId: projectId === undefined ? undefined : (projectId || null),
@@ -444,6 +532,17 @@ router.put('/:id', roleMiddleware(ADMIN_ROUTE_ROLES), async (req, res) => {
         logger.info('USER_UPDATED', `Utilisateur ${req.params.id} modifié`, { adminId: req.user.id });
         res.json(updated);
     } catch (error) {
+        if (error?.code === 'P2002') {
+            const conflict = await findUserByEmail(req.prisma, req.body?.email, { excludeId: req.params.id });
+            if (conflict) {
+                return res.status(409).json(
+                    emailConflictPayload(
+                        conflict,
+                        `Cet e-mail est déjà utilisé par ${conflict.name} (${conflict.email})`,
+                    ),
+                );
+            }
+        }
         res.status(400).json({ error: error.message });
     }
 });
@@ -633,18 +732,26 @@ router.put('/:id/reset-password', roleMiddleware(ADMIN_ROUTE_ROLES), async (req,
 });
 
 /**
- * DELETE /api/users/:id — Suppression applicative
- * Détache l'utilisateur des projets et libère son e-mail pour recréation depuis le répertoire.
+ * DELETE /api/users/:id — Suppression
+ * - défaut : anonymisation + libération de l'e-mail
+ * - ?permanent=1 : suppression définitive si aucun historique bloquant, sinon anonymisation
  */
 router.delete('/:id', roleMiddleware(ADMIN_ROUTE_ROLES), async (req, res) => {
     try {
         if (req.params.id === req.user.id) {
             return res.status(400).json({ error: 'Vous ne pouvez pas supprimer votre propre compte.' });
         }
-        const target = await req.prisma.user.findUnique({ where: { id: req.params.id } });
-        if (!target || target.isDeleted) return res.status(404).json({ error: 'Utilisateur non trouvé' });
+        const permanent = String(req.query.permanent || '') === '1'
+            || String(req.query.hard || '') === '1'
+            || Boolean(req.body?.permanent);
 
-        if (isPrivilegedAdmin(target.role)) {
+        const target = await req.prisma.user.findUnique({ where: { id: req.params.id } });
+        if (!target) return res.status(404).json({ error: 'Utilisateur non trouvé' });
+        if (target.isDeleted && !permanent) {
+            return res.status(404).json({ error: 'Utilisateur non trouvé' });
+        }
+
+        if (!target.isDeleted && isPrivilegedAdmin(target.role)) {
             const activePrivileged = await req.prisma.user.count({
                 where: {
                     role: { in: [ROLES.ADMIN, ROLES.SUPER_ADMIN] },
@@ -657,17 +764,40 @@ router.delete('/:id', roleMiddleware(ADMIN_ROUTE_ROLES), async (req, res) => {
             }
         }
 
-        const { deletedEmail } = await purgeUserAccount(req.prisma, target);
+        if (permanent) {
+            const result = await deleteUserCompletely(req.prisma, target);
+            await createAuditLog(
+                req,
+                result.hardDeleted ? 'HARD_DELETE_USER' : 'DELETE_USER',
+                'User',
+                req.params.id,
+                result.hardDeleted
+                    ? `Suppression définitive de ${result.originalEmail}`
+                    : `Anonymisation de ${result.originalEmail} (e-mail libéré)`,
+            );
+            return res.json({
+                success: true,
+                ...result,
+                existingUser: result.hardDeleted ? null : undefined,
+            });
+        }
 
+        const { deletedEmail, originalEmail } = await purgeUserAccount(req.prisma, target);
         await createAuditLog(
             req,
             'DELETE_USER',
             'User',
             req.params.id,
-            `Suppression utilisateur ${target.email} (e-mail libéré : ${deletedEmail})`,
+            `Suppression utilisateur ${originalEmail} (e-mail libéré : ${deletedEmail})`,
         );
-        res.json({ success: true, emailReleased: true });
+        res.json({ success: true, emailReleased: true, hardDeleted: false, originalEmail });
     } catch (error) {
+        if (error?.code === 'P2002') {
+            return res.status(409).json({
+                error: 'Impossible de libérer l\'e-mail (conflit unique). Réessayez ou utilisez la suppression définitive (?permanent=1).',
+                code: 'EMAIL_ALREADY_USED',
+            });
+        }
         res.status(400).json({ error: error.message });
     }
 });

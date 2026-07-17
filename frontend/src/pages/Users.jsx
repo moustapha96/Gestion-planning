@@ -22,6 +22,7 @@ import UserAvatar from '../components/UserAvatar';
 import api from '../api/client';
 import { useAuth } from '../context/AuthContext';
 import { isPrivilegedAdmin, ROLES, ROLE_COLORS, roleLabel, normalizeRole } from '../utils/roles';
+import { parseEmailConflictError } from '../utils/emailConflict';
 
 const { Title, Text } = Typography;
 
@@ -92,13 +93,20 @@ export default function Users() {
     const handleCreate = async (values) => {
         setCreateLoading(true);
         try {
-            await api.post('/users', values);
-            message.success('Utilisateur créé — email de bienvenue envoyé');
+            const { data } = await api.post('/users', values);
+            message.success(data?.restored
+                ? 'Ancien compte réactivé — email d\'activation envoyé'
+                : 'Utilisateur créé — email de bienvenue envoyé');
             setCreateModal(false);
             form.resetFields();
             fetchUsers();
         } catch (err) {
-            message.error(err.response?.data?.error || 'Erreur lors de la création');
+            const conflict = parseEmailConflictError(err);
+            if (conflict.existingUser) {
+                Modal.warning({ title: 'E-mail déjà utilisé', content: conflict.message, okText: 'Compris' });
+            } else {
+                message.error(conflict.message || 'Erreur lors de la création');
+            }
         } finally {
             setCreateLoading(false);
         }
@@ -140,7 +148,12 @@ export default function Users() {
             fetchUsers();
         } catch (err) {
             if (err.errorFields) return;
-            message.error(err.response?.data?.error || 'Erreur');
+            const conflict = parseEmailConflictError(err);
+            if (conflict.existingUser) {
+                Modal.warning({ title: 'E-mail déjà utilisé', content: conflict.message, okText: 'Compris' });
+            } else {
+                message.error(conflict.message || 'Erreur');
+            }
         } finally {
             setEditLoading(false);
         }
@@ -187,10 +200,12 @@ export default function Users() {
         }
     };
 
-    const handleDeleteUser = async (userId, userName) => {
+    const handleDeleteUser = async (userId, userName, permanent = false) => {
         try {
-            await api.delete(`/users/${userId}`);
-            message.success(`Utilisateur ${userName} supprimé`);
+            const { data } = await api.delete(`/users/${userId}${permanent ? '?permanent=1' : ''}`);
+            message.success(data?.hardDeleted
+                ? `Utilisateur ${userName} supprimé définitivement`
+                : `Utilisateur ${userName} supprimé`);
             fetchUsers();
         } catch (err) {
             message.error(err.response?.data?.error || 'Erreur suppression');
@@ -324,15 +339,29 @@ export default function Users() {
                             </Popconfirm>
                             {/* Soft-delete — CDC §3.9.1 */}
                             <Popconfirm
-                                title={`Supprimer définitivement ${record.name} ?`}
-                                description="Le compte sera supprimé, détaché de tous les projets et son e-mail sera libéré pour recréer un compte depuis le répertoire."
-                                onConfirm={() => handleDeleteUser(record.id, record.name)}
+                                title={`Supprimer ${record.name} ?`}
+                                description="Libère l'e-mail. Pour une suppression totale, utilisez « Définitive »."
+                                onConfirm={() => handleDeleteUser(record.id, record.name, false)}
                                 okText="Supprimer"
                                 okButtonProps={{ danger: true }}
                                 cancelText="Annuler"
                             >
                                 <Tooltip title="Supprimer le compte">
                                     <Button size="small" danger icon={<DeleteOutlined />} />
+                                </Tooltip>
+                            </Popconfirm>
+                            <Popconfirm
+                                title={`Suppression définitive de ${record.name} ?`}
+                                description="Efface le compte s'il n'a pas d'historique bloquant."
+                                onConfirm={() => handleDeleteUser(record.id, record.name, true)}
+                                okText="Définitive"
+                                okButtonProps={{ danger: true }}
+                                cancelText="Annuler"
+                            >
+                                <Tooltip title="Suppression définitive">
+                                    <Button size="small" danger type="link" style={{ padding: 0, fontSize: 11 }}>
+                                        Définitive
+                                    </Button>
                                 </Tooltip>
                             </Popconfirm>
                         </>

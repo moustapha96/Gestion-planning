@@ -15,6 +15,7 @@ import { useAuth } from '../context/AuthContext';
 import api from '../api/client';
 import { canAccessRepertoire, canManageRepertoire } from '../utils/roles';
 import { exportRepertoirePdf, downloadRepertoireDocx } from '../utils/repertoireExport';
+import { parseEmailConflictError } from '../utils/emailConflict';
 
 const { Title, Text } = Typography;
 
@@ -207,11 +208,13 @@ export default function Repertoire() {
     try {
       const values = await accountForm.validateFields();
       setAccountSaving(true);
-      await api.post(`/repertoire/${accountTarget.id}/create-account`, {
+      const { data } = await api.post(`/repertoire/${accountTarget.id}/create-account`, {
         password: values.password,
         role: values.role,
       });
-      msg.success('Compte créé — e-mail d\'activation envoyé à l\'adresse du répertoire');
+      msg.success(data?.restored
+        ? 'Ancien compte réactivé — e-mail d\'activation envoyé'
+        : 'Compte créé — e-mail d\'activation envoyé à l\'adresse du répertoire');
       setAccountModalOpen(false);
       setAccountTarget(null);
       accountForm.resetFields();
@@ -219,7 +222,38 @@ export default function Repertoire() {
       if (err?.errorFields) {
         return Promise.reject(err);
       }
-      msg.error(err.response?.data?.error || 'Erreur lors de la création du compte');
+      const conflict = parseEmailConflictError(err);
+      if (conflict.existingUser) {
+        Modal.confirm({
+          title: 'E-mail déjà utilisé',
+          content: (
+            <div>
+              <p>{conflict.message}</p>
+              {conflict.canHardDelete && (
+                <p style={{ marginTop: 8 }}>
+                  Vous pouvez supprimer définitivement ce compte pour libérer l&apos;e-mail, puis réessayer.
+                </p>
+              )}
+            </div>
+          ),
+          okText: conflict.canHardDelete ? 'Supprimer définitivement le compte' : 'Compris',
+          okButtonProps: conflict.canHardDelete ? { danger: true } : undefined,
+          cancelText: 'Annuler',
+          onOk: conflict.canHardDelete
+            ? async () => {
+                try {
+                  await api.delete(`/users/${conflict.existingUser.id}?permanent=1`);
+                  msg.success('Compte supprimé — vous pouvez recréer le compte depuis le répertoire');
+                } catch (delErr) {
+                  msg.error(delErr.response?.data?.error || 'Suppression impossible');
+                  return Promise.reject(delErr);
+                }
+              }
+            : undefined,
+        });
+      } else {
+        msg.error(conflict.message || 'Erreur lors de la création du compte');
+      }
     } finally {
       setAccountSaving(false);
     }

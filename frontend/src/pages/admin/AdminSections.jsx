@@ -25,6 +25,7 @@ import {
     ROLE_LABELS as SHARED_ROLE_LABELS,
     ROLES,
 } from '../../utils/roles';
+import { parseEmailConflictError } from '../../utils/emailConflict';
 
 const { Title, Text, Paragraph } = Typography;
 export const ROLE_COLORS = {
@@ -143,13 +144,24 @@ export function UsersTab() {
     const handleCreate = async (values) => {
         setCreateLoading(true);
         try {
-            await api.post('/users', values);
-            message.success('Utilisateur créé — email d\'activation envoyé');
+            const { data } = await api.post('/users', values);
+            message.success(data?.restored
+                ? 'Ancien compte réactivé — email d\'activation envoyé'
+                : 'Utilisateur créé — email d\'activation envoyé');
             setCreateModal(false);
             form.resetFields();
             fetchUsers();
         } catch (err) {
-            message.error(err.response?.data?.error || 'Erreur lors de la création');
+            const conflict = parseEmailConflictError(err);
+            if (conflict.existingUser) {
+                Modal.warning({
+                    title: 'E-mail déjà utilisé',
+                    content: conflict.message,
+                    okText: 'Compris',
+                });
+            } else {
+                message.error(conflict.message || 'Erreur lors de la création');
+            }
         } finally {
             setCreateLoading(false);
         }
@@ -211,7 +223,16 @@ export function UsersTab() {
             fetchUsers();
         } catch (err) {
             if (err.errorFields) return;
-            message.error(err.response?.data?.error || 'Erreur');
+            const conflict = parseEmailConflictError(err);
+            if (conflict.existingUser) {
+                Modal.warning({
+                    title: 'E-mail déjà utilisé',
+                    content: conflict.message,
+                    okText: 'Compris',
+                });
+            } else {
+                message.error(conflict.message || 'Erreur');
+            }
         } finally {
             setEditLoading(false);
         }
@@ -229,11 +250,18 @@ export function UsersTab() {
         }
     };
 
-    const handleDelete = async (userId, email) => {
+    const handleDelete = async (userId, email, permanent = false) => {
         setDeleteId(userId);
         try {
-            await api.delete(`/users/${userId}`);
-            message.success(`Utilisateur ${email} supprimé — e-mail libéré`);
+            const { data } = await api.delete(`/users/${userId}${permanent ? '?permanent=1' : ''}`);
+            if (data?.hardDeleted) {
+                message.success(`Utilisateur ${email} supprimé définitivement`);
+            } else {
+                message.success(
+                    data?.reason
+                        || `Utilisateur ${email} supprimé — e-mail libéré`,
+                );
+            }
             fetchUsers();
         } catch (err) {
             message.error(err.response?.data?.error || 'Erreur');
@@ -330,14 +358,28 @@ export function UsersTab() {
                     {record.id !== currentUser?.id && (
                         <Popconfirm
                             title="Supprimer cet utilisateur ?"
-                            description="Le compte sera détaché des projets et son e-mail libéré pour une recréation depuis le répertoire."
-                            onConfirm={() => handleDelete(record.id, record.email)}
+                            description="Libère l'e-mail pour une recréation. Utilisez « définitive » s'il n'a pas d'historique bloquant."
+                            onConfirm={() => handleDelete(record.id, record.email, false)}
                             okText="Supprimer"
                             cancelText="Annuler"
                             okButtonProps={{ danger: true, loading: deleteId === record.id }}
                         >
                             <Tooltip title="Supprimer le compte">
                                 <Button size="small" danger type="text" icon={<DeleteOutlined />} loading={deleteId === record.id} />
+                            </Tooltip>
+                        </Popconfirm>
+                        <Popconfirm
+                            title="Suppression définitive ?"
+                            description="Efface le compte si possible. Sinon anonymise et libère l'e-mail."
+                            onConfirm={() => handleDelete(record.id, record.email, true)}
+                            okText="Définitive"
+                            cancelText="Annuler"
+                            okButtonProps={{ danger: true, loading: deleteId === record.id }}
+                        >
+                            <Tooltip title="Suppression définitive">
+                                <Button size="small" danger type="link" style={{ padding: 0, fontSize: 11 }}>
+                                    Définitive
+                                </Button>
                             </Tooltip>
                         </Popconfirm>
                     )}
@@ -479,14 +521,26 @@ export function UsersTab() {
                                         {record.id !== currentUser?.id && (
                                             <Popconfirm
                                                 title="Supprimer cet utilisateur ?"
-                                                description="Le compte sera détaché des projets et son e-mail libéré pour une recréation depuis le répertoire."
-                                                onConfirm={() => handleDelete(record.id, record.email)}
+                                                description="Libère l'e-mail pour une recréation."
+                                                onConfirm={() => handleDelete(record.id, record.email, false)}
                                                 okText="Supprimer"
                                                 cancelText="Annuler"
                                                 okButtonProps={{ danger: true, loading: deleteId === record.id }}
                                             >
                                                 <Button size="small" danger icon={<DeleteOutlined />} loading={deleteId === record.id}>
                                                     Supprimer
+                                                </Button>
+                                            </Popconfirm>
+                                            <Popconfirm
+                                                title="Suppression définitive ?"
+                                                description="Efface le compte si possible, sinon anonymise."
+                                                onConfirm={() => handleDelete(record.id, record.email, true)}
+                                                okText="Définitive"
+                                                cancelText="Annuler"
+                                                okButtonProps={{ danger: true, loading: deleteId === record.id }}
+                                            >
+                                                <Button size="small" danger>
+                                                    Définitive
                                                 </Button>
                                             </Popconfirm>
                                         )}
