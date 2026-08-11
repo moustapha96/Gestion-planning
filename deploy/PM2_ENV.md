@@ -65,6 +65,29 @@ Le frontend peut rester en **systemd** (`gestion-planning-frontend`) ou être se
 
 Configuration PM2 : `backend/ecosystem.config.cjs` (logs dans `backend/logs/pm2-*.log`).
 
+### Démarrage automatique au boot
+
+```bash
+cd /var/www/gpadm
+chmod +x deploy/scripts/setup-pm2-startup-gpadm.sh
+sudo ./deploy/scripts/setup-pm2-startup-gpadm.sh
+```
+
+Ce script est idempotent (relançable sans risque) et corrige automatiquement les pièges rencontrés en prod :
+
+- détecte le vrai `$HOME` de `gpadm` via `getent passwd` au lieu de supposer `/home/gpadm` (ici c'est `/var/www/gpadm`) ;
+- remet `~/.pm2` à `gpadm:gpadm` si des commandes `pm2`/`sudo` ont été lancées par erreur en `root` (cause d'erreurs `EACCES`) ;
+- supprime et régénère proprement l'unité `pm2-gpadm.service` plutôt que de la modifier en place ;
+- fait le `systemctl daemon-reload` requis après toute modification de l'unité.
+
+Vérification :
+
+```bash
+sudo systemctl status pm2-gpadm
+```
+
+Doit afficher `enabled` + `active (running)`. En cas d'échec : `sudo journalctl -xeu pm2-gpadm --no-pager -n 50`.
+
 ---
 
 ## 3. Mise à jour applicative (code + env + PM2)
