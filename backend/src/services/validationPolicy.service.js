@@ -10,7 +10,7 @@ function isGlobalConsolidatorRole(user) {
 
 function normalizeRole(role) {
     if (role === 'COORDINATEUR_PROJET') return ROLES.COORDINATEUR;
-    if (role === 'SECRETAIRE_GENERAL' || role === 'DG') return ROLES.ADMIN;
+    if (role === 'SECRETAIRE_GENERAL') return ROLES.ADMIN;
     return role;
 }
 

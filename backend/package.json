@@ -12,7 +12,8 @@
         "db:seed": "node prisma/seed.js",
         "db:seed-side-accounts": "node prisma/seed-test-accounts.js",
         "db:promote-super-admin": "node scripts/promote-super-admin.js",
-        "db:reset": "prisma migrate reset --force"
+        "db:reset": "prisma migrate reset --force",
+    "test": "node --test src/config/__tests__ src/services/__tests__"
     },
     "keywords": [],
     "author": "",

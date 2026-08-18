@@ -1,4 +1,4 @@
-const { ROLES, isPrivilegedAdmin } = require('../config/roles');
+const { ROLES, isPrivilegedAdmin, normalizeStoredRole } = require('../config/roles');
 const { isPendingConsolidatorValidation } = require('../config/planningWorkflow');
 const { resolveUserFunctionalCapabilities } = require('./roleConfig.service');
 
@@ -286,6 +286,7 @@ async function buildConsolidatorPendingScope(prisma, user) {
 async function userCanAccessValidationMenuExtended(prisma, user) {
     if (!user?.id) return false;
     if (isPrivilegedAdmin(user.role)) return true;
+    if (normalizeStoredRole(user.role) === ROLES.DG) return true;
     if (isGlobalConsolidatorRole(user)) return true;
     if (await userIsDirectionConsolidatorCandidate(prisma, user)) return true;
 

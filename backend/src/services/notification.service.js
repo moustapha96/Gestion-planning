@@ -483,6 +483,98 @@ const emailTemplates = {
         };
     },
 
+    MEETING_PENDING_DIRECTOR: (director, meeting, creator, direction, urls = {}) => {
+        const { startDate, startTime, endTime } = formatMeetingWhen(meeting);
+        const durationMin = Math.round((new Date(meeting.endTime) - new Date(meeting.startTime)) / 60000);
+        const participants = (meeting.invitations || [])
+            .map((inv) => inv.user?.name || inv.user?.email)
+            .filter(Boolean)
+            .join(', ') || '—';
+        return {
+            subject: `Validation DG — Réunion : ${meeting.title}`,
+            html: emailFrame(`
+          <p>Bonjour ${userDisplayName(director)},</p>
+          <p><strong>${userDisplayName(creator)}</strong> (Assistant) a soumis une réunion pour la direction <strong>${direction?.name || '—'}</strong>.</p>
+          ${emailInfoBox(`
+            <h3 style="margin: 0 0 10px 0;">${meeting.title}</h3>
+            <p style="margin: 4px 0;"><strong>📅 Date :</strong> ${startDate}</p>
+            <p style="margin: 4px 0;"><strong>🕐 Heure :</strong> ${startTime} – ${endTime} (${durationMin} min)</p>
+            <p style="margin: 4px 0;"><strong>📍 Salle :</strong> ${meeting.room?.name || meetingPlace(meeting, meeting.room) || '—'}</p>
+            <p style="margin: 4px 0;"><strong>🔗 Visio :</strong> ${meeting.meetingLink || '—'}</p>
+            <p style="margin: 4px 0;"><strong>👥 Participants :</strong> ${participants}</p>
+          `)}
+          ${urls.approveUrl ? emailCta(urls.approveUrl, 'Valider') : ''}
+          ${urls.rejectUrl ? emailCta(urls.rejectUrl, 'Refuser') : ''}
+          ${emailCta(urls.appUrl || appUrl('/a-valider'), 'Ouvrir l\'application')}
+        `),
+        };
+    },
+
+    MISSION_PENDING_DIRECTOR: (director, mission, creator, direction, urls = {}) => {
+        const start = new Date(mission.startTime).toLocaleString('fr-FR');
+        const end = new Date(mission.endTime).toLocaleString('fr-FR');
+        const assignees = (mission.assignments || [])
+            .map((a) => a.user?.name || a.user?.email)
+            .filter(Boolean)
+            .join(', ') || '—';
+        return {
+            subject: `Validation DG — Mission : ${mission.title}`,
+            html: emailFrame(`
+          <p>Bonjour ${userDisplayName(director)},</p>
+          <p><strong>${userDisplayName(creator)}</strong> (Assistant) a soumis une mission pour la direction <strong>${direction?.name || '—'}</strong>.</p>
+          ${emailInfoBox(`
+            <h3 style="margin: 0 0 10px 0;">${mission.title}</h3>
+            <p style="margin: 4px 0;">${mission.description || ''}</p>
+            <p style="margin: 4px 0;"><strong>📅 Début :</strong> ${start}</p>
+            <p style="margin: 4px 0;"><strong>📅 Fin :</strong> ${end}</p>
+            <p style="margin: 4px 0;"><strong>📍 Lieu :</strong> ${mission.location || '—'}</p>
+            <p style="margin: 4px 0;"><strong>👥 Affectations :</strong> ${assignees}</p>
+          `)}
+          ${urls.approveUrl ? emailCta(urls.approveUrl, 'Valider') : ''}
+          ${urls.rejectUrl ? emailCta(urls.rejectUrl, 'Refuser') : ''}
+          ${emailCta(urls.appUrl || appUrl('/a-valider'), 'Ouvrir l\'application')}
+        `),
+        };
+    },
+
+    MEETING_DIRECTOR_APPROVED: (assistant, meeting, actor) => ({
+        subject: `Réunion validée par le DG : ${meeting.title}`,
+        html: emailFrame(`
+          <p>Bonjour ${userDisplayName(assistant)},</p>
+          <p>Votre réunion <strong>« ${meeting.title} »</strong> a été <strong>validée</strong> par ${userDisplayName(actor)}.</p>
+          ${emailCta(appUrl(`/meetings/${meeting.id}`), 'Voir la réunion')}
+        `),
+    }),
+
+    MEETING_DIRECTOR_REJECTED: (assistant, meeting, actor, reason) => ({
+        subject: `Réunion refusée par le DG : ${meeting.title}`,
+        html: emailFrame(`
+          <p>Bonjour ${userDisplayName(assistant)},</p>
+          <p>Votre réunion <strong>« ${meeting.title} »</strong> a été <strong>refusée</strong> par ${userDisplayName(actor)}.</p>
+          ${emailInfoBox(`<p style="margin:0;"><strong>Motif :</strong> ${reason || '—'}</p>`, '#ffebee', '#f44336')}
+          ${emailCta(appUrl(`/meetings/${meeting.id}`), 'Voir la réunion')}
+        `),
+    }),
+
+    MISSION_DIRECTOR_APPROVED: (assistant, mission, actor) => ({
+        subject: `Mission validée par le DG : ${mission.title}`,
+        html: emailFrame(`
+          <p>Bonjour ${userDisplayName(assistant)},</p>
+          <p>Votre mission <strong>« ${mission.title} »</strong> a été <strong>validée</strong> par ${userDisplayName(actor)}.</p>
+          ${emailCta(appUrl(`/missions/${mission.id}`), 'Voir la mission')}
+        `),
+    }),
+
+    MISSION_DIRECTOR_REJECTED: (assistant, mission, actor, reason) => ({
+        subject: `Mission refusée par le DG : ${mission.title}`,
+        html: emailFrame(`
+          <p>Bonjour ${userDisplayName(assistant)},</p>
+          <p>Votre mission <strong>« ${mission.title} »</strong> a été <strong>refusée</strong> par ${userDisplayName(actor)}.</p>
+          ${emailInfoBox(`<p style="margin:0;"><strong>Motif :</strong> ${reason || '—'}</p>`, '#ffebee', '#f44336')}
+          ${emailCta(appUrl(`/missions/${mission.id}`), 'Voir la mission')}
+        `),
+    }),
+
     /** Consolidateur : réunion — étape 2 (après validation coordinateur). */
     MEETING_PENDING_APPROVAL: (consolidator, meeting, organizer, room, context = {}) => {
         const { startDate, startTime, endTime } = formatMeetingWhen(meeting);

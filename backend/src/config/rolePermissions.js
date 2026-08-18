@@ -17,8 +17,19 @@ const ROLE_PERMISSIONS = {
         'Valider les réunions en brouillon des responsables (consolidateur de projet ou rôle global)',
         'Voir tous les plannings et missions',
     ],
+    [ROLES.DG]: [
+        'Valider ou refuser les missions et réunions créées par les Assistants de sa Direction',
+        'Consulter les demandes de sa Direction uniquement',
+        'Recevoir les notifications et emails de validation',
+    ],
+    [ROLES.ASSISTANT]: [
+        'Créer des missions et réunions pour sa Direction',
+        'Suivre le statut de ses demandes (attente, validée, refusée)',
+        'Modifier ses demandes encore en attente de validation du DG',
+    ],
     [ROLES.ADMIN]: [
         'Administration complète (utilisateurs, salles, types d\'événements, configuration)',
+        'Gérer les Directions, affecter le DG et les Assistants',
         'Gérer les projets (consolidateur + coordinateur par projet)',
         'Configuration rôles ↔ directions et élévation SG/DG (Direction générale)',
         'Valider / retourner les plannings (y compris court-circuit)',
@@ -34,6 +45,8 @@ const ROLE_LABELS = {
     [ROLES.RESPONSABLE]: 'Responsable',
     [ROLES.COORDINATEUR]: 'Coordinateur',
     [ROLES.CONSOLIDATEUR]: 'Consolidateur',
+    [ROLES.DG]: 'Directeur général',
+    [ROLES.ASSISTANT]: 'Assistant',
     [ROLES.ADMIN]: 'Administrateur',
     [ROLES.SUPER_ADMIN]: 'Super administrateur',
 };

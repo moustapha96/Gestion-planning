@@ -20,6 +20,12 @@ const {
     projectsFilterWhereForUser,
 } = require('../services/projectResponsible.service');
 const { parseUtcDate, utcEndOfDay } = require('../utils/dateUtc');
+const {
+    assignDirector,
+    removeDirector,
+    assignAssistant,
+    removeAssistant,
+} = require('../services/directorAttachment.service');
 
 const PROJECT_TAXONOMY_INCLUDE = {
     ...PROJECT_RESPONSIBLE_INCLUDE,
@@ -212,7 +218,7 @@ router.get('/unified', async (req, res) => {
                 where: {
                     ...missionOwnScope,
                     ...(from || to ? { startTime: { ...(from ? { gte: from } : {}), ...(to ? { lte: to } : {}) } } : {}),
-                    status: 'CONFIRMED',
+                    status: { in: ['CONFIRMED', 'APPROVED', 'AUTO_APPROVED'] },
                     ...(directionId ? { directionId } : {}),
                     ...(projectId ? { projectId } : {}),
                 },
@@ -413,6 +419,15 @@ router.post('/directions', async (req, res) => {
         const created = await req.prisma.direction.create({
             data: { name, code, logoUrl, description, isActive: true },
         });
+        await req.prisma.auditLog.create({
+            data: {
+                userId: req.user?.id || null,
+                action: 'DIRECTION_CREATED',
+                entity: 'Direction',
+                entityId: created.id,
+                details: `Direction « ${created.name} » créée`,
+            },
+        });
         res.status(201).json(created);
     } catch (error) {
         res.status(400).json({ error: error.message });
@@ -445,6 +460,11 @@ router.get('/directions/:id', async (req, res) => {
         const direction = await req.prisma.direction.findUnique({
             where: { id: req.params.id },
             include: {
+                director: {
+                    select: {
+                        id: true, name: true, email: true, role: true, isActive: true, avatarUrl: true,
+                    },
+                },
                 users: {
                     where: { isDeleted: false },
                     select: {
@@ -461,7 +481,10 @@ router.get('/directions/:id', async (req, res) => {
             },
         });
         if (!direction) return res.status(404).json({ error: 'Direction introuvable.' });
-        return res.json(direction);
+        return res.json({
+            ...direction,
+            assistants: direction.users.filter((u) => u.role === 'ASSISTANT'),
+        });
     } catch (error) {
         return res.status(400).json({ error: error.message });
     }
@@ -529,6 +552,13 @@ router.get('/taxonomy', async (req, res) => {
         const [directions, projects, eventTypes] = await Promise.all([
             req.prisma.direction.findMany({
                 where: includeInactive ? {} : { isActive: true },
+                include: {
+                    director: { select: { id: true, name: true, email: true, role: true } },
+                    users: {
+                        where: { isDeleted: false, role: 'ASSISTANT' },
+                        select: { id: true },
+                    },
+                },
                 orderBy: { name: 'asc' },
             }),
             req.prisma.project.findMany({
@@ -542,7 +572,14 @@ router.get('/taxonomy', async (req, res) => {
                 select: { id: true, name: true, code: true, color: true, sortOrder: true, isActive: true },
             }),
         ]);
-        res.json({ directions, projects, eventTypes });
+        res.json({
+            directions: directions.map(({ users: assistantUsers, ...d }) => ({
+                ...d,
+                assistantCount: Array.isArray(assistantUsers) ? assistantUsers.length : 0,
+            })),
+            projects,
+            eventTypes,
+        });
     } catch (error) {
         res.status(500).json({ error: error.message });
     }
@@ -572,6 +609,15 @@ router.put('/directions/:id', async (req, res) => {
         if (isActive !== undefined) data.isActive = isActive;
         const updated = await req.prisma.direction.update({ where: { id: req.params.id }, data });
         await syncDirectionDiscussionMembers(req.prisma, updated.id);
+        await req.prisma.auditLog.create({
+            data: {
+                userId: req.user?.id || null,
+                action: isActive === false ? 'DIRECTION_DEACTIVATED' : 'DIRECTION_UPDATED',
+                entity: 'Direction',
+                entityId: updated.id,
+                details: `Direction « ${updated.name} » ${isActive === false ? 'désactivée' : 'mise à jour'}`,
+            },
+        });
         res.json(updated);
     } catch (error) {
         res.status(400).json({ error: error.message });
@@ -664,6 +710,110 @@ router.delete('/projects/:id', async (req, res) => {
         res.json({ success: true });
     } catch (error) {
         res.status(400).json({ error: error.message });
+    }
+});
+
+router.post('/directions/:id/dg', async (req, res) => {
+    try {
+        if (!canManageDirections(req.user?.role)) {
+            return res.status(403).json({ error: 'Accès réservé à l\'administration.' });
+        }
+        const userId = String(req.body?.userId || '').trim();
+        if (!userId) return res.status(400).json({ error: 'userId requis.' });
+        const result = await assignDirector(req.prisma, req.params.id, userId, {
+            actorId: req.user.id,
+            replaceExisting: Boolean(req.body?.replace),
+        });
+        await req.prisma.auditLog.create({
+            data: {
+                userId: req.user.id,
+                action: result.action,
+                entity: 'Direction',
+                entityId: req.params.id,
+                details: `DG ${userId} affecté`,
+            },
+        });
+        await syncDirectionDiscussionMembers(req.prisma, req.params.id);
+        const direction = await req.prisma.direction.findUnique({
+            where: { id: req.params.id },
+            include: { director: { select: { id: true, name: true, email: true, role: true } } },
+        });
+        res.json(direction);
+    } catch (error) {
+        res.status(error.statusCode || 400).json({ error: error.message });
+    }
+});
+
+router.delete('/directions/:id/dg', async (req, res) => {
+    try {
+        if (!canManageDirections(req.user?.role)) {
+            return res.status(403).json({ error: 'Accès réservé à l\'administration.' });
+        }
+        const result = await removeDirector(req.prisma, req.params.id, { actorId: req.user.id });
+        await req.prisma.auditLog.create({
+            data: {
+                userId: req.user.id,
+                action: result.action,
+                entity: 'Direction',
+                entityId: req.params.id,
+                details: result.userId ? `DG ${result.userId} retiré` : 'Aucun DG à retirer',
+            },
+        });
+        await syncDirectionDiscussionMembers(req.prisma, req.params.id);
+        res.json({ success: true });
+    } catch (error) {
+        res.status(error.statusCode || 400).json({ error: error.message });
+    }
+});
+
+router.post('/directions/:id/assistants', async (req, res) => {
+    try {
+        if (!canManageDirections(req.user?.role)) {
+            return res.status(403).json({ error: 'Accès réservé à l\'administration.' });
+        }
+        const userId = String(req.body?.userId || '').trim();
+        if (!userId) return res.status(400).json({ error: 'userId requis.' });
+        const result = await assignAssistant(req.prisma, req.params.id, userId, {
+            actorId: req.user.id,
+            replaceExisting: Boolean(req.body?.replace),
+        });
+        await req.prisma.auditLog.create({
+            data: {
+                userId: req.user.id,
+                action: result.action,
+                entity: 'Direction',
+                entityId: req.params.id,
+                details: `Assistant ${userId} affecté`,
+            },
+        });
+        await syncDirectionDiscussionMembers(req.prisma, req.params.id);
+        res.status(201).json({ success: true });
+    } catch (error) {
+        res.status(error.statusCode || 400).json({ error: error.message });
+    }
+});
+
+router.delete('/directions/:id/assistants/:userId', async (req, res) => {
+    try {
+        if (!canManageDirections(req.user?.role)) {
+            return res.status(403).json({ error: 'Accès réservé à l\'administration.' });
+        }
+        const result = await removeAssistant(req.prisma, req.params.id, req.params.userId, {
+            actorId: req.user.id,
+        });
+        await req.prisma.auditLog.create({
+            data: {
+                userId: req.user.id,
+                action: result.action,
+                entity: 'Direction',
+                entityId: req.params.id,
+                details: `Assistant ${req.params.userId} retiré`,
+            },
+        });
+        await syncDirectionDiscussionMembers(req.prisma, req.params.id);
+        res.json({ success: true });
+    } catch (error) {
+        res.status(error.statusCode || 400).json({ error: error.message });
     }
 });
 

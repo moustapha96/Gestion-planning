@@ -265,7 +265,25 @@ export default function AdminTaxonomyPage({ variant }) {
             width: 120,
             render: (v) => v || '—',
         },
-        ...(!isDirections ? [{
+        ...(isDirections ? [{
+            title: 'DG',
+            key: 'director',
+            width: 180,
+            render: (_, record) => {
+                const d = record.director;
+                if (!d) return <Text type="secondary">Aucun</Text>;
+                return (
+                    <Tooltip title={d.email}>
+                        <Text>{d.name}</Text>
+                    </Tooltip>
+                );
+            },
+        }, {
+            title: 'Assistants',
+            key: 'assistants',
+            width: 110,
+            render: (_, record) => record.assistantCount ?? record.assistants?.length ?? 0,
+        }] : [{
             title: 'Consolidateur',
             key: 'consolidator',
             width: 180,
@@ -278,7 +296,7 @@ export default function AdminTaxonomyPage({ variant }) {
                     </Tooltip>
                 );
             },
-        }] : []),
+        }]),
         {
             title: 'Description',
             dataIndex: 'description',

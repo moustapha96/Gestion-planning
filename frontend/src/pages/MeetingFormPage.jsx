@@ -8,6 +8,7 @@ import dayjs from 'dayjs';
 import api from '../api/client';
 import { toUtcIso } from '../utils/datetime';
 import { useAuth } from '../context/AuthContext';
+import { isAssistant } from '../utils/roles';
 import ResponsibleProjectField, { ResponsibleProjectBanner } from '../components/ResponsibleProjectField';
 import { applyDefaultProjectToForm, useResponsibleProjectScope } from '../hooks/useResponsibleProjectScope';
 
@@ -134,6 +135,12 @@ export default function MeetingFormPage() {
             applyDefaultProjectToForm(form, defaultProjectId);
         }
     }, [isEdit, defaultProjectId, form]);
+
+    useEffect(() => {
+        if (!isEdit && isAssistant(user?.role) && user?.directionId) {
+            form.setFieldsValue({ directionId: user.directionId });
+        }
+    }, [isEdit, user?.role, user?.directionId, form]);
 
     const roomSelectOptions = useMemo(
         () => mergeRoomOptions({
@@ -365,8 +372,12 @@ export default function MeetingFormPage() {
                     </Form.Item>
                     <Row gutter={16}>
                         <Col xs={24} sm={12}>
-                            <Form.Item name="directionId" label="Direction (optionnel)">
-                                <Select allowClear options={directions.map((d) => ({ value: d.id, label: d.code ? `${d.name} (${d.code})` : d.name }))} />
+                            <Form.Item name="directionId" label={isAssistant(user?.role) ? 'Direction' : 'Direction (optionnel)'}>
+                                <Select
+                                    allowClear={!isAssistant(user?.role)}
+                                    disabled={isAssistant(user?.role)}
+                                    options={directions.map((d) => ({ value: d.id, label: d.code ? `${d.name} (${d.code})` : d.name }))}
+                                />
                             </Form.Item>
                         </Col>
                         <Col xs={24} sm={12}>

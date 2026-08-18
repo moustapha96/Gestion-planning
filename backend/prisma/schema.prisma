@@ -61,6 +61,11 @@ model User {
   projectsAsConsolidator Project[] @relation("ProjectConsolidator")
   projectsAsCoordinator  Project[] @relation("ProjectCoordinator")
   projectsAsResponsible  Project[] @relation("ProjectResponsible")
+  directedDirection      Direction? @relation("DirectionDirector")
+  meetingsApproved       Meeting[] @relation("MeetingApprovedBy")
+  meetingsRejected       Meeting[] @relation("MeetingRejectedBy")
+  missionsApproved       Mission[] @relation("MissionApprovedBy")
+  missionsRejected       Mission[] @relation("MissionRejectedBy")
 
   @@index([directionId])
   @@index([projectId])
@@ -217,8 +222,16 @@ model Meeting {
   attachments        String?
   createdAt          DateTime  @default(now())
   updatedAt          DateTime  @updatedAt
+  createdByRole      String?
+  approvedById       String?
+  approvedAt         DateTime?
+  rejectedById       String?
+  rejectedAt         DateTime?
+  rejectionReason    String?
 
   organizer          User      @relation("organizer", fields: [organizerId], references: [id])
+  approvedBy         User?     @relation("MeetingApprovedBy", fields: [approvedById], references: [id], onDelete: SetNull)
+  rejectedBy         User?     @relation("MeetingRejectedBy", fields: [rejectedById], references: [id], onDelete: SetNull)
   room               Room?     @relation(fields: [roomId], references: [id])
   direction          Direction? @relation(fields: [directionId], references: [id])
   project            Project?   @relation(fields: [projectId], references: [id])
@@ -231,6 +244,9 @@ model Meeting {
   @@index([directionId])
   @@index([projectId])
   @@index([eventTypeId])
+  @@index([status])
+  @@index([approvedById])
+  @@index([rejectedById])
 }
 
 model MeetingFile {
@@ -348,8 +364,16 @@ model Mission {
   status       String    @default("DRAFT")
   createdAt    DateTime  @default(now())
   updatedAt    DateTime  @updatedAt
+  createdByRole String?
+  approvedById  String?
+  approvedAt    DateTime?
+  rejectedById  String?
+  rejectedAt    DateTime?
+  rejectionReason String?
 
   createdBy    User      @relation("MissionsCreated", fields: [createdById], references: [id])
+  approvedBy   User?     @relation("MissionApprovedBy", fields: [approvedById], references: [id], onDelete: SetNull)
+  rejectedBy   User?     @relation("MissionRejectedBy", fields: [rejectedById], references: [id], onDelete: SetNull)
   direction    Direction? @relation(fields: [directionId], references: [id])
   project      Project?   @relation(fields: [projectId], references: [id])
   assignments  MissionAssignment[]
@@ -357,6 +381,9 @@ model Mission {
 
   @@index([directionId])
   @@index([projectId])
+  @@index([status])
+  @@index([approvedById])
+  @@index([rejectedById])
 }
 
 model MissionFile {
@@ -404,16 +431,20 @@ model Direction {
   isActive      Boolean        @default(true)
   createdAt     DateTime       @default(now())
   updatedAt     DateTime       @updatedAt
+  /// DG unique de la direction (un utilisateur ne peut diriger qu'une seule direction)
+  directorId    String?        @unique
 
   meetings      Meeting[]
   missions      Mission[]
   planningEvents PlanningEvent[]
   users         User[]           @relation("DirectionMembers")
+  director      User?          @relation("DirectionDirector", fields: [directorId], references: [id], onDelete: SetNull)
   messages      DirectionMessage[]
   discussion    DirectionDiscussion?
   roleDirectionRules RoleDirectionRule[]
 
   @@unique([name])
+  @@index([directorId])
 }
 
 model DirectionMessage {

@@ -22,6 +22,8 @@ const ASSIGNABLE_ROLES = [
     ROLES.RESPONSABLE,
     ROLES.COORDINATEUR,
     ROLES.CONSOLIDATEUR,
+    ROLES.DG,
+    ROLES.ASSISTANT,
     ROLES.ADMIN,
 ];
 
@@ -204,6 +206,7 @@ async function resolveEffectiveRole(prisma, user) {
     const stored = normalizeStoredRole(user?.role);
     if (stored === ROLES.SUPER_ADMIN) return ROLES.SUPER_ADMIN;
     if (stored === ROLES.ADMIN) return ROLES.ADMIN;
+    if (stored === ROLES.DG || stored === ROLES.ASSISTANT) return stored;
     const caps = await resolveUserFunctionalCapabilities(prisma, user);
     if (caps.elevatedAdmin) return ROLES.ADMIN;
     return stored;
@@ -253,6 +256,8 @@ async function getRoleDirectionRules(prisma) {
         [ROLES.RESPONSABLE]: [],
         [ROLES.COORDINATEUR]: [],
         [ROLES.CONSOLIDATEUR]: [],
+        [ROLES.DG]: [],
+        [ROLES.ASSISTANT]: [],
         [ROLES.ADMIN]: [],
     };
     for (const row of rows) {
@@ -311,6 +316,9 @@ async function validateUserRoleForDirection(prisma, role, directionId, jobTitle)
     const normalized = normalizeStoredRole(role);
     if (!ASSIGNABLE_ROLES.includes(normalized) && normalized !== ROLES.SUPER_ADMIN) {
         return { ok: false, error: 'Rôle invalide.' };
+    }
+    if ((normalized === ROLES.DG || normalized === ROLES.ASSISTANT) && !directionId) {
+        return { ok: false, error: 'Un utilisateur DG ou ASSISTANT doit être rattaché à une direction.' };
     }
     if (normalized === ROLES.SUPER_ADMIN) return { ok: true };
     if (normalized === ROLES.ADMIN && directionId) {

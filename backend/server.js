@@ -65,6 +65,7 @@ const pushTokensRoutes = require('./src/routes/pushTokens');
 const projectsRoutes = require('./src/routes/projects');
 const superAdminRoutes = require('./src/routes/super-admin');
 const validationsRoutes = require('./src/routes/validations');
+const approvalsRoutes = require('./src/routes/approvals');
 const { createDatabaseBackup } = require('./src/services/backup.service');
 const { initRealtime } = require('./src/realtime/socket');
 
@@ -237,6 +238,7 @@ app.use('/api/users', authMiddleware, userRoutes);
 app.use('/api/role-config', authMiddleware, roleConfigRoutes);
 app.use('/api/dashboard', authMiddleware, dashboardRoutes);
 app.use('/api/validations', authMiddleware, validationsRoutes);
+app.use('/api/approvals', authMiddleware, approvalsRoutes);
 app.use('/api/notifications', authMiddleware, notificationRoutes);
 // Routes calendrier : enregistrement explicite pour éviter 404
 if (calendarMonthHandler) {

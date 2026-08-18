@@ -12,10 +12,10 @@ const {
 } = require('../services/validationPolicy.service');
 
 /** Missions visibles hors calendrier. */
-const PUBLISHED_MISSION_STATUSES = ['CONFIRMED'];
+const PUBLISHED_MISSION_STATUSES = ['CONFIRMED', 'APPROVED', 'AUTO_APPROVED'];
 
 /** Missions entièrement validées — seules autorisées sur le calendrier. */
-const CALENDAR_MISSION_STATUSES = ['CONFIRMED'];
+const CALENDAR_MISSION_STATUSES = ['CONFIRMED', 'APPROVED', 'AUTO_APPROVED'];
 
 function isPublishedMissionStatus(status) {
     return PUBLISHED_MISSION_STATUSES.includes(status);
@@ -97,15 +97,22 @@ function responsableMissionScope(user) {
     return { createdById: user.id };
 }
 
-/** Missions « personnelles » d'un utilisateur : créateur ou assigné. */
+function isDirectionViewer(user) {
+    const role = user?.role;
+    return Boolean(user?.directionId && (role === ROLES.DG || role === ROLES.ASSISTANT));
+}
+
+/** Missions visibles : personnelles, plus toute la direction pour DG / Assistant. */
 function ownMissionScope(user) {
     if (!user?.id) return null;
-    return {
-        OR: [
-            { createdById: user.id },
-            { assignments: { some: { userId: user.id } } },
-        ],
-    };
+    const or = [
+        { createdById: user.id },
+        { assignments: { some: { userId: user.id } } },
+    ];
+    if (isDirectionViewer(user)) {
+        or.push({ directionId: user.directionId });
+    }
+    return { OR: or };
 }
 
 /**
@@ -116,6 +123,12 @@ function ownMissionScope(user) {
 function missionListWhereForUser(user) {
     if (isPrivilegedAdmin(user?.role)) {
         return { status: { not: 'CANCELLED' } };
+    }
+    if (isDirectionViewer(user)) {
+        return {
+            status: { not: 'CANCELLED' },
+            ...ownMissionScope(user),
+        };
     }
     return ownMissionScope(user) || { createdById: '__none__' };
 }
@@ -163,12 +176,21 @@ function canManageMission(mission, user) {
 
 function canEditMission(mission, user) {
     if (!canManageMission(mission, user)) return false;
+    if (user?.role === ROLES.ASSISTANT && mission.createdById === user.id) {
+        return mission.status === 'PENDING_DIRECTOR_APPROVAL';
+    }
     return mission.status !== 'CANCELLED';
 }
 
 function canViewMissionForUser(mission, user) {
     if (!mission || !user?.id) return false;
     if (isPrivilegedAdmin(user.role)) return true;
+    if (
+        isDirectionViewer(user)
+        && mission.directionId === user.directionId
+    ) {
+        return true;
+    }
     if (
         mission.status === 'DRAFT'
         && mission.project?.coordinatorId === user.id
@@ -211,4 +233,5 @@ module.exports = {
     canViewMissionForUser,
     responsableMissionScope,
     ownMissionScope,
+    isDirectionViewer,
 };

@@ -3,6 +3,8 @@ export const ROLES = {
     RESPONSABLE: 'RESPONSABLE',
     COORDINATEUR: 'COORDINATEUR',
     CONSOLIDATEUR: 'CONSOLIDATEUR',
+    DG: 'DG',
+    ASSISTANT: 'ASSISTANT',
     ADMIN: 'ADMIN',
     SUPER_ADMIN: 'SUPER_ADMIN',
 };
@@ -11,13 +13,14 @@ export const ROLES = {
 export const LEGACY_ROLE_LABELS = {
     COORDINATEUR_PROJET: 'Coordinateur (ancien)',
     SECRETAIRE_GENERAL: 'Secrétaire général (ancien)',
-    DG: 'Direction générale (ancien)',
 };
 
 export const ROLE_LABELS = {
     [ROLES.RESPONSABLE]: 'Responsable',
     [ROLES.COORDINATEUR]: 'Coordinateur',
     [ROLES.CONSOLIDATEUR]: 'Consolidateur',
+    [ROLES.DG]: 'Directeur général',
+    [ROLES.ASSISTANT]: 'Assistant',
     [ROLES.ADMIN]: 'Administrateur',
     [ROLES.SUPER_ADMIN]: 'Super administrateur',
 };
@@ -26,13 +29,15 @@ export const ROLE_COLORS = {
     [ROLES.RESPONSABLE]: 'blue',
     [ROLES.COORDINATEUR]: 'geekblue',
     [ROLES.CONSOLIDATEUR]: 'purple',
+    [ROLES.DG]: 'gold',
+    [ROLES.ASSISTANT]: 'cyan',
     [ROLES.ADMIN]: 'red',
     [ROLES.SUPER_ADMIN]: 'magenta',
 };
 
 export function normalizeRole(role) {
     if (role === 'COORDINATEUR_PROJET') return ROLES.COORDINATEUR;
-    if (role === 'SECRETAIRE_GENERAL' || role === 'DG') return ROLES.ADMIN;
+    if (role === 'SECRETAIRE_GENERAL') return ROLES.ADMIN;
     return role;
 }
 
@@ -65,6 +70,9 @@ export function canManageMeeting(meeting, user) {
 
 export function canEditMeeting(meeting, user) {
     if (!canManageMeeting(meeting, user)) return false;
+    if (isAssistant(user.role) && meeting.organizerId === user.id) {
+        return meeting.status === 'PENDING_DIRECTOR_APPROVAL';
+    }
     return meeting.status !== 'CANCELLED' && meeting.status !== 'COMPLETED';
 }
 
@@ -75,6 +83,9 @@ export function canManageMission(mission, user) {
 
 export function canEditMission(mission, user) {
     if (!canManageMission(mission, user)) return false;
+    if (isAssistant(user.role) && mission.createdById === user.id) {
+        return mission.status === 'PENDING_DIRECTOR_APPROVAL';
+    }
     if (isPrivilegedAdmin(user.role)) return true;
     return mission.status !== 'CANCELLED';
 }
@@ -121,7 +132,8 @@ export function canFinalizeMission(mission, user) {
 export function canAccessRepertoire(role) {
     const r = normalizeRole(role);
     return r === ROLES.ADMIN || r === ROLES.SUPER_ADMIN || r === ROLES.CONSOLIDATEUR
-        || r === ROLES.COORDINATEUR || r === ROLES.RESPONSABLE;
+        || r === ROLES.COORDINATEUR || r === ROLES.RESPONSABLE
+        || r === ROLES.DG || r === ROLES.ASSISTANT;
 }
 
 export function canManageProjects(role) {
@@ -168,8 +180,26 @@ export function canViewAllMissions(roleOrUser) {
     return isPrivilegedAdmin(r) || r === ROLES.CONSOLIDATEUR;
 }
 
+export function isDirector(role) {
+    return normalizeRole(role) === ROLES.DG;
+}
+
+export function isDirecteurJobTitle(jobTitle) {
+    return /directeur/i.test(String(jobTitle || '').trim());
+}
+
+export function isEligibleDirectionDirector(user) {
+    const role = normalizeRole(user?.role || user);
+    if (role === ROLES.DG || role === ROLES.ADMIN || role === ROLES.SUPER_ADMIN) return true;
+    return isDirecteurJobTitle(user?.jobTitle);
+}
+
+export function isAssistant(role) {
+    return normalizeRole(role) === ROLES.ASSISTANT;
+}
+
 export function canCreateMission(role) {
-    return isResponsable(role) || isPrivilegedAdmin(role);
+    return isResponsable(role) || isAssistant(role) || isPrivilegedAdmin(role);
 }
 
 export function isProjectConsolidator(entity, user) {
@@ -326,6 +356,7 @@ export function userAssignedOnAnyProject(projects, userId) {
 export function userCanSeeValidationMenu(user, projects = []) {
     if (!user?.id) return false;
     if (isPrivilegedAdmin(user.role)) return true;
+    if (isDirector(user.role)) return true;
     if (isGlobalConsolidatorRole(user)) return true;
     if (userMayConsolidate(user) && user.directionId) return true;
     return userCoordinatesAnyProject(projects, user.id) || userConsolidatesAnyProject(projects, user.id);

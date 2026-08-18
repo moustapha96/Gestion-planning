@@ -38,13 +38,14 @@ export const ROLE_LABELS = {
     ...SHARED_ROLE_LABELS,
     COORDINATEUR_PROJET: 'Coordinateur (ancien)',
     SECRETAIRE_GENERAL: 'Secrétaire général (ancien)',
-    DG: 'Direction générale (ancien)',
 };
 
 const USER_ROLE_OPTIONS = [
     { value: ROLES.RESPONSABLE, label: ROLE_LABELS[ROLES.RESPONSABLE] },
     { value: ROLES.COORDINATEUR, label: ROLE_LABELS[ROLES.COORDINATEUR] },
     { value: ROLES.CONSOLIDATEUR, label: ROLE_LABELS[ROLES.CONSOLIDATEUR] },
+    { value: ROLES.DG, label: ROLE_LABELS[ROLES.DG] },
+    { value: ROLES.ASSISTANT, label: ROLE_LABELS[ROLES.ASSISTANT] },
     { value: ROLES.ADMIN, label: ROLE_LABELS[ROLES.ADMIN] },
     { value: ROLES.SUPER_ADMIN, label: ROLE_LABELS[ROLES.SUPER_ADMIN] },
 ];

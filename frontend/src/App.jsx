@@ -42,6 +42,8 @@ import Notifications from './pages/Notifications';
 import Discussions from './pages/Discussions';
 import EventsUnified from './pages/EventsUnified';
 import PendingValidations from './pages/PendingValidations';
+import MyRequests from './pages/MyRequests';
+import DirectorApprovalPage from './pages/DirectorApprovalPage';
 import Users from './pages/Users';
 import Logs from './pages/Logs';
 import Projects from './pages/Projects';
@@ -52,7 +54,7 @@ import NotFound from './pages/NotFound';
 import Home from './pages/Home';
 import PWAInstallPrompt from './components/PWAInstallPrompt';
 import MobileInit from './components/MobileInit';
-import { isPrivilegedAdmin, canAccessRepertoire, ROLES } from './utils/roles';
+import { isPrivilegedAdmin, canAccessRepertoire } from './utils/roles';
 
 function ProtectedRoute() {
     const { user } = useAuth();
@@ -83,6 +85,7 @@ export default function App() {
                 <Route path="/forgot-password" element={<ForgotPassword />} />
                 <Route path="/reset-password" element={<ResetPassword />} />
                 <Route path="/activate-account" element={<ActivateAccount />} />
+                <Route path="/director-approval" element={<DirectorApprovalPage />} />
                 <Route path="/" element={<Home />} />
                 <Route element={<ProtectedRoute />}>
                     <Route element={<AppLayout />}>
@@ -90,6 +93,7 @@ export default function App() {
                         <Route path="/planning" element={<Planning />} />
                         <Route path="/planning/:id" element={<PlanningDetail />} />
                         <Route path="/a-valider" element={<PendingValidations />} />
+                        <Route path="/mes-demandes" element={<MyRequests />} />
                         <Route path="/plannings/:id" element={<PlanningDetail />} />
                         <Route path="/meetings" element={<Meetings />} />
                         <Route path="/meetings/new" element={<MeetingFormPage />} />
@@ -110,13 +114,6 @@ export default function App() {
                         <Route path="/discussions" element={<Discussions />} />
                         <Route path="/events" element={<EventsUnified />} />
                         <Route path="/profile" element={<Profile />} />
-                        {user?.role === ROLES.DG && (
-                            <>
-                                <Route path="/admin/directions" element={<AdminTaxonomyPage variant="directions" />} />
-                                <Route path="/admin/directions/:id" element={<DirectionDetailPage />} />
-                                <Route path="/admin/directions/:id/edit" element={<DirectionEditPage />} />
-                            </>
-                        )}
                         <Route element={<AdminRoute />}>
                             <Route path="/admin" element={<AdminLayout />}>
                                 <Route index element={<Navigate to="stats" replace />} />

@@ -30,6 +30,7 @@ const {
 const { canUserConsolidateEntity } = require('../services/consolidatorResolution.service');
 const { attachMeetingValidationWorkflow } = require('../services/validationWorkflow.service');
 const { resolveInitialResponsibleStatus, startMeetingValidation } = require('../services/validationSubmission.service');
+const { resolveAssistantCreation, afterAssistantCreated } = require('../services/directorApproval.service');
 const { attachStatusLabel } = require('../config/statusLabels');
 const { notifyMeetingPendingCoordinatorReview } = require('../services/projectCoordinator.service');
 const { emitToUsers, emitToMeetingRoom } = require('../realtime/socket');
@@ -1014,7 +1015,19 @@ router.post('/', async (req, res) => {
                 || await resolveProjectIdForConsolidation(req.prisma, null, req.user.id);
         }
 
-        const initialStatus = await resolveInitialResponsibleStatus(req.prisma, effectiveProjectId);
+        let assistantResolution = null;
+        try {
+            assistantResolution = await resolveAssistantCreation(req.prisma, req.user, directionId || null);
+        } catch (e) {
+            return res.status(e.statusCode || 400).json({ error: e.message });
+        }
+
+        const initialStatus = assistantResolution
+            ? assistantResolution.status
+            : await resolveInitialResponsibleStatus(req.prisma, effectiveProjectId);
+        const effectiveDirectionId = assistantResolution
+            ? assistantResolution.directionId
+            : (directionId || null);
 
         const meeting = await req.prisma.meeting.create({
             data: {
@@ -1022,12 +1035,13 @@ router.post('/', async (req, res) => {
                 agenda: agenda || '',
                 organizerId: req.user.id,
                 roomId: roomId || null,
-                directionId: directionId || null,
+                directionId: effectiveDirectionId,
                 projectId: effectiveProjectId || null,
                 meetingLink: normalizedMeetingLink,
                 startTime: start,
                 endTime: end,
                 status: initialStatus,
+                createdByRole: assistantResolution?.createdByRole || req.user.role || null,
                 ...(resolvedEventTypeId !== undefined && { eventTypeId: resolvedEventTypeId }),
                 invitations: {
                     create: participantList.map((userId) => ({ userId, status: 'PENDING' })),
@@ -1052,13 +1066,24 @@ router.post('/', async (req, res) => {
             const room = roomId
                 ? await req.prisma.room.findUnique({ where: { id: roomId }, select: { name: true } })
                 : null;
-            if (meeting.status === 'DRAFT') {
+            if (assistantResolution) {
+                await afterAssistantCreated(req.prisma, {
+                    entityType: 'meeting',
+                    entity: meeting,
+                    creator: organizer,
+                    resolution: assistantResolution,
+                });
+            } else if (meeting.status === 'DRAFT') {
                 await notifyMeetingPendingCoordinatorReview(req.prisma, meeting, organizer);
             } else {
                 await notifyConsolidatorsPendingMeeting(req.prisma, meeting, organizer);
             }
             if (organizer?.email) {
-                const pendingMsg = meeting.status === 'DRAFT'
+                const pendingMsg = assistantResolution?.autoApproved
+                    ? 'Statut : validée automatiquement (aucun DG sur votre direction) — publiée au calendrier.'
+                    : assistantResolution
+                      ? 'Statut : en attente de validation du DG de votre direction.'
+                      : meeting.status === 'DRAFT'
                     ? 'Statut : en attente du coordinateur du projet (étape 1/2).'
                     : 'Statut : en attente de consolidation (étape 2/2) — coordinateur non désigné sur le projet.';
                 await notificationService.sendFullNotification(

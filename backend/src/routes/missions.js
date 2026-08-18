@@ -23,6 +23,7 @@ const {
 const { canUserConsolidateEntity } = require('../services/consolidatorResolution.service');
 const { attachMissionValidationWorkflow } = require('../services/validationWorkflow.service');
 const { resolveInitialResponsibleStatus, startMissionValidation } = require('../services/validationSubmission.service');
+const { resolveAssistantCreation, afterAssistantCreated } = require('../services/directorApproval.service');
 const { attachStatusLabel } = require('../config/statusLabels');
 const { parseUtcDate } = require('../utils/dateUtc');
 const { formatFrDate } = require('../config/timezone');
@@ -241,10 +242,10 @@ router.get('/:id', async (req, res) => {
 router.post('/', async (req, res) => {
     // Contrôle d'accès : RESPONSABLE, ADMIN, SUPER_ADMIN uniquement
     const creatorRole = req.user?.role;
-    const allowedCreatorRoles = [ROLES.RESPONSABLE, ROLES.ADMIN, ROLES.SUPER_ADMIN];
+    const allowedCreatorRoles = [ROLES.RESPONSABLE, ROLES.ASSISTANT, ROLES.ADMIN, ROLES.SUPER_ADMIN];
     if (!allowedCreatorRoles.includes(creatorRole)) {
         return res.status(403).json({
-            error: 'Seuls les Responsables (assistants de projet) et les Administrateurs peuvent créer des missions.',
+            error: 'Seuls les Responsables, les Assistants et les Administrateurs peuvent créer des missions.',
         });
     }
     try {
@@ -266,7 +267,18 @@ router.post('/', async (req, res) => {
         const projectCheck = await validateProjectForUserAction(req.prisma, req.user, projectId || null);
         if (!projectCheck.ok) return res.status(403).json({ error: projectCheck.error });
         const resolvedProjectId = projectCheck.value;
-        const initialStatus = await resolveInitialResponsibleStatus(req.prisma, resolvedProjectId);
+        let assistantResolution = null;
+        try {
+            assistantResolution = await resolveAssistantCreation(req.prisma, req.user, directionId || null);
+        } catch (e) {
+            return res.status(e.statusCode || 400).json({ error: e.message });
+        }
+        const initialStatus = assistantResolution
+            ? assistantResolution.status
+            : await resolveInitialResponsibleStatus(req.prisma, resolvedProjectId);
+        const effectiveDirectionId = assistantResolution
+            ? assistantResolution.directionId
+            : (directionId || null);
 
         const mission = await req.prisma.mission.create({
             data: {
@@ -275,10 +287,11 @@ router.post('/', async (req, res) => {
                 location,
                 startTime: start,
                 endTime: end,
-                directionId: directionId || null,
+                directionId: effectiveDirectionId,
                 projectId: resolvedProjectId || null,
                 createdById: req.user.id,
                 status: initialStatus,
+                createdByRole: assistantResolution?.createdByRole || req.user.role || null,
             },
         });
         const assigneeIds = Array.isArray(userIds) ? [...new Set(userIds.filter((id) => id && id !== req.user.id))] : [];
@@ -300,13 +313,24 @@ router.post('/', async (req, res) => {
         const link = `/missions/${mission.id}`;
         try {
             const creator = missionWithRelations.createdBy;
-            if (missionWithRelations.status === 'DRAFT') {
+            if (assistantResolution) {
+                await afterAssistantCreated(req.prisma, {
+                    entityType: 'mission',
+                    entity: missionWithRelations,
+                    creator,
+                    resolution: assistantResolution,
+                });
+            } else if (missionWithRelations.status === 'DRAFT') {
                 await notifyMissionPendingCoordinatorReview(req.prisma, missionWithRelations, creator);
             } else {
                 await notifyConsolidatorsPendingMission(req.prisma, missionWithRelations, creator);
             }
             if (creator?.email) {
-                const pendingMsg = missionWithRelations.status === 'DRAFT'
+                const pendingMsg = assistantResolution?.autoApproved
+                    ? 'Statut : validée automatiquement (aucun DG sur votre direction) — publiée au calendrier.'
+                    : assistantResolution
+                      ? 'Statut : en attente de validation du DG de votre direction.'
+                      : missionWithRelations.status === 'DRAFT'
                     ? 'Statut : en attente du coordinateur du projet (étape 1/2).'
                     : 'Statut : en attente de consolidation (étape 2/2) — coordinateur non désigné sur le projet.';
                 await notificationService.sendFullNotification(

@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import {
-    Card, Typography, Tabs, Tag, Space, Button, Empty, Spin, Alert, Badge, Tooltip, App,
+    Card, Typography, Tabs, Tag, Space, Button, Empty, Spin, Alert, Badge, Tooltip, App, Modal, Input,
 } from 'antd';
 import {
     CheckCircleOutlined, TeamOutlined, FlagOutlined,
@@ -39,10 +39,13 @@ function EventTypeTag({ eventType, fallback }) {
 
 function MeetingCard({ item, loading, onAction, isAdmin }) {
     const navigate = useNavigate();
+    const isDirector = item.action === 'director_approve';
     const isConsolidate = item.action === 'consolidate';
     const isCoordinate = item.action === 'coordinate';
     const isFinalize = item.action === 'finalize';
-    const actionLabel = isConsolidate
+    const actionLabel = isDirector
+        ? 'Valider'
+        : isConsolidate
         ? (isAdmin ? 'Consolider et publier (admin)' : 'Consolider et publier')
         : isCoordinate
           ? (isAdmin ? 'Valider étape 1/2 (admin)' : 'Valider (coordinateur)')
@@ -51,7 +54,7 @@ function MeetingCard({ item, loading, onAction, isAdmin }) {
             : item.action === 'fallback'
               ? 'Valider et publier (rôle dédié)'
               : 'Valider et publier';
-    const actionColor = isConsolidate ? '#722ed1' : item.action === 'fallback' ? '#fa541c' : '#52c41a';
+    const actionColor = isDirector ? '#faad14' : isConsolidate ? '#722ed1' : item.action === 'fallback' ? '#fa541c' : '#52c41a';
 
     return (
         <Card size="small" style={{ marginBottom: 12 }}>
@@ -75,6 +78,7 @@ function MeetingCard({ item, loading, onAction, isAdmin }) {
                 )}
                 <Text style={{ fontSize: 13 }}>
                     Organisateur : <Text strong>{item.organizer?.name}</Text>
+                    {item.direction?.name ? ` · Direction : ${item.direction.name}` : ''}
                     {item.project?.name ? ` · Projet : ${item.project.name}` : ''}
                 </Text>
                 <Space wrap>
@@ -87,6 +91,11 @@ function MeetingCard({ item, loading, onAction, isAdmin }) {
                     >
                         {actionLabel}
                     </Button>
+                    {isDirector && (
+                        <Button danger loading={loading} onClick={() => onAction({ ...item, reject: true })}>
+                            Refuser
+                        </Button>
+                    )}
                     <Button icon={<EyeOutlined />} onClick={() => navigate(item.link)}>
                         Voir la fiche
                     </Button>
@@ -98,10 +107,13 @@ function MeetingCard({ item, loading, onAction, isAdmin }) {
 
 function MissionCard({ item, loading, onAction, isAdmin }) {
     const navigate = useNavigate();
+    const isDirector = item.action === 'director_approve';
     const isConsolidate = item.action === 'consolidate';
     const isCoordinate = item.action === 'coordinate';
     const isFinalize = item.action === 'finalize';
-    const actionLabel = isConsolidate
+    const actionLabel = isDirector
+        ? 'Valider'
+        : isConsolidate
         ? (isAdmin ? 'Consolider et confirmer (admin)' : 'Consolider et confirmer')
         : isCoordinate
           ? (isAdmin ? 'Valider étape 1/2 (admin)' : 'Valider (coordinateur)')
@@ -110,7 +122,7 @@ function MissionCard({ item, loading, onAction, isAdmin }) {
             : item.action === 'fallback'
               ? 'Valider et confirmer (rôle dédié)'
               : 'Valider et confirmer';
-    const actionColor = isConsolidate ? '#722ed1' : item.action === 'fallback' ? '#fa541c' : '#52c41a';
+    const actionColor = isDirector ? '#faad14' : isConsolidate ? '#722ed1' : item.action === 'fallback' ? '#fa541c' : '#52c41a';
 
     return (
         <Card size="small" style={{ marginBottom: 12 }}>
@@ -133,6 +145,7 @@ function MissionCard({ item, loading, onAction, isAdmin }) {
                 )}
                 <Text style={{ fontSize: 13 }}>
                     Créée par : <Text strong>{item.createdBy?.name}</Text>
+                    {item.direction?.name ? ` · Direction : ${item.direction.name}` : ''}
                     {item.project?.name ? ` · Projet : ${item.project.name}` : ''}
                 </Text>
                 <Space wrap>
@@ -145,6 +158,11 @@ function MissionCard({ item, loading, onAction, isAdmin }) {
                     >
                         {actionLabel}
                     </Button>
+                    {isDirector && (
+                        <Button danger loading={loading} onClick={() => onAction({ ...item, reject: true })}>
+                            Refuser
+                        </Button>
+                    )}
                     <Button icon={<EyeOutlined />} onClick={() => navigate(item.link)}>
                         Voir la fiche
                     </Button>
@@ -163,12 +181,26 @@ export default function PendingValidations() {
     const { user } = useAuth();
 
     const [actionId, setActionId] = useState(null);
+    const [rejectTarget, setRejectTarget] = useState(null);
+    const [rejectReason, setRejectReason] = useState('');
     const isAdmin = isPrivilegedAdmin(user?.role);
 
     const runAction = async (item) => {
         const { id, action, kind: entityKind } = item;
+        if (item.reject || action === 'director_reject') {
+            setRejectTarget(item);
+            setRejectReason('');
+            return;
+        }
         setActionId(id);
         try {
+            if (action === 'director_approve') {
+                await api.post(`/approvals/${entityKind}/${id}/approve`);
+                message.success('Demande validée');
+                await refresh();
+                notifyPendingValidationsRefresh();
+                return;
+            }
             if (entityKind === 'meeting') {
                 if (action === 'consolidate') {
                     await api.put(`/meetings/${id}/approve`);
@@ -224,10 +256,33 @@ export default function PendingValidations() {
             </div>
         );
     }
+    const confirmReject = async () => {
+        if (!rejectTarget) return;
+        if (!rejectReason.trim()) {
+            message.error('Le motif de refus est obligatoire.');
+            return;
+        }
+        setActionId(rejectTarget.id);
+        try {
+            await api.post(`/approvals/${rejectTarget.kind}/${rejectTarget.id}/reject`, {
+                reason: rejectReason.trim(),
+            });
+            message.success('Demande refusée');
+            setRejectTarget(null);
+            setRejectReason('');
+            await refresh();
+            notifyPendingValidationsRefresh();
+        } catch (err) {
+            message.error(err.response?.data?.error || 'Erreur lors du refus');
+        } finally {
+            setActionId(null);
+        }
+    };
+
     if (!canSeeMenu) {
         return (
             <Empty
-                description="Cette page est réservée aux administrateurs, consolidateurs (rôle ou projet), et coordinateurs de projet."
+                description="Cette page est réservée aux administrateurs, DG, consolidateurs et coordinateurs de projet."
                 style={{ marginTop: 48 }}
             />
         );
@@ -370,6 +425,24 @@ export default function PendingValidations() {
             <Card>
                 <Tabs items={tabItems} />
             </Card>
+
+            <Modal
+                title="Refuser la demande"
+                open={Boolean(rejectTarget)}
+                onCancel={() => setRejectTarget(null)}
+                onOk={confirmReject}
+                okText="Refuser"
+                okButtonProps={{ danger: true, loading: actionId === rejectTarget?.id }}
+            >
+                <Text type="secondary">Motif visible par l&apos;Assistant créateur.</Text>
+                <Input.TextArea
+                    rows={4}
+                    value={rejectReason}
+                    onChange={(e) => setRejectReason(e.target.value)}
+                    placeholder="Motif du refus"
+                    style={{ marginTop: 12 }}
+                />
+            </Modal>
         </div>
     );
 }

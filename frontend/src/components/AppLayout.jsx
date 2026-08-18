@@ -8,7 +8,7 @@ import {
     MenuFoldOutlined, MenuUnfoldOutlined, DashboardOutlined, CalendarOutlined,
     TeamOutlined, HomeOutlined, SettingOutlined, UserOutlined, LogoutOutlined,
     BellOutlined, FlagOutlined, ScheduleOutlined, MessageOutlined,
-    UnorderedListOutlined, ProjectOutlined, SearchOutlined, MoonOutlined, SunOutlined, ApartmentOutlined,
+    UnorderedListOutlined, ProjectOutlined, SearchOutlined, MoonOutlined, SunOutlined,
     ContactsOutlined, CheckCircleOutlined,
 } from '@ant-design/icons';
 import { useAuth } from '../context/AuthContext';
@@ -20,7 +20,7 @@ import api, { API_BASE } from '../api/client';
 import {
     getSocket, subscribeSocketStatus, getSocketStatusSnapshot, getSocketStatusLabel, getSocketStatusDetail,
 } from '../realtime/socket';
-import { isPrivilegedAdmin, isSuperAdmin, canAccessRepertoire, roleLabel, ROLE_COLORS, normalizeRole } from '../utils/roles';
+import { isPrivilegedAdmin, isSuperAdmin, canAccessRepertoire, isAssistant, roleLabel, ROLE_COLORS, normalizeRole } from '../utils/roles';
 import { getAdminNavForRole } from '../pages/admin/adminNavConfig';
 import { useThemeMode } from '../context/ThemeModeContext';
 import { resolveAppLogoSrc, DEFAULT_APP_NAME } from '../utils/appBranding';
@@ -462,6 +462,11 @@ export default function AppLayout() {
             icon: <ScheduleOutlined />,
             label: 'Planning',
         },
+        ...(isAssistant(user?.role) ? [{
+            key: '/mes-demandes',
+            icon: <CheckCircleOutlined />,
+            label: 'Mes demandes',
+        }] : []),
         ...(validationCanSeeMenu ? [{
             key: '/a-valider',
             icon: (
@@ -515,11 +520,6 @@ export default function AppLayout() {
             key: '/discussions',
             icon: <MessageOutlined />,
             label: 'Discussions',
-        }] : []),
-        ...(user?.role === 'DG' ? [{
-            key: '/admin/directions',
-            icon: <ApartmentOutlined />,
-            label: 'Directions',
         }] : []),
         // Section admin — sous-menu (routes /admin/*)
         ...(isPrivilegedAdmin(user?.role) ? [

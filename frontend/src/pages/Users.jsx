@@ -30,6 +30,8 @@ const USER_ROLE_OPTIONS = [
     { value: ROLES.RESPONSABLE, label: 'Responsable' },
     { value: ROLES.COORDINATEUR, label: 'Coordinateur' },
     { value: ROLES.CONSOLIDATEUR, label: 'Consolidateur' },
+    { value: ROLES.DG, label: 'Directeur général' },
+    { value: ROLES.ASSISTANT, label: 'Assistant' },
     { value: ROLES.ADMIN, label: 'Administrateur' },
     { value: ROLES.SUPER_ADMIN, label: 'Super administrateur' },
 ];

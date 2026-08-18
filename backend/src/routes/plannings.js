@@ -36,6 +36,7 @@ const {
     enrichPlanningWithAggregation,
     enrichPlanningsWithAggregation,
     ensureWeekPlanningsForResponsibles,
+    ensureWeekPlanningsForDirectionStaff,
     ensurePlanningForResponsible,
 } = require('../services/planningAggregation.service');
 const { parseUtcDate, utcMondayOfWeek } = require('../utils/dateUtc');
@@ -119,6 +120,7 @@ router.get('/week/:date', async (req, res) => {
         const weekEnd = new Date(weekStart.getTime() + 7 * 24 * 60 * 60 * 1000);
 
         await ensureWeekPlanningsForResponsibles(req.prisma, weekStart);
+        await ensureWeekPlanningsForDirectionStaff(req.prisma, weekStart);
 
         const scope = planningScopeWhere(req.user);
         const where = {
@@ -137,6 +139,8 @@ router.get('/week/:date', async (req, res) => {
                         id: true,
                         name: true,
                         email: true,
+                        role: true,
+                        directionId: true,
                         projectId: true,
                         project: {
                             select: {

@@ -166,6 +166,7 @@ async function cleanupOptionalUserLinks(prisma, userId) {
         prisma.project.updateMany({ where: { responsibleId: userId }, data: { responsibleId: null } }),
         prisma.project.updateMany({ where: { consolidatorId: userId }, data: { consolidatorId: null } }),
         prisma.project.updateMany({ where: { coordinatorId: userId }, data: { coordinatorId: null } }),
+        prisma.direction.updateMany({ where: { directorId: userId }, data: { directorId: null } }),
         prisma.user.update({ where: { id: userId }, data: { projectId: null, directionId: null } }),
     ]);
 }

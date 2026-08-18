@@ -71,6 +71,10 @@ const STATUS_COLORS = {
     DRAFT: 'default',
     CONSOLIDATOR_PENDING: 'orange',
     COORDINATOR_PENDING: 'geekblue',
+    PENDING_DIRECTOR_APPROVAL: 'gold',
+    APPROVED: 'green',
+    AUTO_APPROVED: 'cyan',
+    REJECTED: 'red',
     SENT: 'blue',
     CONFIRMED: 'green',
     COMPLETED: 'cyan',
@@ -913,11 +917,14 @@ export default function MeetingDetail() {
                             {meeting.project?.name && <Tag color="blue">Projet: {meeting.project.name}</Tag>}
                         </Space>
                     </div>
-                    <Tag color={needsCoordinator || needsConsolidator ? 'orange' : STATUS_COLORS[meeting.status]}>
+                    <Tag color={needsCoordinator || needsConsolidator || meeting.status === 'PENDING_DIRECTOR_APPROVAL' ? 'orange' : meeting.status === 'REJECTED' ? 'red' : STATUS_COLORS[meeting.status] || 'blue'}>
                         {meeting.statusLabel || meetingStatusLabel(meeting)}
                     </Tag>
                 </Space>
 
+                {meeting.status === 'REJECTED' && meeting.rejectionReason && (
+                    <Alert type="error" showIcon title="Refus du DG" description={meeting.rejectionReason} style={{ marginBottom: 16 }} />
+                )}
                 <Descriptions column={1} bordered size="small">
                     <Descriptions.Item label="Type d'événement">
                         {meeting.eventType?.name ? (

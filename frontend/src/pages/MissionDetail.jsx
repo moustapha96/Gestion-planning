@@ -379,10 +379,15 @@ export default function MissionDetail() {
                 )}
                 <Descriptions column={1} bordered size="small">
                     <Descriptions.Item label="Statut">
-                        <Tag color={mission.status === 'CONFIRMED' ? 'green' : mission.status === 'CANCELLED' ? 'red' : 'orange'}>
+                        <Tag color={mission.status === 'CONFIRMED' || mission.status === 'APPROVED' || mission.status === 'AUTO_APPROVED' ? 'green' : mission.status === 'CANCELLED' || mission.status === 'REJECTED' ? 'red' : 'orange'}>
                             {mission.statusLabel || missionStatusLabel(mission)}
                         </Tag>
                     </Descriptions.Item>
+                    {mission.status === 'REJECTED' && (
+                        <Descriptions.Item label="Motif de refus">
+                            {mission.rejectionReason || '—'}
+                        </Descriptions.Item>
+                    )}
                     <Descriptions.Item label={<><EnvironmentOutlined /> Lieu</>}>
                         {mission.location}
                     </Descriptions.Item>

@@ -1,4 +1,4 @@
-const { isPrivilegedAdmin } = require('../config/roles');
+const { isPrivilegedAdmin, ROLES, normalizeStoredRole } = require('../config/roles');
 const {
     LEGACY_PENDING_COORDINATOR_STATUSES,
     PENDING_CONSOLIDATOR_STATUSES,
@@ -154,6 +154,8 @@ function mapMeetingItem(meeting) {
         createdAt: meeting.createdAt,
         status: meeting.status,
         organizer: meeting.organizer,
+        createdBy: meeting.organizer,
+        direction: meeting.direction,
         project: meeting.project,
         room: meeting.room,
         eventType: meeting.eventType,
@@ -205,14 +207,26 @@ function mapPlanningItem(planning, action, missionsCount = 0, user = null) {
 
 /** Action « À valider » pour un administrateur — respecte les 2 paliers. */
 function mapAdminValidationAction(entity) {
+    if (entity.status === 'PENDING_DIRECTOR_APPROVAL') return 'director_approve';
     if (entity.status === 'DRAFT') return 'coordinate';
     if (isPendingConsolidatorValidation(entity.status)) return 'consolidate';
     if (isPendingCoordinatorValidation(entity.status)) return 'finalize';
     return 'consolidate';
 }
 
+function mapDirectorApprovalItem(item, entity) {
+    if (entity.status !== 'PENDING_DIRECTOR_APPROVAL') return item;
+    item.action = 'director_approve';
+    item.validationPath = 'director';
+    item.statusLabel = 'En attente de validation du DG';
+    return item;
+}
+
 function mapMeetingItemForUser(meeting, user) {
     const item = mapMeetingItem(meeting);
+    if (meeting.status === 'PENDING_DIRECTOR_APPROVAL') {
+        return mapDirectorApprovalItem(item, meeting);
+    }
     if (isPrivilegedAdmin(user?.role)) {
         item.action = mapAdminValidationAction(meeting);
         item.validationPath = item.action === 'consolidate' ? 'consolidator' : 'admin';
@@ -227,6 +241,9 @@ function mapMeetingItemForUser(meeting, user) {
 
 function mapMissionItemForUser(mission, user) {
     const item = mapMissionItem(mission);
+    if (mission.status === 'PENDING_DIRECTOR_APPROVAL') {
+        return mapDirectorApprovalItem(item, mission);
+    }
     if (isPrivilegedAdmin(user?.role)) {
         item.action = mapAdminValidationAction(mission);
         item.validationPath = item.action === 'consolidate' ? 'consolidator' : 'admin';
@@ -321,6 +338,7 @@ async function fetchWeekMissionsForPlannings(prisma, plannings) {
 
 const ADMIN_PENDING_STATUSES = [
     'DRAFT',
+    'PENDING_DIRECTOR_APPROVAL',
     ...PENDING_CONSOLIDATOR_STATUSES,
     ...LEGACY_PENDING_COORDINATOR_STATUSES,
 ];
@@ -398,7 +416,11 @@ async function getPendingValidations(prisma, user) {
     // donc plus que des réunions et des missions.
     const consolidatorScope = await buildConsolidatorPendingScope(prisma, user);
 
-    const [meetingCoordDraftRaw, meetingConsolidatorRaw, meetingLegacyRaw, missionCoordDraftRaw, missionConsolidatorRaw, missionLegacyRaw] = await Promise.all([
+    const directorWhere = normalizeStoredRole(user.role) === ROLES.DG && user.directionId
+        ? { status: 'PENDING_DIRECTOR_APPROVAL', directionId: user.directionId }
+        : { id: '__none__' };
+
+    const [meetingCoordDraftRaw, meetingConsolidatorRaw, meetingLegacyRaw, missionCoordDraftRaw, missionConsolidatorRaw, missionLegacyRaw, meetingDirectorRaw, missionDirectorRaw] = await Promise.all([
         prisma.meeting.findMany({
             where: buildMeetingCoordinatorDraftWhere(user),
             include: MEETING_INCLUDE,
@@ -435,6 +457,18 @@ async function getPendingValidations(prisma, user) {
             orderBy: { startTime: 'asc' },
             take: 100,
         }),
+        prisma.meeting.findMany({
+            where: directorWhere,
+            include: MEETING_INCLUDE,
+            orderBy: { startTime: 'asc' },
+            take: 100,
+        }),
+        prisma.mission.findMany({
+            where: directorWhere,
+            include: MISSION_INCLUDE,
+            orderBy: { startTime: 'asc' },
+            take: 100,
+        }),
     ]);
 
     const meetingIds = new Set();
@@ -456,6 +490,10 @@ async function getPendingValidations(prisma, user) {
     }
 
     const meetings = [
+        ...meetingDirectorRaw.map((m) => {
+            meetingIds.add(m.id);
+            return mapMeetingItemForUser(m, user);
+        }),
         ...meetingCoordItems,
         ...meetingConsolidatorItems,
         ...meetingLegacyRaw
@@ -482,6 +520,10 @@ async function getPendingValidations(prisma, user) {
     }
 
     const missions = [
+        ...missionDirectorRaw.map((m) => {
+            missionIds.add(m.id);
+            return mapMissionItemForUser(m, user);
+        }),
         ...missionCoordItems,
         ...missionConsolidatorItems,
         ...missionLegacyRaw

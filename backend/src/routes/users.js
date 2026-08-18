@@ -11,6 +11,7 @@ const {
 const { ROLE_PERMISSIONS, ROLE_LABELS } = require('../config/rolePermissions');
 const { normalizeStoredRole } = require('../config/roles');
 const { validateUserRoleForDirection } = require('../services/roleConfig.service');
+const { applyDirectionRoleSideEffects } = require('../services/directorAttachment.service');
 const { syncDirectionDiscussionMembers } = require('../services/directionDiscussion.service');
 const { syncProjectDiscussionMembers } = require('../services/projectDiscussion.service');
 const {
@@ -217,6 +218,17 @@ router.post('/', roleMiddleware(ADMIN_ROUTE_ROLES), async (req, res) => {
                 select: PUBLIC_USER_SELECT,
             });
 
+            try {
+                await applyDirectionRoleSideEffects(req.prisma, {
+                    userId: restored.id,
+                    previousRole: existingUser.role,
+                    previousDirectionId: existingUser.directionId || null,
+                    nextRole: restored.role,
+                    nextDirectionId: restored.directionId || null,
+                });
+            } catch (attachErr) {
+                return res.status(attachErr.statusCode || 409).json({ error: attachErr.message });
+            }
             if (restored.directionId) {
                 await syncDirectionDiscussionMembers(req.prisma, restored.directionId);
             }
@@ -282,6 +294,18 @@ router.post('/', roleMiddleware(ADMIN_ROUTE_ROLES), async (req, res) => {
             },
         });
 
+        try {
+            await applyDirectionRoleSideEffects(req.prisma, {
+                userId: user.id,
+                previousRole: null,
+                previousDirectionId: null,
+                nextRole: user.role,
+                nextDirectionId: user.directionId || null,
+            });
+        } catch (attachErr) {
+            await req.prisma.user.delete({ where: { id: user.id } }).catch(() => {});
+            return res.status(attachErr.statusCode || 409).json({ error: attachErr.message });
+        }
         if (user.directionId) {
             await syncDirectionDiscussionMembers(req.prisma, user.directionId);
         }
@@ -445,6 +469,18 @@ router.put('/:id', roleMiddleware(ADMIN_ROUTE_ROLES), async (req, res) => {
         if (phone !== undefined) updateData.phone = clipUserText(phone, MAX_USER_PHONE);
         if (jobTitle !== undefined) updateData.jobTitle = clipUserText(jobTitle, MAX_USER_JOB_TITLE);
         if (cellUnit !== undefined) updateData.cellUnit = clipUserText(cellUnit, MAX_USER_CELL_UNIT);
+
+        try {
+            await applyDirectionRoleSideEffects(req.prisma, {
+                userId: targetUser.id,
+                previousRole: targetUser.role,
+                previousDirectionId: targetUser.directionId || null,
+                nextRole: storedRole || targetUser.role,
+                nextDirectionId: directionId === undefined ? targetUser.directionId : (directionId || null),
+            });
+        } catch (attachErr) {
+            return res.status(attachErr.statusCode || 409).json({ error: attachErr.message });
+        }
 
         const updated = await req.prisma.user.update({
             where: { id: req.params.id },

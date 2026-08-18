@@ -363,5 +363,56 @@ router.get('/meeting-invitations/respond', async (req, res) => {
     }
 });
 
+router.get('/director-approval', async (req, res) => {
+    try {
+        const { verifyApprovalToken } = require('../services/directorApproval.service');
+        const payload = verifyApprovalToken(String(req.query.token || ''));
+        res.json({
+            entityType: payload.entityType,
+            entityId: payload.entityId,
+            action: payload.action,
+        });
+    } catch {
+        res.status(400).json({ error: 'Lien de validation invalide ou expiré.' });
+    }
+});
+
+router.post('/director-approval/approve', async (req, res) => {
+    try {
+        const { verifyApprovalToken, approveRequest } = require('../services/directorApproval.service');
+        const payload = verifyApprovalToken(String(req.body?.token || req.query.token || ''));
+        if (payload.action && payload.action !== 'approve') {
+            return res.status(400).json({ error: 'Ce lien n\'est pas un lien de validation.' });
+        }
+        const updated = await approveRequest(req.prisma, {
+            entityType: payload.entityType,
+            entityId: payload.entityId,
+            tokenPayload: payload,
+        });
+        res.json({ success: true, status: updated.status });
+    } catch (error) {
+        res.status(error.statusCode || 400).json({ error: error.message || 'Lien invalide ou déjà utilisé.' });
+    }
+});
+
+router.post('/director-approval/reject', async (req, res) => {
+    try {
+        const { verifyApprovalToken, rejectRequest } = require('../services/directorApproval.service');
+        const payload = verifyApprovalToken(String(req.body?.token || req.query.token || ''));
+        if (payload.action && payload.action !== 'reject') {
+            return res.status(400).json({ error: 'Ce lien n\'est pas un lien de refus.' });
+        }
+        const updated = await rejectRequest(req.prisma, {
+            entityType: payload.entityType,
+            entityId: payload.entityId,
+            tokenPayload: payload,
+            reason: req.body?.reason || req.body?.rejectionReason,
+        });
+        res.json({ success: true, status: updated.status });
+    } catch (error) {
+        res.status(error.statusCode || 400).json({ error: error.message || 'Lien invalide ou déjà utilisé.' });
+    }
+});
+
 module.exports = router;
 

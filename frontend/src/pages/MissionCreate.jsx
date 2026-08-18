@@ -17,7 +17,7 @@ import dayjs from 'dayjs';
 import api from '../api/client';
 import { appDayjs, toUtcIso } from '../utils/datetime';
 import { useAuth } from '../context/AuthContext';
-import { isResponsable } from '../utils/roles';
+import { isResponsable, isAssistant } from '../utils/roles';
 import ResponsibleProjectField, { ResponsibleProjectBanner } from '../components/ResponsibleProjectField';
 import { applyDefaultProjectToForm, useResponsibleProjectScope } from '../hooks/useResponsibleProjectScope';
 
@@ -70,6 +70,12 @@ export default function MissionCreate() {
             applyDefaultProjectToForm(form, defaultProjectId);
         }
     }, [defaultProjectId, form]);
+
+    useEffect(() => {
+        if (isAssistant(user?.role) && user?.directionId) {
+            form.setFieldsValue({ directionId: user.directionId });
+        }
+    }, [user?.role, user?.directionId, form]);
 
     const handleSubmit = async (values) => {
         if (!canSubmit) {
@@ -168,13 +174,13 @@ export default function MissionCreate() {
                     <Form.Item name="description" label="Description">
                         <Input.TextArea rows={4} placeholder="Détails de la mission..." disabled={!canSubmit} />
                     </Form.Item>
-                    <Form.Item name="directionId" label="Direction (optionnel)">
+                    <Form.Item name="directionId" label={isAssistant(user?.role) ? 'Direction' : 'Direction (optionnel)'}>
                         <Select
-                            allowClear
+                            allowClear={!isAssistant(user?.role)}
                             placeholder="Choisir une direction"
                             options={directions.map((d) => ({ value: d.id, label: d.code ? `${d.name} (${d.code})` : d.name }))}
                             size="large"
-                            disabled={!canSubmit}
+                            disabled={!canSubmit || isAssistant(user?.role)}
                         />
                     </Form.Item>
                     <ResponsibleProjectField

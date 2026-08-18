@@ -1,4 +1,6 @@
 const { publishedMeetingStatusFilter } = require('../config/meetingVisibility');
+const { publishedMissionStatusFilter } = require('../config/missionVisibility');
+const { ROLES } = require('../config/roles');
 const { getOwnedResponsibleProjects } = require('./projectResponsible.service');
 const { utcMondayOfWeek } = require('../utils/dateUtc');
 
@@ -95,10 +97,21 @@ async function resolvePlanningProjects(prisma, planning) {
     return fromUser?.id ? [fromUser] : [];
 }
 
+function isDirectionStaffUser(user) {
+    const role = user?.role;
+    return Boolean(user?.directionId && (role === ROLES.DG || role === ROLES.ASSISTANT));
+}
+
 async function fetchWeekMeetings(prisma, planning, responsibleProjects, weekStart, weekEnd) {
     const projectIds = (responsibleProjects || []).map((p) => p.id).filter(Boolean);
-    const or = [{ organizerId: planning.userId }];
+    const or = [
+        { organizerId: planning.userId },
+        { invitations: { some: { userId: planning.userId } } },
+    ];
     if (projectIds.length) or.push({ projectId: { in: projectIds } });
+    if (isDirectionStaffUser(planning.user)) {
+        or.push({ directionId: planning.user.directionId });
+    }
 
     return prisma.meeting.findMany({
         where: {
@@ -119,10 +132,13 @@ async function fetchWeekMissions(prisma, planning, responsibleProjects, weekStar
         { assignments: { some: { userId: planning.userId } } },
     ];
     if (projectIds.length) or.push({ projectId: { in: projectIds } });
+    if (isDirectionStaffUser(planning.user)) {
+        or.push({ directionId: planning.user.directionId });
+    }
 
     return prisma.mission.findMany({
         where: {
-            status: 'CONFIRMED',
+            ...publishedMissionStatusFilter(),
             OR: or,
             startTime: { lt: weekEnd },
             endTime: { gt: weekStart },
@@ -137,6 +153,19 @@ async function fetchWeekMissions(prisma, planning, responsibleProjects, weekStar
  */
 async function buildPlanningAggregation(prisma, planning, manualEvents = []) {
     const { start: weekStart, end: weekEnd } = weekBounds(planning.weekStart);
+    if (!planning.user?.role || planning.user?.directionId === undefined) {
+        planning.user = await prisma.user.findUnique({
+            where: { id: planning.userId },
+            select: {
+                id: true,
+                name: true,
+                role: true,
+                directionId: true,
+                projectId: true,
+                project: { select: { id: true, name: true, code: true } },
+            },
+        });
+    }
     const responsibleProjects = await resolvePlanningProjects(prisma, planning);
     const project = responsibleProjects[0] || planning.user?.project || null;
 
@@ -227,6 +256,23 @@ async function ensureWeekPlanningsForResponsibles(prisma, weekStart) {
     );
 }
 
+/** Assure un planning pour les DG et Assistants (affichage des demandes validées). */
+async function ensureWeekPlanningsForDirectionStaff(prisma, weekStart) {
+    const monday = utcMondayOfWeek(weekStart);
+    const staff = await prisma.user.findMany({
+        where: {
+            isDeleted: false,
+            isActive: true,
+            OR: [
+                { role: { in: [ROLES.ASSISTANT, ROLES.DG] } },
+                { directedDirection: { isNot: null } },
+            ],
+        },
+        select: { id: true },
+    });
+    await Promise.all(staff.map((u) => ensurePlanningForResponsible(prisma, u.id, monday)));
+}
+
 module.exports = {
     weekBounds,
     buildPlanningAggregation,
@@ -234,6 +280,7 @@ module.exports = {
     enrichPlanningsWithAggregation,
     ensurePlanningForResponsible,
     ensureWeekPlanningsForResponsibles,
+    ensureWeekPlanningsForDirectionStaff,
     mapMeetingToAggregatedEvent,
     mapMissionToAggregatedEvent,
     mapPlanningEventToAggregatedEvent,

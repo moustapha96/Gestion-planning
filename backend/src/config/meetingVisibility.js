@@ -12,10 +12,10 @@ const {
 } = require('../services/validationPolicy.service');
 
 /** Réunions visibles hors calendrier (listes, salles, disponibilités). */
-const PUBLISHED_MEETING_STATUSES = ['SENT', 'CONFIRMED', 'COMPLETED'];
+const PUBLISHED_MEETING_STATUSES = ['SENT', 'CONFIRMED', 'COMPLETED', 'APPROVED', 'AUTO_APPROVED'];
 
 /** Réunions entièrement validées — seules autorisées sur le calendrier. */
-const CALENDAR_MEETING_STATUSES = ['CONFIRMED', 'COMPLETED'];
+const CALENDAR_MEETING_STATUSES = ['CONFIRMED', 'COMPLETED', 'APPROVED', 'AUTO_APPROVED'];
 
 function isPublishedMeetingStatus(status) {
     return PUBLISHED_MEETING_STATUSES.includes(status);
@@ -101,15 +101,22 @@ function responsableMeetingScope(user) {
     return { organizerId: user.id };
 }
 
-/** Réunions « personnelles » d'un utilisateur : organisateur ou invité. */
+function isDirectionViewer(user) {
+    const role = user?.role;
+    return Boolean(user?.directionId && (role === ROLES.DG || role === ROLES.ASSISTANT));
+}
+
+/** Réunions visibles : personnelles, plus toute la direction pour DG / Assistant. */
 function ownMeetingScope(user) {
     if (!user?.id) return null;
-    return {
-        OR: [
-            { organizerId: user.id },
-            { invitations: { some: { userId: user.id } } },
-        ],
-    };
+    const or = [
+        { organizerId: user.id },
+        { invitations: { some: { userId: user.id } } },
+    ];
+    if (isDirectionViewer(user)) {
+        or.push({ directionId: user.directionId });
+    }
+    return { OR: or };
 }
 
 function meetingCalendarWhereForUser(_user) {
@@ -124,6 +131,12 @@ function meetingCalendarWhereForUser(_user) {
 function meetingListWhereForUser(user) {
     if (isPrivilegedAdmin(user?.role)) {
         return { status: { not: 'CANCELLED' } };
+    }
+    if (isDirectionViewer(user)) {
+        return {
+            status: { not: 'CANCELLED' },
+            ...ownMeetingScope(user),
+        };
     }
     return ownMeetingScope(user) || { organizerId: '__none__' };
 }
@@ -173,12 +186,21 @@ function canManageMeeting(meeting, user) {
 
 function canEditMeeting(meeting, user) {
     if (!canManageMeeting(meeting, user)) return false;
+    if (user?.role === ROLES.ASSISTANT && meeting.organizerId === user.id) {
+        return meeting.status === 'PENDING_DIRECTOR_APPROVAL';
+    }
     return meeting.status !== 'CANCELLED' && meeting.status !== 'COMPLETED';
 }
 
 function canViewMeetingForUser(meeting, user) {
     if (!meeting || !user?.id) return false;
     if (isPrivilegedAdmin(user.role)) return true;
+    if (
+        isDirectionViewer(user)
+        && meeting.directionId === user.directionId
+    ) {
+        return true;
+    }
     if (
         meeting.status === 'DRAFT'
         && meeting.project?.coordinatorId === user.id
@@ -222,4 +244,5 @@ module.exports = {
     canViewMeetingForUser,
     responsableMeetingScope,
     ownMeetingScope,
+    isDirectionViewer,
 };

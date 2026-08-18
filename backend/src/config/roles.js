@@ -2,6 +2,8 @@ const ROLES = {
     RESPONSABLE: 'RESPONSABLE',
     COORDINATEUR: 'COORDINATEUR',
     CONSOLIDATEUR: 'CONSOLIDATEUR',
+    DG: 'DG',
+    ASSISTANT: 'ASSISTANT',
     ADMIN: 'ADMIN',
     SUPER_ADMIN: 'SUPER_ADMIN',
 };
@@ -10,7 +12,6 @@ const ROLES = {
 const LEGACY_ROLE_MAP = {
     COORDINATEUR_PROJET: ROLES.COORDINATEUR,
     SECRETAIRE_GENERAL: ROLES.ADMIN,
-    DG: ROLES.ADMIN,
 };
 
 const ALL_ROLES = [...Object.values(ROLES), ...Object.keys(LEGACY_ROLE_MAP)];
@@ -25,6 +26,8 @@ const REPERTOIRE_VIEW_ROLES = [
     ROLES.COORDINATEUR,
     ROLES.CONSOLIDATEUR,
     ROLES.RESPONSABLE,
+    ROLES.DG,
+    ROLES.ASSISTANT,
 ];
 
 /** Répertoire : édition. */
@@ -104,9 +107,26 @@ function isCoordinateur(role) {
     return normalizeStoredRole(role) === ROLES.COORDINATEUR;
 }
 
+function isDirector(role) {
+    return normalizeStoredRole(role) === ROLES.DG;
+}
+
+function isAssistant(role) {
+    return normalizeStoredRole(role) === ROLES.ASSISTANT;
+}
+
 function missionScopeWhere(user) {
     if (canViewAllMissions(user?.role)) return {};
     const userId = user?.id;
+    if ((isDirector(user?.role) || isAssistant(user?.role)) && user?.directionId) {
+        return {
+            OR: [
+                { createdById: userId },
+                { assignments: { some: { userId } } },
+                { directionId: user.directionId },
+            ],
+        };
+    }
     if (isResponsable(user?.role)) {
         return { createdById: userId };
     }
@@ -151,6 +171,8 @@ module.exports = {
     canViewAllPlannings,
     isResponsable,
     isCoordinateur,
+    isDirector,
+    isAssistant,
     missionScopeWhere,
     planningScopeWhere,
     canViewMission,
