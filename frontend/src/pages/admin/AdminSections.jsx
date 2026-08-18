@@ -26,6 +26,7 @@ import {
     ROLES,
 } from '../../utils/roles';
 import { parseEmailConflictError } from '../../utils/emailConflict';
+import UserDirectionFormItem from '../../components/UserDirectionFormItem';
 
 const { Title, Text, Paragraph } = Typography;
 export const ROLE_COLORS = {
@@ -62,7 +63,7 @@ function displayRoleLabel(role) {
 // ONGLET UTILISATEURS
 // ════════════════════════════════════════════════════════════════════
 export function UsersTab() {
-    const { user: currentUser } = useAuth();
+    const { user: currentUser, refreshSessionUser } = useAuth();
     const { message } = App.useApp();
     const screens = Grid.useBreakpoint();
     const isMobile = !screens.md;
@@ -211,17 +212,21 @@ export function UsersTab() {
         setEditLoading(true);
         try {
             const values = await editForm.validateFields();
-            await api.put(`/users/${editModal.user.id}`, {
+            const editedId = editModal.user.id;
+            await api.put(`/users/${editedId}`, {
                 name: values.name,
                 email: values.email,
                 role: values.role,
                 directionId: values.directionId || null,
                 projectId: values.projectId || null,
             });
-            message.success('Utilisateur modifié');
+            message.success('Utilisateur modifié — le nouveau rôle est actif immédiatement');
             setEditModal({ open: false, user: null });
             editForm.resetFields();
             fetchUsers();
+            if (editedId === currentUser?.id) {
+                await refreshSessionUser?.().catch(() => {});
+            }
         } catch (err) {
             if (err.errorFields) return;
             const conflict = parseEmailConflictError(err);
@@ -599,16 +604,7 @@ export function UsersTab() {
                     <Form.Item name="email" label="Email" rules={[{ required: true, type: 'email' }]}>
                         <Input />
                     </Form.Item>
-                    <Form.Item name="directionId" label="Direction (canal équipe)">
-                        <Select
-                            allowClear
-                            placeholder="Aucune direction"
-                            options={directions.map((d) => ({
-                                value: d.id,
-                                label: d.code ? `${d.name} (${d.code})` : d.name,
-                            }))}
-                        />
-                    </Form.Item>
+                    <UserDirectionFormItem directions={directions} label="Direction (canal équipe)" />
                     <Form.Item
                         name="projectId"
                         label="Projet (canal équipe)"
@@ -659,16 +655,7 @@ export function UsersTab() {
                     <Form.Item name="role" label="Rôle" rules={[{ required: true }]}>
                         <Select options={USER_ROLE_OPTIONS} />
                     </Form.Item>
-                    <Form.Item name="directionId" label="Direction (canal équipe)">
-                        <Select
-                            allowClear
-                            placeholder="Aucune direction"
-                            options={directions.map((d) => ({
-                                value: d.id,
-                                label: d.code ? `${d.name} (${d.code})` : d.name,
-                            }))}
-                        />
-                    </Form.Item>
+                    <UserDirectionFormItem directions={directions} label="Direction (canal équipe)" />
                     <Form.Item
                         name="projectId"
                         label="Projet (canal équipe)"

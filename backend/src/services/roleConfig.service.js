@@ -1,4 +1,4 @@
-const { ROLES, isSuperAdmin, normalizeStoredRole } = require('../config/roles');
+const { ROLES, normalizeStoredRole } = require('../config/roles');
 
 const APP_SETTING_ADMIN_DIRECTION = 'role_config.admin_direction_id';
 const APP_SETTING_ADMIN_JOB_PATTERNS = 'role_config.admin_job_patterns';
@@ -200,16 +200,39 @@ function userMayActAsServiceDirector(user) {
 }
 
 /**
+ * Rôles attribués explicitement : jamais écrasés par l'élévation "intitulé de poste".
+ * L'élévation ADMIN ne s'applique qu'au rôle RESPONSABLE (ex. SG de la Direction générale).
+ */
+const EXPLICIT_ROLES = [
+    ROLES.SUPER_ADMIN,
+    ROLES.ADMIN,
+    ROLES.DG,
+    ROLES.ASSISTANT,
+    ROLES.COORDINATEUR,
+    ROLES.CONSOLIDATEUR,
+];
+
+/**
+ * Rôle effectif à partir du rôle stocké + capacité d'élévation ADMIN.
+ */
+function computeEffectiveRole(storedRole, elevatedAdmin = false) {
+    const stored = normalizeStoredRole(storedRole);
+    if (stored === ROLES.SUPER_ADMIN) return ROLES.SUPER_ADMIN;
+    if (EXPLICIT_ROLES.includes(stored)) return stored;
+    if (elevatedAdmin) return ROLES.ADMIN;
+    return stored;
+}
+
+/**
  * Rôle effectif pour les contrôles d'accès (élévation SG/DG de la Direction générale).
  */
 async function resolveEffectiveRole(prisma, user) {
     const stored = normalizeStoredRole(user?.role);
-    if (stored === ROLES.SUPER_ADMIN) return ROLES.SUPER_ADMIN;
-    if (stored === ROLES.ADMIN) return ROLES.ADMIN;
-    if (stored === ROLES.DG || stored === ROLES.ASSISTANT) return stored;
+    if (stored === ROLES.SUPER_ADMIN || EXPLICIT_ROLES.includes(stored)) {
+        return computeEffectiveRole(stored, false);
+    }
     const caps = await resolveUserFunctionalCapabilities(prisma, user);
-    if (caps.elevatedAdmin) return ROLES.ADMIN;
-    return stored;
+    return computeEffectiveRole(stored, caps.elevatedAdmin);
 }
 
 async function enrichReqUser(prisma, jwtPayload) {
@@ -233,9 +256,7 @@ async function enrichReqUser(prisma, jwtPayload) {
         throw err;
     }
     const functionalCapabilities = await resolveUserFunctionalCapabilities(prisma, dbUser);
-    const effectiveRole = functionalCapabilities.elevatedAdmin && normalizeStoredRole(dbUser.role) !== ROLES.SUPER_ADMIN
-        ? ROLES.ADMIN
-        : normalizeStoredRole(dbUser.role);
+    const effectiveRole = computeEffectiveRole(dbUser.role, functionalCapabilities.elevatedAdmin);
     return {
         ...jwtPayload,
         name: dbUser.name,
@@ -372,6 +393,7 @@ module.exports = {
     setAdminElevationConfig,
     getFunctionalElevationsConfig,
     setFunctionalElevationsConfig,
+    computeEffectiveRole,
     resolveEffectiveRole,
     resolveUserFunctionalCapabilities,
     enrichReqUser,

@@ -549,7 +549,7 @@ router.put('/:id', roleMiddleware(ADMIN_ROUTE_ROLES), async (req, res) => {
         }
 
         // Si le rôle a changé : email + notification in-app à l'utilisateur concerné
-        if (role && previousRole !== role && updated.isActive) {
+        if (storedRole && nextStoredRole !== previousStoredRole && updated.isActive) {
             const newRoleLabel = ROLE_LABELS[updated.role] || updated.role;
             const previousRoleLabel = ROLE_LABELS[previousRole] || previousRole;
             try {

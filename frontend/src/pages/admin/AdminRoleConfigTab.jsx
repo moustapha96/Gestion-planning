@@ -11,6 +11,8 @@ const ROLE_LABELS_UI = {
     [ROLES.RESPONSABLE]: 'Responsable',
     [ROLES.COORDINATEUR]: 'Coordinateur',
     [ROLES.CONSOLIDATEUR]: 'Consolidateur',
+    [ROLES.DG]: 'Directeur général',
+    [ROLES.ASSISTANT]: 'Assistant',
     [ROLES.ADMIN]: 'Administrateur',
 };
 

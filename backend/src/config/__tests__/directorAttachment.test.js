@@ -102,4 +102,8 @@ describe('isEligibleDirectionDirector', () => {
         assert.equal(directorRoleToKeep({ role: 'SUPER_ADMIN' }), 'SUPER_ADMIN');
         assert.equal(directorRoleToKeep({ role: 'RESPONSABLE', jobTitle: 'Directeur' }), 'DG');
     });
+
+    it('accepte un Responsable promu DG (rôle cible, pas le rôle actuel)', () => {
+        assert.equal(isEligibleDirectionDirector({ role: 'DG', jobTitle: 'Chargé de mission' }), true);
+    });
 });

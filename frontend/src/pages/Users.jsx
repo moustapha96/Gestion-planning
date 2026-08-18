@@ -23,6 +23,7 @@ import api from '../api/client';
 import { useAuth } from '../context/AuthContext';
 import { isPrivilegedAdmin, ROLES, ROLE_COLORS, roleLabel, normalizeRole } from '../utils/roles';
 import { parseEmailConflictError } from '../utils/emailConflict';
+import UserDirectionFormItem from '../components/UserDirectionFormItem';
 
 const { Title, Text } = Typography;
 
@@ -38,7 +39,7 @@ const USER_ROLE_OPTIONS = [
 
 export default function Users() {
     const navigate = useNavigate();
-    const { user: currentUser } = useAuth();
+    const { user: currentUser, refreshSessionUser } = useAuth();
     const { message } = App.useApp();
     const [users, setUsers] = useState([]);
     const [loading, setLoading] = useState(true);
@@ -144,10 +145,13 @@ export default function Users() {
                 cellUnit: values.cellUnit,
                 phone: values.phone,
             });
-            message.success('Utilisateur modifié');
+            message.success('Utilisateur modifié — le nouveau rôle est actif immédiatement');
             setEditModal({ open: false, user: null });
             editForm.resetFields();
             fetchUsers();
+            if (u.id === currentUser?.id) {
+                await refreshSessionUser?.().catch(() => {});
+            }
         } catch (err) {
             if (err.errorFields) return;
             const conflict = parseEmailConflictError(err);
@@ -459,15 +463,7 @@ export default function Users() {
                     </Form.Item>
                     <Row gutter={16}>
                         <Col xs={24} sm={12}>
-                            <Form.Item name="directionId" label="Direction">
-                                <Select allowClear placeholder="Choisir une direction" showSearch optionFilterProp="children">
-                                    {directions.map((d) => (
-                                        <Select.Option key={d.id} value={d.id}>
-                                            {d.name}{d.code ? ` (${d.code})` : ''}
-                                        </Select.Option>
-                                    ))}
-                                </Select>
-                            </Form.Item>
+                            <UserDirectionFormItem directions={directions} />
                         </Col>
                         <Col xs={24} sm={12}>
                             <Form.Item
@@ -540,15 +536,7 @@ export default function Users() {
                     </Form.Item>
                     <Row gutter={16}>
                         <Col xs={24} sm={12}>
-                            <Form.Item name="directionId" label="Direction">
-                                <Select allowClear placeholder="Choisir une direction" showSearch optionFilterProp="children">
-                                    {directions.map((d) => (
-                                        <Select.Option key={d.id} value={d.id}>
-                                            {d.name}{d.code ? ` (${d.code})` : ''}
-                                        </Select.Option>
-                                    ))}
-                                </Select>
-                            </Form.Item>
+                            <UserDirectionFormItem directions={directions} />
                         </Col>
                         <Col xs={24} sm={12}>
                             <Form.Item

@@ -87,8 +87,14 @@ async function assertCanAttach(prisma, userId, targetDirectionId, targetRole, op
     if (!direction) {
         throw attachmentError('Direction introuvable.', 404, 'DIRECTION_NOT_FOUND');
     }
+    const roleForEligibility = opts.pendingRole || user.role;
+    const userForCheck = {
+        ...user,
+        role: roleForEligibility,
+        directionId: opts.ignoreCurrentDirection ? null : user.directionId,
+    };
     const check = assertExclusiveAttachment(
-        user,
+        userForCheck,
         targetDirectionId,
         targetRole,
         { currentDirectorId: direction.directorId, replaceExisting: Boolean(opts.replaceExisting) },
@@ -96,7 +102,7 @@ async function assertCanAttach(prisma, userId, targetDirectionId, targetRole, op
     if (!check.ok) {
         throw attachmentError(check.error, 409, check.code);
     }
-    if (targetRole === ROLES.DG && !isEligibleDirectionDirector(user)) {
+    if (targetRole === ROLES.DG && !isEligibleDirectionDirector({ ...user, role: roleForEligibility })) {
         throw attachmentError(ATTACHMENT_ERRORS.INVALID_DIRECTOR_ROLE, 400, 'INVALID_DIRECTOR_ROLE');
     }
     return { user, direction };
@@ -121,7 +127,6 @@ async function applyDirectionRoleSideEffects(prisma, {
     nextDirectionId,
     replaceExisting = false,
 }) {
-    const prevExclusive = isDirectionExclusiveRole(previousRole);
     const nextExclusive = isDirectionExclusiveRole(nextRole);
 
     if (nextExclusive && !nextDirectionId) {
@@ -129,9 +134,11 @@ async function applyDirectionRoleSideEffects(prisma, {
     }
 
     if (nextExclusive && nextDirectionId) {
-        await assertCanAttach(prisma, userId, nextDirectionId, nextRole, { replaceExisting: replaceExisting || (
-            prevExclusive && previousDirectionId === nextDirectionId
-        ) });
+        await assertCanAttach(prisma, userId, nextDirectionId, nextRole, {
+            replaceExisting,
+            pendingRole: nextRole,
+            ignoreCurrentDirection: previousDirectionId !== nextDirectionId,
+        });
     }
 
     if (previousRole === ROLES.DG && (nextRole !== ROLES.DG || previousDirectionId !== nextDirectionId)) {

@@ -376,7 +376,10 @@ router.post('/refresh', async (req, res) => {
             { expiresIn: process.env.JWT_EXPIRY || '15m' }
         );
 
-        res.json({ accessToken });
+        res.json({
+            accessToken,
+            user: await buildAuthClientUser(req.prisma, user),
+        });
     } catch (err) {
         if (err.name === 'TokenExpiredError') {
             return res.status(401).json({ error: 'Refresh token expiré' });

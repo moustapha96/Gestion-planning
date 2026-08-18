@@ -198,6 +198,12 @@ export function isAssistant(role) {
     return normalizeRole(role) === ROLES.ASSISTANT;
 }
 
+/** DG et Assistant doivent toujours être rattachés à une direction. */
+export function roleRequiresDirection(role) {
+    const r = normalizeRole(role);
+    return r === ROLES.DG || r === ROLES.ASSISTANT;
+}
+
 export function canCreateMission(role) {
     return isResponsable(role) || isAssistant(role) || isPrivilegedAdmin(role);
 }

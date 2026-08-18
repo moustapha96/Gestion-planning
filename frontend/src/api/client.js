@@ -71,6 +71,11 @@ api.interceptors.response.use(
                 localStorage.setItem('accessToken', newToken);
                 api.defaults.headers.Authorization = `Bearer ${newToken}`;
                 originalRequest.headers.Authorization = `Bearer ${newToken}`;
+                const nextUser = response.data?.user;
+                if (nextUser?.id) {
+                    localStorage.setItem('user', JSON.stringify(nextUser));
+                    window.dispatchEvent(new CustomEvent('auth-session-updated', { detail: { user: nextUser } }));
+                }
                 refreshPromise = null;
                 return api(originalRequest);
             }
