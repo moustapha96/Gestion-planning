@@ -452,6 +452,38 @@ router.post('/directions/logo', uploadDirectionLogo.single('logo'), async (req, 
     }
 });
 
+/** Candidats DG / Assistant — déclaré avant /directions/:id pour éviter un 404. */
+router.get('/staff-candidates', async (req, res) => {
+    try {
+        if (!canManageDirections(req.user?.role)) {
+            return res.status(403).json({ error: 'Accès réservé à l\'administration.' });
+        }
+        const users = await req.prisma.user.findMany({
+            where: {
+                isDeleted: false,
+                isActive: true,
+                role: { in: [ROLES.DG, ROLES.ASSISTANT] },
+            },
+            select: {
+                id: true,
+                name: true,
+                email: true,
+                role: true,
+                jobTitle: true,
+                directionId: true,
+                direction: { select: { id: true, name: true } },
+            },
+            orderBy: { name: 'asc' },
+        });
+        res.json({
+            directors: users.filter((u) => u.role === ROLES.DG),
+            assistants: users.filter((u) => u.role === ROLES.ASSISTANT),
+        });
+    } catch (error) {
+        res.status(400).json({ error: error.message });
+    }
+});
+
 router.get('/directions/:id', async (req, res) => {
     try {
         if (!canManageDirections(req.user?.role)) {

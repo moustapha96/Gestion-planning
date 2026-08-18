@@ -1,8 +1,9 @@
 import { useEffect, useState } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
-import { Card, Form, Input, Button, Switch, App, Space, Upload, Typography } from 'antd';
+import { Card, Form, Input, Button, Switch, App, Space, Upload, Typography, Spin } from 'antd';
 import { ArrowLeftOutlined, SaveOutlined, UploadOutlined } from '@ant-design/icons';
 import api from '../../api/client';
+import DirectionStaffAssign from './DirectionStaffAssign';
 
 const { Text } = Typography;
 
@@ -30,13 +31,20 @@ export default function DirectionEditPage() {
     const [loading, setLoading] = useState(true);
     const [saving, setSaving] = useState(false);
     const [logoUploading, setLogoUploading] = useState(false);
+    const [direction, setDirection] = useState(null);
     const logoUrl = Form.useWatch('logoUrl', form);
+
+    const loadDirection = async () => {
+        const { data } = await api.get(`/events/directions/${id}`);
+        setDirection(data || null);
+        return data;
+    };
 
     useEffect(() => {
         let active = true;
         (async () => {
             try {
-                const { data } = await api.get(`/events/directions/${id}`);
+                const data = await loadDirection();
                 if (!active || !data) return;
                 form.setFieldsValue({
                     name: data.name || '',
@@ -145,6 +153,13 @@ export default function DirectionEditPage() {
                     </Space>
                 </Form>
             </Card>
+            {loading ? (
+                <div style={{ textAlign: 'center', padding: 32 }}><Spin /></div>
+            ) : (
+                <div style={{ marginTop: 16 }}>
+                    <DirectionStaffAssign directionId={id} direction={direction} onChanged={loadDirection} />
+                </div>
+            )}
         </div>
     );
 }

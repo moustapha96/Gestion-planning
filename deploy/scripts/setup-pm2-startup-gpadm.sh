@@ -1,7 +1,8 @@
 #!/usr/bin/env bash
 #
-# Configure (ou répare) le démarrage automatique de PM2 au boot pour le
-# backend GPADM. Idempotent : peut être relancé sans risque.
+# Réinitialise complètement PM2 pour gpadm (kill + purge ~/.pm2) et
+# reconfigure le démarrage automatique au boot pour le backend GPADM.
+# Idempotent : peut être relancé sans risque.
 #
 # Corrige les pièges rencontrés en prod :
 #   - mauvais --hp (l'unité pointait vers /home/gpadm alors que le vrai
@@ -9,7 +10,9 @@
 #   - ~/.pm2 appartenant à root après une commande pm2 lancée par erreur
 #     en tant que root (EACCES sur pm2.log / rpc.sock / pub.sock) ;
 #   - unité systemd modifiée sur disque mais jamais rechargée
-#     (`systemctl daemon-reload` oublié ou mal tapé).
+#     (`systemctl daemon-reload` oublié ou mal tapé) ;
+#   - démarrage de server.js en direct, qui ignore NODE_ENV/TZ/logs
+#     définis dans deploy/pm2/ecosystem.config.cjs.
 #
 # Usage (en root, sur la VM) :
 #   cd /var/www/gpadm
@@ -47,15 +50,20 @@ if [[ -f "$UNIT_FILE" ]]; then
     systemctl reset-failed "$UNIT_NAME" 2>/dev/null || true
 fi
 
-# 2) ~/.pm2 doit appartenir à gpadm (cause n°1 des échecs EACCES observés
-#    quand une commande pm2 a été lancée par erreur en root).
+# 2) Réinitialiser complètement PM2 pour gpadm : tue le daemon et purge
+#    ~/.pm2 (évite tout état/permissions corrompus par un lancement
+#    précédent en root — cause n°1 des échecs EACCES observés).
+log "Purge de l'état PM2 existant"
+su - "$GPADM_USER" -c "pm2 kill" 2>/dev/null || true
+rm -rf "$PM2_HOME"
 mkdir -p "$PM2_HOME"
 chown -R "$GPADM_USER:$GPADM_USER" "$PM2_HOME"
 
-# 3) S'assurer que le backend tourne sous le démon PM2 de gpadm avant de
-#    figer l'état avec `pm2 save` (sinon l'unité redémarrera un process vide).
-log "Vérification du process PM2 (en tant que $GPADM_USER)"
-su - "$GPADM_USER" -c "cd '$GPADM_ROOT/backend' && (pm2 describe '$PM2_APP_NAME' &>/dev/null || pm2 start ecosystem.config.cjs) && pm2 save"
+# 3) Démarrer le backend depuis zéro via l'ecosystem (conserve NODE_ENV,
+#    TZ, fichiers de logs, max_memory_restart — ne pas lancer server.js
+#    en direct, sinon deploy/pm2/ecosystem.config.cjs est ignoré).
+log "Démarrage du backend (en tant que $GPADM_USER, app: $PM2_APP_NAME)"
+su - "$GPADM_USER" -c "cd '$GPADM_ROOT/backend' && PM2_APP_NAME='$PM2_APP_NAME' pm2 start ecosystem.config.cjs && pm2 save"
 
 # 4) Générer l'unité systemd avec le --hp correct, puis l'installer.
 log "Génération de l'unité systemd (pm2 startup)"
