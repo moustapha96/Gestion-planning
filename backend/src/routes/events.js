@@ -452,32 +452,59 @@ router.post('/directions/logo', uploadDirectionLogo.single('logo'), async (req, 
     }
 });
 
-/** Candidats DG / Assistant — déclaré avant /directions/:id pour éviter un 404. */
+/** Candidats DG / Assistant — déclaré avant /directions/:id pour éviter un 404.
+ *  ?directionId=… : pour Assistant, inclut tous les membres actifs de la direction
+ *  (quel que soit le rôle) afin de pouvoir les promouvoir Assistant.
+ */
 router.get('/staff-candidates', async (req, res) => {
     try {
         if (!canManageDirections(req.user?.role)) {
             return res.status(403).json({ error: 'Accès réservé à l\'administration.' });
         }
-        const users = await req.prisma.user.findMany({
+        const directionId = String(req.query?.directionId || '').trim() || null;
+        const userSelect = {
+            id: true,
+            name: true,
+            email: true,
+            role: true,
+            jobTitle: true,
+            directionId: true,
+            direction: { select: { id: true, name: true } },
+        };
+
+        const rolePool = await req.prisma.user.findMany({
             where: {
                 isDeleted: false,
                 isActive: true,
                 role: { in: [ROLES.DG, ROLES.ASSISTANT] },
             },
-            select: {
-                id: true,
-                name: true,
-                email: true,
-                role: true,
-                jobTitle: true,
-                directionId: true,
-                direction: { select: { id: true, name: true } },
-            },
+            select: userSelect,
             orderBy: { name: 'asc' },
         });
+
+        let assistants = rolePool.filter((u) => u.role === ROLES.ASSISTANT);
+        if (directionId) {
+            const members = await req.prisma.user.findMany({
+                where: {
+                    isDeleted: false,
+                    isActive: true,
+                    directionId,
+                    role: { not: ROLES.SUPER_ADMIN },
+                },
+                select: userSelect,
+                orderBy: { name: 'asc' },
+            });
+            const byId = new Map();
+            for (const u of [...assistants, ...members]) {
+                byId.set(u.id, u);
+            }
+            assistants = [...byId.values()].sort((a, b) => String(a.name || '').localeCompare(String(b.name || ''), 'fr'));
+        }
+
         res.json({
-            directors: users.filter((u) => u.role === ROLES.DG),
-            assistants: users.filter((u) => u.role === ROLES.ASSISTANT),
+            directors: rolePool.filter((u) => u.role === ROLES.DG),
+            assistants,
+            directionId,
         });
     } catch (error) {
         res.status(400).json({ error: error.message });
@@ -815,7 +842,9 @@ router.post('/directions/:id/assistants', async (req, res) => {
                 action: result.action,
                 entity: 'Direction',
                 entityId: req.params.id,
-                details: `Assistant ${userId} affecté`,
+                details: result.previousRole && result.previousRole !== 'ASSISTANT'
+                    ? `Assistant ${userId} promu (ancien rôle ${result.previousRole})`
+                    : `Assistant ${userId} affecté`,
             },
         });
         await syncDirectionDiscussionMembers(req.prisma, req.params.id);

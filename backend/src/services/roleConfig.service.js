@@ -338,9 +338,10 @@ async function validateUserRoleForDirection(prisma, role, directionId, jobTitle)
     if (!ASSIGNABLE_ROLES.includes(normalized) && normalized !== ROLES.SUPER_ADMIN) {
         return { ok: false, error: 'Rôle invalide.' };
     }
-    if ((normalized === ROLES.DG || normalized === ROLES.ASSISTANT) && !directionId) {
-        return { ok: false, error: 'Un utilisateur DG ou ASSISTANT doit être rattaché à une direction.' };
+    if (normalized === ROLES.ASSISTANT && !directionId) {
+        return { ok: false, error: 'Un utilisateur ASSISTANT doit être rattaché à une direction.' };
     }
+    // DG : la direction peut être affectée plus tard depuis la page Directions.
     if (normalized === ROLES.SUPER_ADMIN) return { ok: true };
     if (normalized === ROLES.ADMIN && directionId) {
         const elevations = await getFunctionalElevationsConfig(prisma);

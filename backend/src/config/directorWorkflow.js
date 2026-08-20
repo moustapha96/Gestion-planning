@@ -15,7 +15,7 @@ const ATTACHMENT_ERRORS = {
     ALREADY_ASSISTANT: 'Cet utilisateur est déjà Assistant d\'une autre direction. Un Assistant ne peut appartenir qu\'à une seule direction.',
     CROSS_ROLE: 'Cet utilisateur possède déjà un rattachement DG ou ASSISTANT sur une autre direction. Modifiez d\'abord son rattachement actuel.',
     DIRECTION_HAS_DG: 'Cette direction a déjà un DG. Remplacez-le explicitement avant d\'en affecter un autre.',
-    DIRECTION_REQUIRED: 'Un utilisateur DG ou ASSISTANT doit être rattaché à une direction.',
+    DIRECTION_REQUIRED: 'Un utilisateur ASSISTANT doit être rattaché à une direction.',
     NOT_DG_OF_DIRECTION: 'Vous n\'êtes pas le DG de la direction concernée.',
     CANNOT_SELF_APPROVE: 'Un Assistant ne peut pas valider sa propre demande.',
     ACCESS_DENIED: 'Accès refusé.',

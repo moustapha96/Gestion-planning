@@ -198,10 +198,9 @@ export function isAssistant(role) {
     return normalizeRole(role) === ROLES.ASSISTANT;
 }
 
-/** DG et Assistant doivent toujours être rattachés à une direction. */
+/** Assistant doit être rattaché à une direction. DG peut être créé sans direction puis affecté. */
 export function roleRequiresDirection(role) {
-    const r = normalizeRole(role);
-    return r === ROLES.DG || r === ROLES.ASSISTANT;
+    return normalizeRole(role) === ROLES.ASSISTANT;
 }
 
 export function canCreateMission(role) {

@@ -1,29 +1,41 @@
 import { Form, Select } from 'antd';
-import { roleRequiresDirection } from '../utils/roles';
+import { ROLES, roleRequiresDirection } from '../utils/roles';
 
 /**
- * Champ Direction : obligatoire dès que le rôle choisi est DG ou Assistant.
+ * Champ Direction :
+ * - obligatoire pour Assistant
+ * - optionnel pour DG (affectation possible ensuite sur la page Directions)
  */
 export default function UserDirectionFormItem({ directions = [], label = 'Direction' }) {
     return (
         <Form.Item noStyle shouldUpdate={(prev, cur) => prev.role !== cur.role}>
             {({ getFieldValue }) => {
-                const required = roleRequiresDirection(getFieldValue('role'));
+                const role = getFieldValue('role');
+                const required = roleRequiresDirection(role);
+                const isDg = role === ROLES.DG;
+                let extra;
+                if (required) {
+                    extra = 'Un Assistant doit être rattaché à une direction.';
+                } else if (isDg) {
+                    extra = 'Optionnel : vous pouvez laisser vide et affecter ce DG plus tard depuis la page Directions.';
+                }
                 return (
                     <Form.Item
                         name="directionId"
                         label={label}
                         rules={required ? [{
                             required: true,
-                            message: 'Une direction est obligatoire pour le rôle Directeur général ou Assistant.',
+                            message: 'Une direction est obligatoire pour le rôle Assistant.',
                         }] : []}
-                        extra={required
-                            ? 'Un DG ou un Assistant doit être rattaché à une seule direction. Le changement de rôle est alors enregistré immédiatement.'
-                            : undefined}
+                        extra={extra}
                     >
                         <Select
                             allowClear={!required}
-                            placeholder={required ? 'Choisir une direction (obligatoire)' : 'Aucune direction'}
+                            placeholder={required
+                                ? 'Choisir une direction (obligatoire)'
+                                : isDg
+                                    ? 'Aucune pour l’instant (affecter plus tard)'
+                                    : 'Aucune direction'}
                             showSearch
                             optionFilterProp="label"
                             options={directions.map((d) => ({

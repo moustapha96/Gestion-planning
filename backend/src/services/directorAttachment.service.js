@@ -87,14 +87,13 @@ async function assertCanAttach(prisma, userId, targetDirectionId, targetRole, op
     if (!direction) {
         throw attachmentError('Direction introuvable.', 404, 'DIRECTION_NOT_FOUND');
     }
-    const roleForEligibility = opts.pendingRole || user.role;
-    const userForCheck = {
+    // Unicité : toujours le rôle / direction actuels en base.
+    const userForExclusivity = {
         ...user,
-        role: roleForEligibility,
         directionId: opts.ignoreCurrentDirection ? null : user.directionId,
     };
     const check = assertExclusiveAttachment(
-        userForCheck,
+        userForExclusivity,
         targetDirectionId,
         targetRole,
         { currentDirectorId: direction.directorId, replaceExisting: Boolean(opts.replaceExisting) },
@@ -102,6 +101,8 @@ async function assertCanAttach(prisma, userId, targetDirectionId, targetRole, op
     if (!check.ok) {
         throw attachmentError(check.error, 409, check.code);
     }
+    // Éligibilité DG : tenir compte du rôle cible (promotion RESPONSABLE → DG).
+    const roleForEligibility = opts.pendingRole || user.role;
     if (targetRole === ROLES.DG && !isEligibleDirectionDirector({ ...user, role: roleForEligibility })) {
         throw attachmentError(ATTACHMENT_ERRORS.INVALID_DIRECTOR_ROLE, 400, 'INVALID_DIRECTOR_ROLE');
     }
@@ -129,8 +130,13 @@ async function applyDirectionRoleSideEffects(prisma, {
 }) {
     const nextExclusive = isDirectionExclusiveRole(nextRole);
 
-    if (nextExclusive && !nextDirectionId) {
-        throw attachmentError(ATTACHMENT_ERRORS.DIRECTION_REQUIRED, 400, 'DIRECTION_REQUIRED');
+    // Assistant : direction obligatoire. DG : peut rester sans direction (pool d'affectation).
+    if (nextRole === ROLES.ASSISTANT && !nextDirectionId) {
+        throw attachmentError(
+            'Un utilisateur ASSISTANT doit être rattaché à une direction.',
+            400,
+            'DIRECTION_REQUIRED',
+        );
     }
 
     if (nextExclusive && nextDirectionId) {
@@ -145,6 +151,11 @@ async function applyDirectionRoleSideEffects(prisma, {
         await clearDirectorSeat(prisma, userId);
     }
 
+    // Promu DG sans direction : libérer tout siège DG éventuel, sans rattachement.
+    if (nextRole === ROLES.DG && !nextDirectionId) {
+        await clearDirectorSeat(prisma, userId);
+    }
+
     if (nextRole === ROLES.DG && nextDirectionId) {
         const direction = await loadDirection(prisma, nextDirectionId);
         if (direction.directorId && direction.directorId !== userId && !replaceExisting) {
@@ -152,10 +163,11 @@ async function applyDirectionRoleSideEffects(prisma, {
         }
         if (direction.directorId && direction.directorId !== userId && replaceExisting) {
             const previous = direction.director;
+            // Ancien DG : garde le rôle, sans direction → redisponible.
             if (previous?.role === ROLES.DG) {
                 await prisma.user.update({
                     where: { id: direction.directorId },
-                    data: { role: ROLES.RESPONSABLE },
+                    data: { directionId: null },
                 });
             }
         }
@@ -169,7 +181,10 @@ async function applyDirectionRoleSideEffects(prisma, {
 }
 
 async function assignDirector(prisma, directionId, userId, { actorId, replaceExisting = false } = {}) {
-    const { user, direction } = await assertCanAttach(prisma, userId, directionId, ROLES.DG, { replaceExisting });
+    const { user, direction } = await assertCanAttach(prisma, userId, directionId, ROLES.DG, {
+        replaceExisting,
+        pendingRole: ROLES.DG,
+    });
 
     await prisma.$transaction(async (tx) => {
         if (user.role === ROLES.DG || user.directedDirection) {
@@ -182,10 +197,11 @@ async function assignDirector(prisma, directionId, userId, { actorId, replaceExi
             if (!replaceExisting) {
                 throw attachmentError(ATTACHMENT_ERRORS.DIRECTION_HAS_DG, 409, 'DIRECTION_HAS_DG');
             }
+            // L'ancien DG garde le rôle DG, sans direction → redisponible pour une autre affectation.
             if (direction.director?.role === ROLES.DG) {
                 await tx.user.update({
                     where: { id: direction.directorId },
-                    data: { role: ROLES.RESPONSABLE },
+                    data: { directionId: null },
                 });
             }
         }
@@ -219,10 +235,11 @@ async function removeDirector(prisma, directionId, { actorId } = {}) {
             data: { directorId: null },
         }),
     ];
+    // Conserve le rôle DG sans direction (pool d'affectation).
     if (direction.director?.role === ROLES.DG) {
         ops.push(prisma.user.update({
             where: { id: direction.directorId },
-            data: { role: ROLES.RESPONSABLE },
+            data: { directionId: null },
         }));
     }
     await prisma.$transaction(ops);
@@ -236,8 +253,20 @@ async function removeDirector(prisma, directionId, { actorId } = {}) {
 }
 
 async function assignAssistant(prisma, directionId, userId, { actorId, replaceExisting = false } = {}) {
-    await assertCanAttach(prisma, userId, directionId, ROLES.ASSISTANT, { replaceExisting });
+    const { user } = await assertCanAttach(prisma, userId, directionId, ROLES.ASSISTANT, {
+        replaceExisting,
+        pendingRole: ROLES.ASSISTANT,
+    });
 
+    if (user.role === ROLES.SUPER_ADMIN) {
+        throw attachmentError(
+            'Un super administrateur ne peut pas être promu Assistant. Changez d\'abord son rôle.',
+            400,
+            'INVALID_ASSISTANT_ROLE',
+        );
+    }
+
+    const previousRole = user.role;
     await prisma.$transaction(async (tx) => {
         await tx.direction.updateMany({
             where: { directorId: userId },
@@ -250,10 +279,11 @@ async function assignAssistant(prisma, directionId, userId, { actorId, replaceEx
     });
 
     return {
-        action: 'ASSISTANT_ASSIGNED',
+        action: previousRole === ROLES.ASSISTANT ? 'ASSISTANT_ASSIGNED' : 'ASSISTANT_PROMOTED',
         actorId,
         directionId,
         userId,
+        previousRole,
     };
 }
 
